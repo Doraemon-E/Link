@@ -143,7 +143,8 @@ struct HomeView: View {
                     viewModel.isLanguageSheetPresented = true
                 } label: {
                     HomeLanguageChip(
-                        title: viewModel.selectedLanguage.displayName,
+                        sourceTitle: HomeLanguage.chinese.displayName,
+                        targetTitle: viewModel.selectedLanguage.displayName,
                         style: .hero
                     )
                 }
@@ -212,14 +213,16 @@ struct HomeView: View {
             viewModel.isLanguageSheetPresented = true
         } label: {
             ViewThatFits(in: .horizontal) {
-                toolbarLanguagePickerLabel(
+                HomeLanguageChip(
                     sourceTitle: HomeLanguage.chinese.displayName,
-                    targetTitle: viewModel.selectedLanguage.displayName
+                    targetTitle: viewModel.selectedLanguage.displayName,
+                    style: .toolbar
                 )
 
-                toolbarLanguagePickerLabel(
+                HomeLanguageChip(
                     sourceTitle: "中",
-                    targetTitle: viewModel.selectedLanguage.displayName
+                    targetTitle: viewModel.selectedLanguage.displayName,
+                    style: .toolbar
                 )
 
                 toolbarLanguagePickerCompactLabel(title: viewModel.selectedLanguage.displayName)
@@ -238,37 +241,13 @@ struct HomeView: View {
         .accessibilityValue("\(HomeLanguage.chinese.displayName)到\(viewModel.selectedLanguage.displayName)")
     }
 
-    private func toolbarLanguagePickerLabel(sourceTitle: String, targetTitle: String) -> some View {
-        HStack(spacing: 6) {
-            Text(sourceTitle)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Image(systemName: "arrow.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            HomeLanguageChip(
-                title: targetTitle,
-                style: .toolbar
-            )
-            .layoutPriority(1)
-
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .lineLimit(1)
-    }
-
     private func toolbarLanguagePickerCompactLabel(title: String) -> some View {
         HStack(spacing: 6) {
-            HomeLanguageChip(
-                title: title,
-                style: .toolbar
-            )
-            .layoutPriority(1)
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .layoutPriority(1)
 
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.semibold))

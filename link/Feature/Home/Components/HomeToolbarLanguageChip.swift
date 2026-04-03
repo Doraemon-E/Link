@@ -13,19 +13,31 @@ struct HomeLanguageChip: View {
         case toolbar
     }
 
-    let title: String
+    let sourceTitle: String
+    let targetTitle: String
     let style: Style
 
     var body: some View {
-        Text(title)
-            .font(font)
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-            .minimumScaleFactor(style == .toolbar ? 0.85 : 1)
-            .frame(maxWidth: style == .hero ? .infinity : nil)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            // .background(backgroundView)
+        HStack(spacing: contentSpacing) {
+            Text(sourceTitle)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Image(systemName: "arrow.right")
+                .font(arrowFont)
+                .foregroundStyle(.secondary)
+
+            Text(targetTitle)
+                .font(font)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .layoutPriority(1)
+        }
+        .minimumScaleFactor(style == .toolbar ? 0.85 : 1)
+        .frame(maxWidth: style == .hero ? .infinity : nil)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
     }
 
     private var font: Font {
@@ -34,6 +46,24 @@ struct HomeLanguageChip: View {
             return .title3.weight(.semibold)
         case .toolbar:
             return .subheadline.weight(.medium)
+        }
+    }
+
+    private var arrowFont: Font {
+        switch style {
+        case .hero:
+            return .body.weight(.semibold)
+        case .toolbar:
+            return .footnote.weight(.semibold)
+        }
+    }
+
+    private var contentSpacing: CGFloat {
+        switch style {
+        case .hero:
+            return 10
+        case .toolbar:
+            return 6
         }
     }
 
@@ -54,20 +84,12 @@ struct HomeLanguageChip: View {
             return 0
         }
     }
-
-    // @ViewBuilder
-    // private var backgroundView: some View {
-    //     if style == .hero {
-    //         RoundedRectangle(cornerRadius: 18, style: .continuous)
-    //             .fill(Color(uiColor: .secondarySystemBackground))
-    //     }
-    // }
 }
 
 #Preview {
     VStack(spacing: 16) {
-        HomeLanguageChip(title: "英文", style: .hero)
-        HomeLanguageChip(title: "英文", style: .toolbar)
+        HomeLanguageChip(sourceTitle: "中文", targetTitle: "英文", style: .hero)
+        HomeLanguageChip(sourceTitle: "中文", targetTitle: "英文", style: .toolbar)
     }
     .padding()
 }
