@@ -171,26 +171,7 @@ struct HomeView: View {
     }
 
     private var toolbarContent: some View {
-        HStack(spacing: 10) {
-            HomeLanguageChip(
-                title: HomeLanguage.chinese.displayName,
-                style: .toolbar
-            )
-
-            Image(systemName: "arrow.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Button {
-                viewModel.isLanguageSheetPresented = true
-            } label: {
-                HomeLanguageChip(
-                    title: viewModel.selectedLanguage.displayName,
-                    style: .toolbar
-                )
-            }
-            .buttonStyle(.plain)
-        }
+        toolbarLanguagePickerButton
     }
 
     private var sessionHistoryToolbarButton: some View {
@@ -198,6 +179,7 @@ struct HomeView: View {
             viewModel.openSessionHistory()
         } label: {
             Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
                 .frame(width: 20, height: 20)
         }
         .frame(width: 44, height: 44)
@@ -209,6 +191,7 @@ struct HomeView: View {
             viewModel.startNewSession()
         } label: {
             Image(systemName: "square.and.pencil")
+                .font(.body.weight(.semibold))
                 .frame(width: 20, height: 20)
         }
         .frame(width: 44, height: 44)
@@ -222,6 +205,76 @@ struct HomeView: View {
             .opacity(0)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+
+    private var toolbarLanguagePickerButton: some View {
+        Button {
+            viewModel.isLanguageSheetPresented = true
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                toolbarLanguagePickerLabel(
+                    sourceTitle: HomeLanguage.chinese.displayName,
+                    targetTitle: viewModel.selectedLanguage.displayName
+                )
+
+                toolbarLanguagePickerLabel(
+                    sourceTitle: "中",
+                    targetTitle: viewModel.selectedLanguage.displayName
+                )
+
+                toolbarLanguagePickerCompactLabel(title: viewModel.selectedLanguage.displayName)
+            }
+            .frame(maxWidth: 220)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(Color(uiColor: .separator).opacity(0.2))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("翻译语言")
+        .accessibilityValue("\(HomeLanguage.chinese.displayName)到\(viewModel.selectedLanguage.displayName)")
+    }
+
+    private func toolbarLanguagePickerLabel(sourceTitle: String, targetTitle: String) -> some View {
+        HStack(spacing: 6) {
+            Text(sourceTitle)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Image(systemName: "arrow.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HomeLanguageChip(
+                title: targetTitle,
+                style: .toolbar
+            )
+            .layoutPriority(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+    }
+
+    private func toolbarLanguagePickerCompactLabel(title: String) -> some View {
+        HStack(spacing: 6) {
+            HomeLanguageChip(
+                title: title,
+                style: .toolbar
+            )
+            .layoutPriority(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
     }
 
     private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool = true) {

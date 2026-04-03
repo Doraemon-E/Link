@@ -21,18 +21,11 @@ struct HomeLanguageChip: View {
             .font(font)
             .foregroundStyle(.primary)
             .lineLimit(1)
+            .minimumScaleFactor(style == .toolbar ? 0.85 : 1)
             .frame(maxWidth: style == .hero ? .infinity : nil)
-            .frame(minWidth: minWidth)
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
-//            .overlay(
-//                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-//                    .stroke(Color(uiColor: .separator), lineWidth: 1)
-//            )
+            // .background(backgroundView)
     }
 
     private var font: Font {
@@ -44,21 +37,12 @@ struct HomeLanguageChip: View {
         }
     }
 
-    private var minWidth: CGFloat {
-        switch style {
-        case .hero:
-            return 0
-        case .toolbar:
-            return 104
-        }
-    }
-
     private var horizontalPadding: CGFloat {
         switch style {
         case .hero:
             return 20
         case .toolbar:
-            return 12
+            return 0
         }
     }
 
@@ -67,18 +51,17 @@ struct HomeLanguageChip: View {
         case .hero:
             return 18
         case .toolbar:
-            return 8
+            return 0
         }
     }
 
-    private var cornerRadius: CGFloat {
-        switch style {
-        case .hero:
-            return 18
-        case .toolbar:
-            return 12
-        }
-    }
+    // @ViewBuilder
+    // private var backgroundView: some View {
+    //     if style == .hero {
+    //         RoundedRectangle(cornerRadius: 18, style: .continuous)
+    //             .fill(Color(uiColor: .secondarySystemBackground))
+    //     }
+    // }
 }
 
 #Preview {
