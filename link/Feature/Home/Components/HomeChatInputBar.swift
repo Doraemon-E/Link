@@ -37,7 +37,9 @@ struct HomeChatInputBar: View {
         .padding(.bottom, 8)
         .background(Color(uiColor: .systemBackground))
         .onChange(of: isTextFieldFocused) { _, newValue in
-            isFocused = newValue
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                isFocused = newValue
+            }
         }
         .onChange(of: isFocused) { _, newValue in
             if isTextFieldFocused != newValue {
