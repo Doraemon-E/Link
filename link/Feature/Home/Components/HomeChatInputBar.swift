@@ -28,10 +28,10 @@ struct HomeChatInputBar: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color(uiColor: .separator), lineWidth: 1)
-        )
+//        .overlay(
+//            RoundedRectangle(cornerRadius: 20, style: .continuous)
+//                .stroke(Color(uiColor: .separator), lineWidth: 1)
+//        )
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 8)

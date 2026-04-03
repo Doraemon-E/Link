@@ -29,10 +29,10 @@ struct HomeLanguageChip: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemBackground))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color(uiColor: .separator), lineWidth: 1)
-            )
+//            .overlay(
+//                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+//                    .stroke(Color(uiColor: .separator), lineWidth: 1)
+//            )
     }
 
     private var font: Font {
