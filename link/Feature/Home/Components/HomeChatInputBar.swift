@@ -11,6 +11,9 @@ struct HomeChatInputBar: View {
     @Binding var text: String
     @Binding var isFocused: Bool
 
+    let onFocusActivated: () -> Void
+    let onSend: () -> Void
+
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
@@ -21,6 +24,18 @@ struct HomeChatInputBar: View {
             TextField("请输入对话内容", text: $text)
                 .textFieldStyle(.plain)
                 .focused($isTextFieldFocused)
+                .submitLabel(.send)
+                .onSubmit {
+                    handleSend()
+                }
+
+            Button(action: handleSend) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(isSendEnabled ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!isSendEnabled)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -36,7 +51,11 @@ struct HomeChatInputBar: View {
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background(Color(uiColor: .systemBackground))
-        .onChange(of: isTextFieldFocused) { _, newValue in
+        .onChange(of: isTextFieldFocused) { oldValue, newValue in
+            if !oldValue && newValue {
+                onFocusActivated()
+            }
+
             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                 isFocused = newValue
             }
@@ -47,11 +66,22 @@ struct HomeChatInputBar: View {
             }
         }
     }
+
+    private var isSendEnabled: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func handleSend() {
+        guard isSendEnabled else { return }
+        onSend()
+    }
 }
 
 #Preview {
     HomeChatInputBar(
         text: .constant(""),
-        isFocused: .constant(false)
+        isFocused: .constant(false),
+        onFocusActivated: {},
+        onSend: {}
     )
 }
