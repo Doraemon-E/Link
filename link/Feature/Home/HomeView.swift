@@ -37,9 +37,9 @@ struct HomeView: View {
                         }
                     }
                 }
-                .toolbar(viewModel.isChatInputFocused ? .visible : .hidden, for: .navigationBar)
+                .toolbar(shouldShowNavigationBar ? .visible : .hidden, for: .navigationBar)
                 .toolbar {
-                    if viewModel.isChatInputFocused {
+                    if shouldShowNavigationBar {
                         ToolbarItem(placement: .principal) {
                             toolbarContent
                         }
@@ -80,11 +80,19 @@ struct HomeView: View {
         viewModel.displayedMessageIDs(in: sessions)
     }
 
+    private var shouldShowNavigationBar: Bool {
+        viewModel.shouldShowNavigationBar(in: sessions)
+    }
+
+    private var shouldShowLanguagePickerHero: Bool {
+        viewModel.shouldShowLanguagePickerHero(in: sessions)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 22) {
             Spacer()
 
-            if !viewModel.isChatInputFocused {
+            if shouldShowLanguagePickerHero {
                 Button {
                     viewModel.isLanguageSheetPresented = true
                 } label: {

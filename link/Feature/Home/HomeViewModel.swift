@@ -37,6 +37,14 @@ final class HomeViewModel {
         displayedMessages(in: sessions).map(\.id)
     }
 
+    func shouldShowNavigationBar(in sessions: [ChatSession]) -> Bool {
+        isChatInputFocused || currentSession(in: sessions) != nil
+    }
+
+    func shouldShowLanguagePickerHero(in sessions: [ChatSession]) -> Bool {
+        !isChatInputFocused && currentSession(in: sessions) == nil
+    }
+
     func handleInputFocusActivated() {
         guard !isDraftSession else { return }
         sessionPresentation = .draft
