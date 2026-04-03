@@ -20,6 +20,7 @@ final class HomeViewModel {
 
     var selectedLanguage: HomeLanguage = .english
     var isLanguageSheetPresented = false
+    var isSessionHistoryPresented = false
     var messageText = ""
     var isChatInputFocused = false
     var sessionPresentation: SessionPresentation = .none
@@ -41,13 +42,44 @@ final class HomeViewModel {
         isChatInputFocused || currentSession(in: sessions) != nil
     }
 
+    func shouldShowSessionHistoryButton(in sessions: [ChatSession]) -> Bool {
+        latestNonEmptySession(in: sessions) != nil
+    }
+
+    func shouldShowNewSessionButton(in sessions: [ChatSession]) -> Bool {
+        !isDraftSession && currentSession(in: sessions) != nil
+    }
+
     func shouldShowLanguagePickerHero(in sessions: [ChatSession]) -> Bool {
         !isChatInputFocused && currentSession(in: sessions) == nil
+    }
+
+    func currentSessionID(in sessions: [ChatSession]) -> UUID? {
+        currentSession(in: sessions)?.id
     }
 
     func handleInputFocusActivated() {
         guard !isDraftSession else { return }
         sessionPresentation = .draft
+    }
+
+    func openSessionHistory() {
+        isChatInputFocused = false
+        isSessionHistoryPresented = true
+    }
+
+    func startNewSession() {
+        guard !isDraftSession else { return }
+        sessionPresentation = .draft
+    }
+
+    func selectSession(id sessionID: UUID) {
+        sessionPresentation = .persisted(sessionID)
+        isChatInputFocused = false
+
+        DispatchQueue.main.async {
+            self.isSessionHistoryPresented = false
+        }
     }
 
     func sendCurrentMessage(using modelContext: ModelContext, sessions: [ChatSession]) {

@@ -40,8 +40,28 @@ struct HomeView: View {
                 .toolbar(shouldShowNavigationBar ? .visible : .hidden, for: .navigationBar)
                 .toolbar {
                     if shouldShowNavigationBar {
+                        if shouldShowSessionHistoryButton {
+                            ToolbarItem(placement: .topBarLeading) {
+                                sessionHistoryToolbarButton
+                            }
+                        } else if shouldShowNewSessionButton {
+                            ToolbarItem(placement: .topBarLeading) {
+                                toolbarButtonPlaceholder
+                            }
+                        }
+
                         ToolbarItem(placement: .principal) {
                             toolbarContent
+                        }
+
+                        if shouldShowNewSessionButton {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                newSessionToolbarButton
+                            }
+                        } else if shouldShowSessionHistoryButton {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                toolbarButtonPlaceholder
+                            }
                         }
                     }
                 }
@@ -58,6 +78,16 @@ struct HomeView: View {
             HomeLanguageSheet(
                 selectedLanguage: $viewModel.selectedLanguage,
                 isPresented: $viewModel.isLanguageSheetPresented
+            )
+        }
+        .sheet(isPresented: $viewModel.isSessionHistoryPresented) {
+            HomeSessionHistorySheet(
+                sessions: historySessions,
+                currentSessionID: currentSessionID,
+                onSelect: { sessionID in
+                    viewModel.selectSession(id: sessionID)
+                },
+                isPresented: $viewModel.isSessionHistoryPresented
             )
         }
         .safeAreaInset(edge: .bottom) {
@@ -84,8 +114,24 @@ struct HomeView: View {
         viewModel.shouldShowNavigationBar(in: sessions)
     }
 
+    private var historySessions: [ChatSession] {
+        sessions.filter(\.hasMessages)
+    }
+
+    private var currentSessionID: UUID? {
+        viewModel.currentSessionID(in: sessions)
+    }
+
+    private var shouldShowSessionHistoryButton: Bool {
+        viewModel.shouldShowSessionHistoryButton(in: sessions)
+    }
+
     private var shouldShowLanguagePickerHero: Bool {
         viewModel.shouldShowLanguagePickerHero(in: sessions)
+    }
+
+    private var shouldShowNewSessionButton: Bool {
+        viewModel.shouldShowNewSessionButton(in: sessions)
     }
 
     private var emptyState: some View {
@@ -145,6 +191,37 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private var sessionHistoryToolbarButton: some View {
+        Button {
+            viewModel.openSessionHistory()
+        } label: {
+            Image(systemName: "line.3.horizontal")
+                .frame(width: 20, height: 20)
+        }
+        .frame(width: 44, height: 44)
+        .accessibilityLabel("历史会话")
+    }
+
+    private var newSessionToolbarButton: some View {
+        Button {
+            viewModel.startNewSession()
+        } label: {
+            Image(systemName: "square.and.pencil")
+                .frame(width: 20, height: 20)
+        }
+        .frame(width: 44, height: 44)
+        .accessibilityLabel("新增会话")
+    }
+
+    private var toolbarButtonPlaceholder: some View {
+        Image(systemName: "square.and.pencil")
+            .frame(width: 20, height: 20)
+            .frame(width: 44, height: 44)
+            .opacity(0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool = true) {
