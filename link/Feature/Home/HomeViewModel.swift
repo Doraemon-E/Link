@@ -60,7 +60,7 @@ final class HomeViewModel {
     }
 
     func handleInputFocusActivated() {
-        guard !isDraftSession else { return }
+        guard case .none = sessionPresentation else { return }
         sessionPresentation = .draft
     }
 
