@@ -11,10 +11,12 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
-    @State private var viewModel = HomeViewModel()
+    @State private var viewModel: HomeViewModel
     @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
-    init() {}
+    init(translationService: TranslationService) {
+        _viewModel = State(initialValue: HomeViewModel(translationService: translationService))
+    }
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -233,6 +235,6 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(translationService: MarianTranslationService())
         .modelContainer(for: [ChatSession.self, ChatMessage.self], inMemory: true)
 }

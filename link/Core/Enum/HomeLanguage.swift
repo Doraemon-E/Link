@@ -65,4 +65,27 @@ enum HomeLanguage: String, CaseIterable, Identifiable {
             return "意"
         }
     }
+
+    var translationModelCode: String {
+        switch self {
+        case .chinese:
+            return "zho"
+        case .english:
+            return "eng"
+        case .japanese:
+            return "jpn"
+        case .korean:
+            return "kor"
+        case .french:
+            return "fra"
+        case .german:
+            return "deu"
+        case .russian:
+            return "rus"
+        case .spanish:
+            return "spa"
+        case .italian:
+            return "ita"
+        }
+    }
 }

@@ -8,11 +8,13 @@
 import SwiftUI
 
 struct ContentView: View {
+    let translationService: TranslationService
+
     var body: some View {
-        HomeView()
+        HomeView(translationService: translationService)
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(translationService: MarianTranslationService())
 }

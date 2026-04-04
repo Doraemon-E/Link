@@ -26,6 +26,12 @@ final class HomeViewModel {
     var isChatInputFocused = false
     var sessionPresentation: SessionPresentation = .none
 
+    @ObservationIgnored private let translationService: TranslationService
+
+    init(translationService: TranslationService) {
+        self.translationService = translationService
+    }
+
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
         removeEmptySessions(using: modelContext, sessions: sessions)
     }
@@ -115,7 +121,7 @@ final class HomeViewModel {
         )
         let assistantMessage = ChatMessage(
             sender: .assistant,
-            text: trimmedText,
+            text: "翻译中…",
             createdAt: now.addingTimeInterval(0.001),
             sequence: nextSequence + 1,
             session: session
@@ -127,6 +133,20 @@ final class HomeViewModel {
 
         messageText = ""
         saveContext(using: modelContext)
+
+        let assistantMessageID = assistantMessage.id
+        let sourceLanguage = sourceLanguage
+        let targetLanguage = selectedLanguage
+
+        Task { @MainActor in
+            await resolveTranslation(
+                for: assistantMessageID,
+                originalText: trimmedText,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                using: modelContext
+            )
+        }
     }
 
     private var isDraftSession: Bool {
@@ -183,5 +203,75 @@ final class HomeViewModel {
         } catch {
             print("Failed to save chat data: \(error)")
         }
+    }
+
+    private func resolveTranslation(
+        for assistantMessageID: UUID,
+        originalText: String,
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
+        using modelContext: ModelContext
+    ) async {
+        do {
+            let isSupported = try await translationService.supports(
+                source: sourceLanguage,
+                target: targetLanguage
+            )
+
+            guard isSupported else {
+                updateAssistantMessage(
+                    id: assistantMessageID,
+                    text: TranslationError
+                        .unsupportedLanguagePair(source: sourceLanguage, target: targetLanguage)
+                        .userFacingMessage,
+                    using: modelContext
+                )
+                return
+            }
+
+            let translatedText = try await translationService.translate(
+                text: originalText,
+                source: sourceLanguage,
+                target: targetLanguage
+            )
+
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: translatedText,
+                using: modelContext
+            )
+        } catch let error as TranslationError {
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: error.userFacingMessage,
+                using: modelContext
+            )
+        } catch {
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: "翻译失败了，请稍后再试。",
+                using: modelContext
+            )
+        }
+    }
+
+    private func updateAssistantMessage(
+        id: UUID,
+        text: String,
+        using modelContext: ModelContext
+    ) {
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { message in
+                message.id == id
+            }
+        )
+
+        guard let message = try? modelContext.fetch(descriptor).first else {
+            return
+        }
+
+        message.text = text
+        message.session?.updatedAt = .now
+        saveContext(using: modelContext)
     }
 }
