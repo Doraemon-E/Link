@@ -76,6 +76,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $viewModel.isLanguageSheetPresented) {
             HomeLanguageSheet(
+                sourceLanguage: $viewModel.sourceLanguage,
                 selectedLanguage: $viewModel.selectedLanguage,
                 isPresented: $viewModel.isLanguageSheetPresented
             )
@@ -143,7 +144,7 @@ struct HomeView: View {
                     viewModel.isLanguageSheetPresented = true
                 } label: {
                     HomeLanguageChip(
-                        sourceTitle: HomeLanguage.chinese.displayName,
+                        sourceTitle: viewModel.sourceLanguage.displayName,
                         targetTitle: viewModel.selectedLanguage.displayName,
                         style: .hero
                     )
@@ -214,18 +215,21 @@ struct HomeView: View {
         } label: {
             ViewThatFits(in: .horizontal) {
                 HomeLanguageChip(
-                    sourceTitle: HomeLanguage.chinese.displayName,
+                    sourceTitle: viewModel.sourceLanguage.displayName,
                     targetTitle: viewModel.selectedLanguage.displayName,
                     style: .toolbar
                 )
 
                 HomeLanguageChip(
-                    sourceTitle: "中",
+                    sourceTitle: viewModel.sourceLanguage.compactDisplayName,
                     targetTitle: viewModel.selectedLanguage.displayName,
                     style: .toolbar
                 )
 
-                toolbarLanguagePickerCompactLabel(title: viewModel.selectedLanguage.displayName)
+                toolbarLanguagePickerCompactLabel(
+                    sourceTitle: viewModel.sourceLanguage.compactDisplayName,
+                    targetTitle: viewModel.selectedLanguage.compactDisplayName
+                )
             }
             .frame(maxWidth: 220)
             .padding(.horizontal, 12)
@@ -238,12 +242,21 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("翻译语言")
-        .accessibilityValue("\(HomeLanguage.chinese.displayName)到\(viewModel.selectedLanguage.displayName)")
+        .accessibilityValue("\(viewModel.sourceLanguage.displayName)到\(viewModel.selectedLanguage.displayName)")
     }
 
-    private func toolbarLanguagePickerCompactLabel(title: String) -> some View {
+    private func toolbarLanguagePickerCompactLabel(sourceTitle: String, targetTitle: String) -> some View {
         HStack(spacing: 6) {
-            Text(title)
+            Text(sourceTitle)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Image(systemName: "arrow.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(targetTitle)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)

@@ -18,6 +18,7 @@ final class HomeViewModel {
         case persisted(UUID)
     }
 
+    var sourceLanguage: HomeLanguage = .chinese
     var selectedLanguage: HomeLanguage = .english
     var isLanguageSheetPresented = false
     var isSessionHistoryPresented = false

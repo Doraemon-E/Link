@@ -42,4 +42,27 @@ enum HomeLanguage: String, CaseIterable, Identifiable {
             return "意大利文"
         }
     }
+
+    var compactDisplayName: String {
+        switch self {
+        case .chinese:
+            return "中"
+        case .english:
+            return "英"
+        case .japanese:
+            return "日"
+        case .korean:
+            return "韩"
+        case .french:
+            return "法"
+        case .german:
+            return "德"
+        case .russian:
+            return "俄"
+        case .spanish:
+            return "西"
+        case .italian:
+            return "意"
+        }
+    }
 }
