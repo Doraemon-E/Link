@@ -8,7 +8,7 @@
 import Foundation
 
 struct TranslationModelManifest: Decodable {
-    enum Family: String, Decodable {
+    enum Family: String, Codable {
         case marian
     }
 

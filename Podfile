@@ -3,4 +3,5 @@ use_frameworks!
 
 target 'link' do
   pod 'onnxruntime-objc'
+  pod 'ZIPFoundation'
 end

@@ -14,8 +14,16 @@ struct HomeView: View {
     @State private var viewModel: HomeViewModel
     @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
-    init(translationService: TranslationService) {
-        _viewModel = State(initialValue: HomeViewModel(translationService: translationService))
+    init(
+        translationService: TranslationService,
+        translationModelInstaller: TranslationModelInstaller
+    ) {
+        _viewModel = State(
+            initialValue: HomeViewModel(
+                translationService: translationService,
+                translationModelInstaller: translationModelInstaller
+            )
+        )
     }
 
     var body: some View {
@@ -71,7 +79,13 @@ struct HomeView: View {
                 sourceLanguage: $viewModel.sourceLanguage,
                 selectedLanguage: $viewModel.selectedLanguage,
                 isPresented: $viewModel.isLanguageSheetPresented,
-                mode: languageSheetMode
+                mode: languageSheetMode,
+                onResolveSelection: { source, target in
+                    await viewModel.resolveLanguageSelection(source: source, target: target)
+                },
+                onInstallPackage: { packageId in
+                    try await viewModel.installTranslationModel(packageId: packageId)
+                }
             )
         }
         .sheet(isPresented: $viewModel.isSessionHistoryPresented) {
@@ -235,6 +249,11 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView(translationService: MarianTranslationService())
+    let catalogService = TranslationModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+    let installer = TranslationModelInstaller(catalogService: catalogService)
+    HomeView(
+        translationService: MarianTranslationService(installer: installer),
+        translationModelInstaller: installer
+    )
         .modelContainer(for: [ChatSession.self, ChatMessage.self], inMemory: true)
 }

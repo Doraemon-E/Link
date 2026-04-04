@@ -1,2 +1,5 @@
 Pods/
 Resource/
+!link/Resource/
+link/Resource/*
+!link/Resource/translation-catalog.json

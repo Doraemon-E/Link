@@ -4,19 +4,23 @@ PODS:
     - onnxruntime-objc/Core (= 1.20.0)
   - onnxruntime-objc/Core (1.20.0):
     - onnxruntime-c (= 1.20.0)
+  - ZIPFoundation (0.9.20)
 
 DEPENDENCIES:
   - onnxruntime-objc
+  - ZIPFoundation
 
 SPEC REPOS:
   trunk:
     - onnxruntime-c
     - onnxruntime-objc
+    - ZIPFoundation
 
 SPEC CHECKSUMS:
   onnxruntime-c: 07cfff40dda7e1c54a4350bb2ad226c63150fce3
   onnxruntime-objc: b22c5d4517e9804e47c66f1f122ec4a6aa923f86
+  ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 882142cdf9b0271411bd98bccc9cde09fac5a2ea
+PODFILE CHECKSUM: bf67aad8a96998fc4f71eb66b3bbfafee73e7bd3
 
 COCOAPODS: 1.16.2

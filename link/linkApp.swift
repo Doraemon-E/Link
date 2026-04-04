@@ -14,18 +14,22 @@ struct linkApp: App {
     private let translationService: TranslationService
 
     init() {
-        let installer = TranslationModelInstaller()
+        let catalogService = TranslationModelCatalogService()
+        let installer = TranslationModelInstaller(catalogService: catalogService)
         self.translationModelInstaller = installer
         self.translationService = MarianTranslationService(installer: installer)
 
         Task.detached(priority: .utility) {
-            _ = try? installer.prepareModel()
+            await catalogService.warmUpCatalog()
         }
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(translationService: translationService)
+            ContentView(
+                translationService: translationService,
+                translationModelInstaller: translationModelInstaller
+            )
         }
         .modelContainer(for: [ChatSession.self, ChatMessage.self])
     }

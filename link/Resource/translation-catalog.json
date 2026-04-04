@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-04T00:00:00Z",
+  "packages": [
+    {
+      "packageId": "marian-zho-eng-v1",
+      "version": "1.0.0",
+      "source": "zho",
+      "target": "eng",
+      "family": "marian",
+      "archiveURL": "https://link.hackerapp.site/link/translation/packages/marian-zho-eng-v1.zip",
+      "sha256": "",
+      "archiveSize": 0,
+      "installedSize": 0,
+      "manifestRelativePath": "translation-manifest.json",
+      "minAppVersion": "1.0.0"
+    }
+  ]
+}

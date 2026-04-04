@@ -8,12 +8,19 @@
 import Foundation
 
 enum TranslationError: LocalizedError {
-    case bundledModelMissing(String)
-    case bundledModelNotFound(paths: [String])
     case installationFailed(String)
     case manifestMissing
     case manifestInvalid(String)
     case unsupportedLanguagePair(source: HomeLanguage, target: HomeLanguage)
+    case modelPackageUnavailable(source: HomeLanguage, target: HomeLanguage)
+    case modelNotInstalled(source: HomeLanguage, target: HomeLanguage)
+    case packageMissing(packageId: String)
+    case catalogMissing
+    case catalogInvalid(String)
+    case catalogUnavailable
+    case downloadFailed(String)
+    case integrityCheckFailed
+    case extractionFailed(String)
     case incompatibleTokenizer(String)
     case runtimeInitialization(String)
     case inferenceFailed(String)
@@ -21,10 +28,6 @@ enum TranslationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .bundledModelMissing(let detail):
-            return "Bundled model missing: \(detail)"
-        case .bundledModelNotFound(let paths):
-            return "Bundled model not found at fixed paths: \(paths.joined(separator: ", "))"
         case .installationFailed(let detail):
             return "Model installation failed: \(detail)"
         case .manifestMissing:
@@ -33,6 +36,24 @@ enum TranslationError: LocalizedError {
             return "Translation model manifest is invalid: \(detail)"
         case .unsupportedLanguagePair(let source, let target):
             return "Unsupported translation direction: \(source.displayName) -> \(target.displayName)"
+        case .modelPackageUnavailable(let source, let target):
+            return "No package is available for \(source.displayName) -> \(target.displayName)."
+        case .modelNotInstalled(let source, let target):
+            return "The package for \(source.displayName) -> \(target.displayName) is not installed."
+        case .packageMissing(let packageId):
+            return "Package metadata is missing for \(packageId)."
+        case .catalogMissing:
+            return "Translation model catalog is missing."
+        case .catalogInvalid(let detail):
+            return "Translation model catalog is invalid: \(detail)"
+        case .catalogUnavailable:
+            return "Translation model catalog is unavailable."
+        case .downloadFailed(let detail):
+            return "Model download failed: \(detail)"
+        case .integrityCheckFailed:
+            return "Downloaded model archive failed the integrity check."
+        case .extractionFailed(let detail):
+            return "Failed to extract the downloaded model archive: \(detail)"
         case .incompatibleTokenizer(let detail):
             return "Tokenizer is incompatible with the current model: \(detail)"
         case .runtimeInitialization(let detail):
@@ -48,8 +69,20 @@ enum TranslationError: LocalizedError {
         switch self {
         case .unsupportedLanguagePair(let source, let target):
             return "当前模型暂不支持\(source.displayName)到\(target.displayName)的翻译。"
-        case .bundledModelMissing, .bundledModelNotFound:
-            return "应用内未找到翻译模型资源，请确认模型文件已打包到 App 中。"
+        case .modelPackageUnavailable(let source, let target):
+            return "暂不支持下载\(source.displayName)到\(target.displayName)的翻译模型。"
+        case .modelNotInstalled(let source, let target):
+            return "\(source.displayName)到\(target.displayName)的模型还没有下载，请先在语言选择里完成下载。"
+        case .packageMissing:
+            return "找不到对应的模型包配置，请刷新模型目录后再试。"
+        case .catalogMissing, .catalogInvalid, .catalogUnavailable:
+            return "模型目录暂时不可用，请稍后重试。"
+        case .downloadFailed:
+            return "模型下载失败，请检查网络后重试。"
+        case .integrityCheckFailed:
+            return "下载的模型校验失败，请重新下载。"
+        case .extractionFailed:
+            return "模型解压失败，请重新下载。"
         case .installationFailed:
             return "翻译模型安装失败，请稍后重试。"
         case .manifestMissing, .manifestInvalid:

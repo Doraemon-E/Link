@@ -17,6 +17,32 @@ struct HomeLanguageSheet: View {
     @Binding var selectedLanguage: HomeLanguage
     @Binding var isPresented: Bool
     let mode: Mode
+    let onResolveSelection: @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution
+    let onInstallPackage: @Sendable (String) async throws -> Void
+
+    @State private var draftSourceLanguage: HomeLanguage
+    @State private var draftSelectedLanguage: HomeLanguage
+    @State private var pendingDownloadPrompt: HomeLanguageDownloadPrompt?
+    @State private var errorMessage: String?
+    @State private var isWorking = false
+
+    init(
+        sourceLanguage: Binding<HomeLanguage>,
+        selectedLanguage: Binding<HomeLanguage>,
+        isPresented: Binding<Bool>,
+        mode: Mode,
+        onResolveSelection: @escaping @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution = { _, _ in .ready },
+        onInstallPackage: @escaping @Sendable (String) async throws -> Void = { _ in }
+    ) {
+        self._sourceLanguage = sourceLanguage
+        self._selectedLanguage = selectedLanguage
+        self._isPresented = isPresented
+        self.mode = mode
+        self.onResolveSelection = onResolveSelection
+        self.onInstallPackage = onInstallPackage
+        _draftSourceLanguage = State(initialValue: sourceLanguage.wrappedValue)
+        _draftSelectedLanguage = State(initialValue: selectedLanguage.wrappedValue)
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,7 +51,7 @@ struct HomeLanguageSheet: View {
                     HStack(alignment: .top, spacing: 16) {
                         languageColumn(
                             title: "源语言",
-                            selection: sourceLanguage,
+                            selection: draftSourceLanguage,
                             onSelect: selectSourceLanguage
                         )
 
@@ -47,14 +73,14 @@ struct HomeLanguageSheet: View {
 
                         languageColumn(
                             title: "目标语言",
-                            selection: selectedLanguage,
+                            selection: draftSelectedLanguage,
                             onSelect: selectTargetLanguage
                         )
                     }
                 } else {
                     languageColumn(
                         title: "目标语言",
-                        selection: selectedLanguage,
+                        selection: draftSelectedLanguage,
                         onSelect: selectTargetLanguage
                     )
                 }
@@ -65,14 +91,61 @@ struct HomeLanguageSheet: View {
             .navigationTitle(mode == .full ? "选择语言" : "选择目标语言")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        isPresented = false
+                    Button {
+                        Task {
+                            await confirmSelection()
+                        }
+                    } label: {
+                        if isWorking {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("完成")
+                        }
                     }
+                    .disabled(isWorking)
                 }
             }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .confirmationDialog(
+            pendingDownloadPrompt?.title ?? "",
+            isPresented: Binding(
+                get: { pendingDownloadPrompt != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDownloadPrompt = nil
+                    }
+                }
+            ),
+            presenting: pendingDownloadPrompt
+        ) { prompt in
+            Button("下载并继续") {
+                Task {
+                    await downloadAndCommit(prompt)
+                }
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: { prompt in
+            Text(prompt.message)
+        }
+        .alert(
+            "暂时无法使用该翻译方向",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        errorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private func languageColumn(
@@ -90,6 +163,7 @@ struct HomeLanguageSheet: View {
                         let isSelected = language == selection
 
                         Button {
+                            guard !isWorking else { return }
                             onSelect(language)
                         } label: {
                             HStack {
@@ -133,11 +207,54 @@ struct HomeLanguageSheet: View {
     }
 
     private func selectSourceLanguage(_ language: HomeLanguage) {
-        sourceLanguage = language
+        draftSourceLanguage = language
     }
 
     private func selectTargetLanguage(_ language: HomeLanguage) {
-        selectedLanguage = language
+        draftSelectedLanguage = language
+    }
+
+    private func confirmSelection() async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        defer { isWorking = false }
+
+        let resolution = await onResolveSelection(draftSourceLanguage, draftSelectedLanguage)
+
+        switch resolution {
+        case .ready:
+            commitDraftSelection()
+        case .requiresDownload(let prompt):
+            pendingDownloadPrompt = prompt
+        case .failure(let message):
+            errorMessage = message
+        }
+    }
+
+    private func downloadAndCommit(_ prompt: HomeLanguageDownloadPrompt) async {
+        guard !isWorking else { return }
+
+        isWorking = true
+        defer {
+            isWorking = false
+            pendingDownloadPrompt = nil
+        }
+
+        do {
+            try await onInstallPackage(prompt.packageId)
+            commitDraftSelection()
+        } catch let error as TranslationError {
+            errorMessage = error.userFacingMessage
+        } catch {
+            errorMessage = "模型下载失败，请稍后重试。"
+        }
+    }
+
+    private func commitDraftSelection() {
+        sourceLanguage = draftSourceLanguage
+        selectedLanguage = draftSelectedLanguage
+        isPresented = false
     }
 }
 
