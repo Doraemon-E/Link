@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "generatedAt": "2026-04-04T00:00:00Z",
+  "version": 2,
+  "generatedAt": "2026-04-04T18:50:00Z",
   "packages": [
     {
       "packageId": "opus-mt-zh-en-onnx",
@@ -29,12 +29,12 @@
       "minAppVersion": "1.0.0"
     },
     {
-      "packageId": "mt5-small-ja-en-onnx",
+      "packageId": "opus-mt-ja-en-onnx",
       "version": "1.0.0",
       "source": "jpn",
       "target": "eng",
-      "family": "mt5",
-      "archiveURL": "https://link.hackerapp.site/link/translation/packages/mt5-small-ja-en-onnx-int8.zip",
+      "family": "marian",
+      "archiveURL": "https://link.hackerapp.site/link/translation/packages/opus-mt-ja-en-onnx-int8.zip",
       "sha256": "",
       "archiveSize": 128377636,
       "installedSize": 0,
@@ -42,12 +42,12 @@
       "minAppVersion": "1.0.0"
     },
     {
-      "packageId": "mt5-small-en-ja-onnx",
+      "packageId": "opus-mt-en-jap-onnx",
       "version": "1.0.0",
       "source": "eng",
       "target": "jpn",
-      "family": "mt5",
-      "archiveURL": "https://link.hackerapp.site/link/translation/packages/mt5-small-en-ja-onnx-int8.zip",
+      "family": "marian",
+      "archiveURL": "https://link.hackerapp.site/link/translation/packages/opus-mt-en-jap-onnx-int8.zip",
       "sha256": "",
       "archiveSize": 118851800,
       "installedSize": 0,

@@ -8,7 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1380EDAF98A2156D5449D8E5 /* Pods_link.framework */; };
+		8F3C9A10B6A14D21A4E7F901 /* whisper.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; };
+		8F3C9A10B6A14D21A4E7F902 /* whisper.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B1359A25EC73FA4C1C8149F3 /* Pods_linkTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 55D53EBA2F8016B3002A3BC9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 55D53EC12F8016B3002A3BC9;
+			remoteInfo = link;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		55D5476A2F80E772002A3BC9 /* Embed Frameworks */ = {
@@ -17,6 +30,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				8F3C9A10B6A14D21A4E7F902 /* whisper.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -30,38 +44,30 @@
 		6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.debug.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.debug.xcconfig"; sourceTree = "<group>"; };
 		8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.debug.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.debug.xcconfig"; sourceTree = "<group>"; };
 		8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.release.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.release.xcconfig"; sourceTree = "<group>"; };
+		8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = whisper.xcframework; path = link/Resource/whisper.xcframework; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000001 /* linkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = linkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_linkTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		55D5476B2F80E773002A3BC9 /* Exceptions for "link" folder in "Embed Frameworks" phase from "link" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			attributesByRelativePath = {
-				Resource/whisper.xcframework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
-			};
-			buildPhase = 55D5476A2F80E772002A3BC9 /* Embed Frameworks */;
-			membershipExceptions = (
-				Resource/whisper.xcframework,
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		55D53EC42F8016B3002A3BC9 /* link */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				55D5476B2F80E773002A3BC9 /* Exceptions for "link" folder in "Embed Frameworks" phase from "link" target */,
 			);
 			path = link;
 			sourceTree = "<group>";
 		};
 		A1B2C3D4E5F6000000000010 /* linkTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = linkTests;
 			sourceTree = "<group>";
 		};
-		A1B2C3D4E5F6000000000013 /* Resource */ = {
+		A1B2C3D4E5F6000000000013 /* link/Resource */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = link/Resource;
 			sourceTree = "<group>";
 		};
@@ -73,6 +79,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */,
+				8F3C9A10B6A14D21A4E7F901 /* whisper.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +87,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1359A25EC73FA4C1C8149F3 /* Pods_linkTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -91,7 +99,7 @@
 			children = (
 				55D53EC42F8016B3002A3BC9 /* link */,
 				A1B2C3D4E5F6000000000010 /* linkTests */,
-				A1B2C3D4E5F6000000000013 /* Resource */,
+				A1B2C3D4E5F6000000000013 /* link/Resource */,
 				55D53EC32F8016B3002A3BC9 /* Products */,
 				947C3C8CEAABE6A6EE64D87F /* Pods */,
 				CB7C70F44E136232AFD5BF0F /* Frameworks */,
@@ -122,21 +130,13 @@
 			isa = PBXGroup;
 			children = (
 				1380EDAF98A2156D5449D8E5 /* Pods_link.framework */,
+				8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */,
+				CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
-/* Begin PBXContainerItemProxy section */
-		8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 55D53EBA2F8016B3002A3BC9 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 55D53EC12F8016B3002A3BC9;
-			remoteInfo = link;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		55D53EC12F8016B3002A3BC9 /* link */ = {
@@ -166,6 +166,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1B2C3D4E5F6000000000032 /* Build configuration list for PBXNativeTarget "linkTests" */;
 			buildPhases = (
+				AEB16A516AE7A31720EE737C /* [CP] Check Pods Manifest.lock */,
 				A1B2C3D4E5F6000000000021 /* Sources */,
 				A1B2C3D4E5F6000000000022 /* Frameworks */,
 				A1B2C3D4E5F6000000000023 /* Resources */,
@@ -177,7 +178,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A1B2C3D4E5F6000000000010 /* linkTests */,
-				A1B2C3D4E5F6000000000013 /* Resource */,
+				A1B2C3D4E5F6000000000013 /* link/Resource */,
 			);
 			name = linkTests;
 			productName = linkTests;
@@ -222,14 +223,6 @@
 			);
 		};
 /* End PBXProject section */
-
-/* Begin PBXTargetDependency section */
-		8A8B8C8D8E8F000000000011 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 55D53EC12F8016B3002A3BC9 /* link */;
-			targetProxy = 8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		55D53EC02F8016B3002A3BC9 /* Resources */ = {
@@ -279,17 +272,35 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
-			outputPaths = (
-			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		AEB16A516AE7A31720EE737C /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-linkTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -310,6 +321,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8A8B8C8D8E8F000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 55D53EC12F8016B3002A3BC9 /* link */;
+			targetProxy = 8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		55D53ECB2F8016B5002A3BC9 /* Debug */ = {

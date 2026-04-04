@@ -360,7 +360,7 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
 
                 let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sourceURL))
                 self.vocabulary = decodedVocabulary
-                self.reverseVocabulary = Dictionary(uniqueKeysWithValues: decodedVocabulary.map { ($1, $0) })
+                self.reverseVocabulary = Self.makeReverseVocabularyPreservingFirstID(from: decodedVocabulary)
                 self.unkTokenID = unkTokenID
                 self.sourceModel = try SentencePieceParser.parseModel(
                     spec: spec,
@@ -378,17 +378,9 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
                 }
 
                 let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sentencePieceURL))
-                let baseVocabulary = Dictionary(
-                    uniqueKeysWithValues: spec.entries.enumerated().map { (offset, entry) in
-                        (entry.piece, offset)
-                    }
-                )
+                let baseVocabulary = Self.makeVocabularyPreservingFirstPieceID(from: spec.entries)
                 let extraIds = max(manifest.tokenizer.extraIds ?? 0, 0)
-                var reverseVocabulary = Dictionary(
-                    uniqueKeysWithValues: spec.entries.enumerated().map { (offset, entry) in
-                        (offset, entry.piece)
-                    }
-                )
+                var reverseVocabulary = Self.makeReverseVocabulary(from: spec.entries)
 
                 if extraIds > 0 {
                     let baseTokenCount = spec.entries.count
@@ -412,6 +404,51 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
         } catch {
             throw TranslationError.incompatibleTokenizer(error.localizedDescription)
         }
+    }
+
+    private static func makeReverseVocabularyPreservingFirstID(
+        from vocabulary: [String: Int]
+    ) -> [Int: String] {
+        var reverseVocabulary: [Int: String] = [:]
+        reverseVocabulary.reserveCapacity(vocabulary.count)
+
+        for (piece, tokenID) in vocabulary.sorted(by: { lhs, rhs in
+            if lhs.value == rhs.value {
+                return lhs.key < rhs.key
+            }
+
+            return lhs.value < rhs.value
+        }) where reverseVocabulary[tokenID] == nil {
+            reverseVocabulary[tokenID] = piece
+        }
+
+        return reverseVocabulary
+    }
+
+    private static func makeVocabularyPreservingFirstPieceID(
+        from entries: [SentencePieceEntry]
+    ) -> [String: Int] {
+        var vocabulary: [String: Int] = [:]
+        vocabulary.reserveCapacity(entries.count)
+
+        for (offset, entry) in entries.enumerated() where vocabulary[entry.piece] == nil {
+            // Some SentencePiece models reuse the same visible piece for multiple token IDs.
+            // Keep the earliest ID so encoding remains deterministic instead of crashing.
+            vocabulary[entry.piece] = offset
+        }
+
+        return vocabulary
+    }
+
+    private static func makeReverseVocabulary(from entries: [SentencePieceEntry]) -> [Int: String] {
+        var reverseVocabulary: [Int: String] = [:]
+        reverseVocabulary.reserveCapacity(entries.count)
+
+        for (offset, entry) in entries.enumerated() {
+            reverseVocabulary[offset] = entry.piece
+        }
+
+        return reverseVocabulary
     }
 
     func encode(_ text: String, maxLength: Int, eosTokenID: Int) throws -> [Int64] {
@@ -445,7 +482,8 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
             case "</s>", "<pad>":
                 return nil
             default:
-                if token.hasPrefix("<extra_id_") {
+                let normalizedToken = token.hasPrefix("▁") ? String(token.drop(while: { $0 == "▁" })) : token
+                if normalizedToken.hasPrefix("<extra_id_") {
                     return nil
                 }
                 return token

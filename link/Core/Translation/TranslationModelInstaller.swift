@@ -51,16 +51,23 @@ actor TranslationModelInstaller {
     }
 
     private struct RawTokenizerConfig: Decodable {
+        struct AddedToken: Decodable {
+            let content: String
+            let special: Bool?
+        }
+
         let modelMaxLength: Int?
         let sourceLang: String?
         let targetLang: String?
         let extraIds: Int?
+        let addedTokensDecoder: [String: AddedToken]?
 
         enum CodingKeys: String, CodingKey {
             case modelMaxLength = "model_max_length"
             case sourceLang = "source_lang"
             case targetLang = "target_lang"
             case extraIds = "extra_ids"
+            case addedTokensDecoder = "added_tokens_decoder"
         }
     }
 
@@ -760,6 +767,15 @@ actor TranslationModelInstaller {
 
             return tokenIDs[0]
         } ?? []
+        let extraIDTokenIDs = tokenizerConfig.addedTokensDecoder?
+            .compactMap { key, value -> Int? in
+                guard value.content.contains("<extra_id_") else {
+                    return nil
+                }
+
+                return Int(key)
+            }
+            .sorted() ?? []
 
         let tokenizer = TranslationModelManifest.Tokenizer(
             kind: .sentencePiece,
@@ -785,7 +801,7 @@ actor TranslationModelInstaller {
                 ?? generationConfig.padTokenId
                 ?? config.padTokenId
                 ?? 0,
-            suppressedTokenIds: suppressedTokenIds
+            suppressedTokenIds: Array(Set(suppressedTokenIds + extraIDTokenIDs)).sorted()
         )
         let tensorNames = TranslationModelManifest.TensorNames(
             encoderInputIDs: "input_ids",

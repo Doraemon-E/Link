@@ -175,11 +175,10 @@ final class TranslationPipelineGoldenTests: XCTestCase {
     }
 
     private func recordActivity(named name: String, summary: String) {
-        XCTContext.runActivity(named: name) { activity in
-            let attachment = XCTAttachment(string: summary)
-            attachment.lifetime = .keepAlways
-            activity.add(attachment)
-        }
+        let attachment = XCTAttachment(string: summary)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
         print(summary)
     }
 }

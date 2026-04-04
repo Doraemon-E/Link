@@ -362,34 +362,55 @@ actor MarianTranslationService: TranslationService {
         manifest: TranslationModelManifest,
         modelDirectoryURL: URL
     ) -> Set<Int64> {
-        if let suppressedTokenIds = manifest.generation.suppressedTokenIds,
-           !suppressedTokenIds.isEmpty {
-            return Set(suppressedTokenIds.map(Int64.init))
-        }
+        var suppressedTokenIDs = Set(manifest.generation.suppressedTokenIds?.map(Int64.init) ?? [])
 
         let generationConfigURL = modelDirectoryURL.appendingPathComponent(
             "generation_config.json",
             isDirectory: false
         )
 
-        guard FileManager.default.fileExists(atPath: generationConfigURL.path) else {
-            return []
+        if FileManager.default.fileExists(atPath: generationConfigURL.path) {
+            do {
+                let data = try Data(contentsOf: generationConfigURL)
+                let generationConfig = try JSONDecoder().decode(GenerationConfigOverrides.self, from: data)
+                suppressedTokenIDs.formUnion((generationConfig.badWordsIds ?? []).compactMap { tokenIDs in
+                    guard tokenIDs.count == 1 else {
+                        return nil
+                    }
+
+                    return Int64(tokenIDs[0])
+                })
+            } catch {
+                debugLog("failed to load suppressed token ids from generation_config.json: \(error.localizedDescription)")
+            }
         }
 
-        do {
-            let data = try Data(contentsOf: generationConfigURL)
-            let generationConfig = try JSONDecoder().decode(GenerationConfigOverrides.self, from: data)
-            return Set((generationConfig.badWordsIds ?? []).compactMap { tokenIDs in
-                guard tokenIDs.count == 1 else {
-                    return nil
+        let tokenizerConfigURL = modelDirectoryURL.appendingPathComponent(
+            "tokenizer_config.json",
+            isDirectory: false
+        )
+
+        if FileManager.default.fileExists(atPath: tokenizerConfigURL.path) {
+            do {
+                let data = try Data(contentsOf: tokenizerConfigURL)
+                let rawConfig = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let addedTokensDecoder = rawConfig?["added_tokens_decoder"] as? [String: [String: Any]] ?? [:]
+
+                for (tokenID, tokenInfo) in addedTokensDecoder {
+                    guard let content = tokenInfo["content"] as? String,
+                          content.contains("<extra_id_"),
+                          let parsedTokenID = Int64(tokenID) else {
+                        continue
+                    }
+
+                    suppressedTokenIDs.insert(parsedTokenID)
                 }
-
-                return Int64(tokenIDs[0])
-            })
-        } catch {
-            debugLog("failed to load suppressed token ids from generation_config.json: \(error.localizedDescription)")
-            return []
+            } catch {
+                debugLog("failed to load extra_id token ids from tokenizer_config.json: \(error.localizedDescription)")
+            }
         }
+
+        return suppressedTokenIDs
     }
 
     private func formattedTokenIDs(_ tokenIDs: [Int64], limit: Int = 24) -> String {

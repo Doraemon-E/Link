@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct TranslationModelCatalog: Codable {
+struct TranslationModelCatalog: Codable, Equatable {
     let version: Int
     let generatedAt: Date?
     let packages: [TranslationModelPackage]

@@ -15,16 +15,22 @@ actor TranslationModelCatalogService {
     private let remoteCatalogURL: URL?
     private let bootstrapCatalogFileName: String
     private let bundle: Bundle
+    private let bundledCatalogURLOverride: URL?
+    private let baseDirectoryURLOverride: URL?
     private var inMemoryCatalog: TranslationModelCatalog?
 
     init(
         remoteCatalogURL: URL? = TranslationModelHostingConfiguration.remoteCatalogURL,
         bootstrapCatalogFileName: String = "translation-catalog.json",
-        bundle: Bundle = .main
+        bundle: Bundle = .main,
+        bundledCatalogURLOverride: URL? = nil,
+        baseDirectoryURLOverride: URL? = nil
     ) {
         self.remoteCatalogURL = remoteCatalogURL
         self.bootstrapCatalogFileName = bootstrapCatalogFileName
         self.bundle = bundle
+        self.bundledCatalogURLOverride = bundledCatalogURLOverride
+        self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
     func warmUpCatalog() async {
@@ -37,14 +43,22 @@ actor TranslationModelCatalogService {
             return inMemoryCatalog
         }
 
-        if let cachedCatalog = try? loadCatalog(at: try cachedCatalogURL()) {
-            inMemoryCatalog = cachedCatalog
-            return cachedCatalog
+        let cachedCatalog = try? loadCatalog(at: try cachedCatalogURL())
+        let bundledCatalog = try? loadBundledCatalog()
+
+        if let resolvedCatalog = preferredCatalog(candidate: cachedCatalog, baseline: bundledCatalog) {
+            inMemoryCatalog = resolvedCatalog
+
+            if cachedCatalog != resolvedCatalog {
+                try? saveCatalog(resolvedCatalog)
+            }
+
+            return resolvedCatalog
         }
 
-        let bundledCatalog = try loadBundledCatalog()
-        inMemoryCatalog = bundledCatalog
-        return bundledCatalog
+        let resolvedBundledCatalog = try loadBundledCatalog()
+        inMemoryCatalog = resolvedBundledCatalog
+        return resolvedBundledCatalog
     }
 
     func refreshCatalog() async throws -> TranslationModelCatalog {
@@ -60,10 +74,13 @@ actor TranslationModelCatalogService {
         }
 
         let refreshedCatalog = try decodeCatalog(from: data)
-        try ensureBaseDirectoryExists()
-        try data.write(to: try cachedCatalogURL(), options: .atomic)
-        inMemoryCatalog = refreshedCatalog
-        return refreshedCatalog
+        let bundledCatalog = try? loadBundledCatalog()
+        let resolvedCatalog = preferredCatalog(candidate: refreshedCatalog, baseline: bundledCatalog)
+            ?? refreshedCatalog
+
+        try saveCatalog(resolvedCatalog)
+        inMemoryCatalog = resolvedCatalog
+        return resolvedCatalog
     }
 
     func package(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationModelPackage? {
@@ -118,7 +135,59 @@ actor TranslationModelCatalogService {
         return try loadCatalog(at: catalogURL)
     }
 
+    private func saveCatalog(_ catalog: TranslationModelCatalog) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        try ensureBaseDirectoryExists()
+        let data = try encoder.encode(catalog)
+        try data.write(to: try cachedCatalogURL(), options: .atomic)
+    }
+
+    private func preferredCatalog(
+        candidate: TranslationModelCatalog?,
+        baseline: TranslationModelCatalog?
+    ) -> TranslationModelCatalog? {
+        switch (candidate, baseline) {
+        case let (.some(candidate), .some(baseline)):
+            return shouldPrefer(candidate: candidate, over: baseline) ? candidate : baseline
+        case let (.some(candidate), .none):
+            return candidate
+        case let (.none, .some(baseline)):
+            return baseline
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func shouldPrefer(
+        candidate: TranslationModelCatalog,
+        over baseline: TranslationModelCatalog
+    ) -> Bool {
+        if candidate.version != baseline.version {
+            return candidate.version > baseline.version
+        }
+
+        switch (candidate.generatedAt, baseline.generatedAt) {
+        case let (.some(candidateDate), .some(baselineDate)) where candidateDate != baselineDate:
+            return candidateDate > baselineDate
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        default:
+            break
+        }
+
+        return candidate == baseline
+    }
+
     private func bundledCatalogURL() throws -> URL {
+        if let bundledCatalogURLOverride {
+            return bundledCatalogURLOverride
+        }
+
         let candidateDirectories = bundledCandidateDirectories()
 
         for directoryURL in candidateDirectories {
@@ -136,6 +205,10 @@ actor TranslationModelCatalogService {
     }
 
     private func baseDirectoryURL() throws -> URL {
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride
+        }
+
         guard let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
