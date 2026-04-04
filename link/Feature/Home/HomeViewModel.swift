@@ -101,12 +101,7 @@ final class HomeViewModel {
                 session = createNewSession(using: modelContext)
             }
         case .none:
-            if let fallbackSession = latestNonEmptySession(in: sessions) {
-                session = fallbackSession
-                sessionPresentation = .persisted(fallbackSession.id)
-            } else {
-                session = createNewSession(using: modelContext)
-            }
+            session = createNewSession(using: modelContext)
         }
 
         let nextSequence = (session.messages.map(\.sequence).max() ?? -1) + 1
@@ -149,7 +144,7 @@ final class HomeViewModel {
         case .persisted(let sessionID):
             return sessions.first { $0.id == sessionID } ?? latestNonEmptySession(in: sessions)
         case .none:
-            return latestNonEmptySession(in: sessions)
+            return nil
         }
     }
 

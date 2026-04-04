@@ -37,13 +37,12 @@ struct HomeView: View {
                         }
                     }
                 }
-                .toolbar(shouldShowNavigationBar ? .visible : .hidden, for: .navigationBar)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        sessionHistoryToolbarButton
+                    }
+                    
                     if shouldShowNavigationBar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            sessionHistoryToolbarButton
-                        }
-
                         ToolbarItem {
                             toolbarContent
                         }
