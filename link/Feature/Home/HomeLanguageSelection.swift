@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct HomeLanguageDownloadPrompt: Identifiable, Equatable {
+struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
     let packageId: String
     let sourceLanguage: HomeLanguage
     let targetLanguage: HomeLanguage
@@ -38,7 +38,7 @@ struct HomeLanguageDownloadPrompt: Identifiable, Equatable {
     }
 }
 
-enum HomeLanguageSelectionResolution: Equatable {
+enum HomeLanguageSelectionResolution: Equatable, Sendable {
     case ready
     case requiresDownload(HomeLanguageDownloadPrompt)
     case failure(String)

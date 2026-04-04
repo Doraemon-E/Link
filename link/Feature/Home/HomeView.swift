@@ -52,7 +52,7 @@ struct HomeView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         sessionHistoryToolbarButton
                     }
-                    
+
                     if shouldShowNavigationBar {
                         ToolbarItem {
                             toolbarContent
@@ -60,7 +60,11 @@ struct HomeView: View {
 
                         ToolbarSpacer()
 
-                        ToolbarItem(placement: .topBarTrailing) {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if viewModel.shouldShowDownloadToolbarButton {
+                                downloadToolbarButton
+                            }
+
                             newSessionToolbarButton
                         }
                     }
@@ -83,8 +87,15 @@ struct HomeView: View {
                 onResolveSelection: { source, target in
                     await viewModel.resolveLanguageSelection(source: source, target: target)
                 },
-                onInstallPackage: { packageId in
-                    try await viewModel.installTranslationModel(packageId: packageId)
+                onCommitSelection: { source, target in
+                    viewModel.commitLanguageSelection(source: source, target: target)
+                },
+                onCommitSelectionRequiringDownload: { source, target, prompt in
+                    viewModel.commitLanguageSelectionRequiringDownload(
+                        source: source,
+                        target: target,
+                        prompt: prompt
+                    )
                 }
             )
         }
@@ -97,6 +108,53 @@ struct HomeView: View {
                 },
                 isPresented: $viewModel.isSessionHistoryPresented
             )
+        }
+        .confirmationDialog(
+            viewModel.activeDownloadPrompt?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.activeDownloadPrompt != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.dismissDownloadPrompt()
+                    }
+                }
+            ),
+            presenting: viewModel.activeDownloadPrompt
+        ) { prompt in
+            Button("下载并安装") {
+                Task {
+                    await viewModel.installTranslationModel(packageId: prompt.packageId)
+                }
+            }
+
+            Button("取消", role: .cancel) {
+                viewModel.dismissDownloadPrompt()
+            }
+        } message: { prompt in
+            Text(prompt.message)
+        }
+        .alert(
+            "模型下载失败",
+            isPresented: Binding(
+                get: { viewModel.downloadErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.downloadErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(viewModel.downloadErrorMessage ?? "")
+        }
+        .task {
+            await viewModel.refreshDownloadAvailabilityForCurrentSelection()
+        }
+        .onChange(of: viewModel.isLanguageSheetPresented) { _, isPresented in
+            if !isPresented {
+                viewModel.presentDeferredDownloadPromptIfNeeded()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             HomeChatInputBar(
@@ -184,20 +242,34 @@ struct HomeView: View {
 
     private var sessionHistoryToolbarButton: some View {
         toolbarIconButton(
-            systemName: "line.3.horizontal",
             accessibilityLabel: "历史会话",
             isEnabled: shouldShowSessionHistoryButton,
             action: viewModel.openSessionHistory
-        )
+        ) {
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+        }
     }
 
     private var newSessionToolbarButton: some View {
         toolbarIconButton(
-            systemName: "square.and.pencil",
             accessibilityLabel: "新增会话",
             isEnabled: shouldShowNewSessionButton,
             action: viewModel.startNewSession
-        )
+        ) {
+            Image(systemName: "square.and.pencil")
+                .font(.body.weight(.semibold))
+        }
+    }
+
+    private var downloadToolbarButton: some View {
+        toolbarIconButton(
+            accessibilityLabel: viewModel.isInstallingTranslationModel ? "正在下载语言包" : "下载语言包",
+            isEnabled: viewModel.canStartDownloadFromToolbar,
+            action: viewModel.presentDownloadPrompt
+        ) {
+            HomeDownloadToolbarIcon(isDownloading: viewModel.isInstallingTranslationModel)
+        }
     }
 
     private var toolbarLanguagePickerButton: some View {
@@ -216,15 +288,14 @@ struct HomeView: View {
         .accessibilityValue("\(viewModel.sourceLanguage.displayName)到\(viewModel.selectedLanguage.displayName)")
     }
 
-    private func toolbarIconButton(
-        systemName: String,
+    private func toolbarIconButton<Label: View>(
         accessibilityLabel: String,
         isEnabled: Bool = true,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.body.weight(.semibold))
+            label()
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -245,6 +316,49 @@ struct HomeView: View {
         } else {
             action()
         }
+    }
+}
+
+private struct HomeDownloadToolbarIcon: View {
+    let isDownloading: Bool
+    @State private var isAnimating = false
+
+    var body: some View {
+        ZStack {
+            Image(systemName: isDownloading ? "arrow.down.circle.fill" : "arrow.down.circle")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isDownloading ? Color.accentColor : Color.primary)
+
+            if isDownloading {
+                ZStack {
+                    animatedArrow(delay: 0)
+                    animatedArrow(delay: 0.45)
+                }
+                .frame(width: 18, height: 18)
+                .clipped()
+            }
+        }
+        .onAppear {
+            guard isDownloading else { return }
+            isAnimating = true
+        }
+        .onChange(of: isDownloading) { _, downloading in
+            isAnimating = downloading
+        }
+    }
+
+    private func animatedArrow(delay: Double) -> some View {
+        Image(systemName: "arrow.down")
+            .font(.system(size: 7, weight: .bold))
+            .foregroundStyle(.white.opacity(0.95))
+            .offset(y: isAnimating ? 6 : -5)
+            .opacity(isAnimating ? 0 : 1)
+            .animation(
+                .linear(duration: 0.9)
+                    .delay(delay)
+                    .repeatForever(autoreverses: false),
+                value: isAnimating
+            )
     }
 }
 

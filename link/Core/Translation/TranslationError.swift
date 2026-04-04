@@ -72,19 +72,31 @@ enum TranslationError: LocalizedError {
         case .modelPackageUnavailable(let source, let target):
             return "暂不支持下载\(source.displayName)到\(target.displayName)的翻译模型。"
         case .modelNotInstalled(let source, let target):
-            return "\(source.displayName)到\(target.displayName)的模型还没有下载，请先在语言选择里完成下载。"
+            return "\(source.displayName)到\(target.displayName)的模型还没有下载，请先点击右上角下载按钮或在语言选择里完成下载。"
         case .packageMissing:
             return "找不到对应的模型包配置，请刷新模型目录后再试。"
         case .catalogMissing, .catalogInvalid, .catalogUnavailable:
             return "模型目录暂时不可用，请稍后重试。"
-        case .downloadFailed:
-            return "模型下载失败，请检查网络后重试。"
+        case .downloadFailed(let detail):
+            return userFacingFailureMessage(
+                prefix: "模型下载失败",
+                detail: detail,
+                fallback: "请检查网络后重试。"
+            )
         case .integrityCheckFailed:
             return "下载的模型校验失败，请重新下载。"
-        case .extractionFailed:
-            return "模型解压失败，请重新下载。"
-        case .installationFailed:
-            return "翻译模型安装失败，请稍后重试。"
+        case .extractionFailed(let detail):
+            return userFacingFailureMessage(
+                prefix: "模型解压失败",
+                detail: detail,
+                fallback: "请重新下载或检查模型包结构。"
+            )
+        case .installationFailed(let detail):
+            return userFacingFailureMessage(
+                prefix: "翻译模型安装失败",
+                detail: detail,
+                fallback: "请稍后重试。"
+            )
         case .manifestMissing, .manifestInvalid:
             return "翻译模型配置无效，请检查模型清单文件。"
         case .incompatibleTokenizer:
@@ -96,5 +108,20 @@ enum TranslationError: LocalizedError {
         case .emptyOutput:
             return "模型没有返回可用的译文。"
         }
+    }
+}
+
+private extension TranslationError {
+    func userFacingFailureMessage(
+        prefix: String,
+        detail: String,
+        fallback: String
+    ) -> String {
+        let normalizedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDetail.isEmpty else {
+            return "\(prefix)，\(fallback)"
+        }
+
+        return "\(prefix)：\(normalizedDetail)"
     }
 }

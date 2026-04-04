@@ -25,6 +25,11 @@ final class HomeViewModel {
     var messageText = ""
     var isChatInputFocused = false
     var sessionPresentation: SessionPresentation = .none
+    var downloadableLanguagePrompt: HomeLanguageDownloadPrompt?
+    var deferredDownloadPrompt: HomeLanguageDownloadPrompt?
+    var activeDownloadPrompt: HomeLanguageDownloadPrompt?
+    var downloadErrorMessage: String?
+    var isInstallingTranslationModel = false
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
@@ -190,8 +195,92 @@ final class HomeViewModel {
         }
     }
 
-    func installTranslationModel(packageId: String) async throws {
-        _ = try await translationModelInstaller.install(packageId: packageId)
+    func commitLanguageSelection(source: HomeLanguage, target: HomeLanguage) {
+        sourceLanguage = source
+        selectedLanguage = target
+        downloadableLanguagePrompt = nil
+        deferredDownloadPrompt = nil
+        activeDownloadPrompt = nil
+    }
+
+    func commitLanguageSelectionRequiringDownload(
+        source: HomeLanguage,
+        target: HomeLanguage,
+        prompt: HomeLanguageDownloadPrompt
+    ) {
+        sourceLanguage = source
+        selectedLanguage = target
+        downloadableLanguagePrompt = prompt
+        deferredDownloadPrompt = prompt
+        activeDownloadPrompt = nil
+    }
+
+    func presentDeferredDownloadPromptIfNeeded() {
+        guard !isLanguageSheetPresented, let deferredDownloadPrompt else { return }
+
+        activeDownloadPrompt = deferredDownloadPrompt
+        self.deferredDownloadPrompt = nil
+    }
+
+    func presentDownloadPrompt() {
+        guard !isInstallingTranslationModel, let downloadableLanguagePrompt else { return }
+        activeDownloadPrompt = downloadableLanguagePrompt
+    }
+
+    func dismissDownloadPrompt() {
+        activeDownloadPrompt = nil
+    }
+
+    func refreshDownloadAvailabilityForCurrentSelection() async {
+        let source = sourceLanguage
+        let target = selectedLanguage
+        let prompt = await downloadPromptIfNeeded(source: source, target: target)
+
+        guard source == sourceLanguage, target == selectedLanguage else {
+            return
+        }
+
+        downloadableLanguagePrompt = prompt
+
+        if prompt == nil {
+            deferredDownloadPrompt = nil
+            activeDownloadPrompt = nil
+        }
+    }
+
+    func installTranslationModel(packageId: String) async {
+        guard !isInstallingTranslationModel else { return }
+
+        isInstallingTranslationModel = true
+        downloadErrorMessage = nil
+        activeDownloadPrompt = nil
+
+        defer {
+            isInstallingTranslationModel = false
+        }
+
+        do {
+            _ = try await translationModelInstaller.install(packageId: packageId)
+
+            if downloadableLanguagePrompt?.packageId == packageId {
+                downloadableLanguagePrompt = nil
+                deferredDownloadPrompt = nil
+            }
+        } catch let error as TranslationError {
+            print("[HomeViewModel] installTranslationModel failed for packageId=\(packageId): \(error.localizedDescription)")
+            downloadErrorMessage = error.userFacingMessage
+        } catch {
+            print("[HomeViewModel] installTranslationModel failed for packageId=\(packageId): \(error.localizedDescription)")
+            downloadErrorMessage = "模型下载失败，请稍后重试。"
+        }
+    }
+
+    var shouldShowDownloadToolbarButton: Bool {
+        isInstallingTranslationModel || downloadableLanguagePrompt != nil
+    }
+
+    var canStartDownloadFromToolbar: Bool {
+        !isInstallingTranslationModel && downloadableLanguagePrompt != nil
     }
 
     private var isDraftSession: Bool {
@@ -302,6 +391,35 @@ final class HomeViewModel {
         message.text = text
         message.session?.updatedAt = .now
         saveContext(using: modelContext)
+    }
+
+    private func downloadPromptIfNeeded(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async -> HomeLanguageDownloadPrompt? {
+        guard source != target else {
+            return nil
+        }
+
+        do {
+            if try await translationModelInstaller.isInstalled(source: source, target: target) {
+                return nil
+            }
+
+            guard let package = try await translationModelInstaller.packageMetadata(source: source, target: target) else {
+                return nil
+            }
+
+            return HomeLanguageDownloadPrompt(
+                packageId: package.packageId,
+                sourceLanguage: source,
+                targetLanguage: target,
+                archiveSize: package.archiveSize,
+                installedSize: package.installedSize
+            )
+        } catch {
+            return nil
+        }
     }
 
 }

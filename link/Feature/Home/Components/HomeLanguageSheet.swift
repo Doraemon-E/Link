@@ -18,11 +18,11 @@ struct HomeLanguageSheet: View {
     @Binding var isPresented: Bool
     let mode: Mode
     let onResolveSelection: @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution
-    let onInstallPackage: @Sendable (String) async throws -> Void
+    let onCommitSelection: @Sendable (HomeLanguage, HomeLanguage) -> Void
+    let onCommitSelectionRequiringDownload: @Sendable (HomeLanguage, HomeLanguage, HomeLanguageDownloadPrompt) -> Void
 
     @State private var draftSourceLanguage: HomeLanguage
     @State private var draftSelectedLanguage: HomeLanguage
-    @State private var pendingDownloadPrompt: HomeLanguageDownloadPrompt?
     @State private var errorMessage: String?
     @State private var isWorking = false
 
@@ -32,14 +32,16 @@ struct HomeLanguageSheet: View {
         isPresented: Binding<Bool>,
         mode: Mode,
         onResolveSelection: @escaping @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution = { _, _ in .ready },
-        onInstallPackage: @escaping @Sendable (String) async throws -> Void = { _ in }
+        onCommitSelection: @escaping @Sendable (HomeLanguage, HomeLanguage) -> Void = { _, _ in },
+        onCommitSelectionRequiringDownload: @escaping @Sendable (HomeLanguage, HomeLanguage, HomeLanguageDownloadPrompt) -> Void = { _, _, _ in }
     ) {
         self._sourceLanguage = sourceLanguage
         self._selectedLanguage = selectedLanguage
         self._isPresented = isPresented
         self.mode = mode
         self.onResolveSelection = onResolveSelection
-        self.onInstallPackage = onInstallPackage
+        self.onCommitSelection = onCommitSelection
+        self.onCommitSelectionRequiringDownload = onCommitSelectionRequiringDownload
         _draftSourceLanguage = State(initialValue: sourceLanguage.wrappedValue)
         _draftSelectedLanguage = State(initialValue: selectedLanguage.wrappedValue)
     }
@@ -109,28 +111,6 @@ struct HomeLanguageSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .confirmationDialog(
-            pendingDownloadPrompt?.title ?? "",
-            isPresented: Binding(
-                get: { pendingDownloadPrompt != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingDownloadPrompt = nil
-                    }
-                }
-            ),
-            presenting: pendingDownloadPrompt
-        ) { prompt in
-            Button("下载并继续") {
-                Task {
-                    await downloadAndCommit(prompt)
-                }
-            }
-
-            Button("取消", role: .cancel) {}
-        } message: { prompt in
-            Text(prompt.message)
-        }
         .alert(
             "暂时无法使用该翻译方向",
             isPresented: Binding(
@@ -226,32 +206,21 @@ struct HomeLanguageSheet: View {
         case .ready:
             commitDraftSelection()
         case .requiresDownload(let prompt):
-            pendingDownloadPrompt = prompt
+            commitDraftSelection(requiringDownload: prompt)
         case .failure(let message):
             errorMessage = message
         }
     }
 
-    private func downloadAndCommit(_ prompt: HomeLanguageDownloadPrompt) async {
-        guard !isWorking else { return }
-
-        isWorking = true
-        defer {
-            isWorking = false
-            pendingDownloadPrompt = nil
-        }
-
-        do {
-            try await onInstallPackage(prompt.packageId)
-            commitDraftSelection()
-        } catch let error as TranslationError {
-            errorMessage = error.userFacingMessage
-        } catch {
-            errorMessage = "模型下载失败，请稍后重试。"
-        }
+    private func commitDraftSelection() {
+        onCommitSelection(draftSourceLanguage, draftSelectedLanguage)
+        sourceLanguage = draftSourceLanguage
+        selectedLanguage = draftSelectedLanguage
+        isPresented = false
     }
 
-    private func commitDraftSelection() {
+    private func commitDraftSelection(requiringDownload prompt: HomeLanguageDownloadPrompt) {
+        onCommitSelectionRequiringDownload(draftSourceLanguage, draftSelectedLanguage, prompt)
         sourceLanguage = draftSourceLanguage
         selectedLanguage = draftSelectedLanguage
         isPresented = false
