@@ -8,45 +8,61 @@
 import SwiftUI
 
 struct HomeLanguageSheet: View {
+    enum Mode: Equatable {
+        case full
+        case targetOnly
+    }
+
     @Binding var sourceLanguage: HomeLanguage
     @Binding var selectedLanguage: HomeLanguage
     @Binding var isPresented: Bool
+    let mode: Mode
 
     var body: some View {
         NavigationStack {
-            HStack(alignment: .top, spacing: 16) {
-                languageColumn(
-                    title: "源语言",
-                    selection: sourceLanguage,
-                    onSelect: selectSourceLanguage
-                )
+            Group {
+                if mode == .full {
+                    HStack(alignment: .top, spacing: 16) {
+                        languageColumn(
+                            title: "源语言",
+                            selection: sourceLanguage,
+                            onSelect: selectSourceLanguage
+                        )
 
-                VStack(spacing: 12) {
-                    Spacer(minLength: 44)
+                        VStack(spacing: 12) {
+                            Spacer(minLength: 44)
 
-                    Image(systemName: "arrow.right")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 42, height: 42)
-                        .background(Color(uiColor: .secondarySystemBackground), in: Circle())
+                            Image(systemName: "arrow.right")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, height: 42)
+                                .background(Color(uiColor: .secondarySystemBackground), in: Circle())
 
-                    Text("翻译方向")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                            Text("翻译方向")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                    Spacer()
+                            Spacer()
+                        }
+
+                        languageColumn(
+                            title: "目标语言",
+                            selection: selectedLanguage,
+                            onSelect: selectTargetLanguage
+                        )
+                    }
+                } else {
+                    languageColumn(
+                        title: "目标语言",
+                        selection: selectedLanguage,
+                        onSelect: selectTargetLanguage
+                    )
                 }
-
-                languageColumn(
-                    title: "目标语言",
-                    selection: selectedLanguage,
-                    onSelect: selectTargetLanguage
-                )
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
             .padding(.bottom, 12)
-            .navigationTitle("选择语言")
+            .navigationTitle(mode == .full ? "选择语言" : "选择目标语言")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") {
@@ -129,6 +145,7 @@ struct HomeLanguageSheet: View {
     HomeLanguageSheet(
         sourceLanguage: .constant(.chinese),
         selectedLanguage: .constant(.english),
-        isPresented: .constant(true)
+        isPresented: .constant(true),
+        mode: .full
     )
 }

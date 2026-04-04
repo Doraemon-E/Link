@@ -13,20 +13,22 @@ struct HomeLanguageChip: View {
         case toolbar
     }
 
-    let sourceTitle: String
+    let sourceTitle: String?
     let targetTitle: String
     let style: Style
 
     var body: some View {
         HStack(spacing: contentSpacing) {
-            Text(sourceTitle)
-                .font(font)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if let sourceTitle {
+                Text(sourceTitle)
+                    .font(font)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
-            Image(systemName: "arrow.right")
-                .font(arrowFont)
-                .foregroundStyle(.secondary)
+                Image(systemName: "arrow.right")
+                    .font(arrowFont)
+                    .foregroundStyle(.secondary)
+            }
 
             Text(targetTitle)
                 .font(font)
@@ -89,6 +91,7 @@ struct HomeLanguageChip: View {
 #Preview {
     VStack(spacing: 16) {
         HomeLanguageChip(sourceTitle: "中文", targetTitle: "英文", style: .hero)
+        HomeLanguageChip(sourceTitle: nil, targetTitle: "英文", style: .hero)
         HomeLanguageChip(sourceTitle: "中文", targetTitle: "英文", style: .toolbar)
     }
     .padding()

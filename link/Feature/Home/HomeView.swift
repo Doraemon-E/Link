@@ -12,6 +12,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
     @State private var viewModel = HomeViewModel()
+    @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
     init() {}
 
@@ -67,7 +68,8 @@ struct HomeView: View {
             HomeLanguageSheet(
                 sourceLanguage: $viewModel.sourceLanguage,
                 selectedLanguage: $viewModel.selectedLanguage,
-                isPresented: $viewModel.isLanguageSheetPresented
+                isPresented: $viewModel.isLanguageSheetPresented,
+                mode: languageSheetMode
             )
         }
         .sheet(isPresented: $viewModel.isSessionHistoryPresented) {
@@ -130,10 +132,11 @@ struct HomeView: View {
 
             if shouldShowLanguagePickerHero {
                 Button {
+                    languageSheetMode = .targetOnly
                     viewModel.isLanguageSheetPresented = true
                 } label: {
                     HomeLanguageChip(
-                        sourceTitle: viewModel.sourceLanguage.displayName,
+                        sourceTitle: nil,
                         targetTitle: viewModel.selectedLanguage.displayName,
                         style: .hero
                     )
@@ -185,6 +188,7 @@ struct HomeView: View {
 
     private var toolbarLanguagePickerButton: some View {
         Button {
+            languageSheetMode = .full
             viewModel.isLanguageSheetPresented = true
         } label: {
             HomeToolbarTranslationItem(
