@@ -23,7 +23,7 @@ actor MarianTranslationService: TranslationService {
     }
 
     private let installer: TranslationModelInstaller
-    private var loadedStates: [String: LoadedState] = [:]
+    private var loadedState: LoadedState?
 
     init(
         installer: TranslationModelInstaller = TranslationModelInstaller(
@@ -199,9 +199,11 @@ actor MarianTranslationService: TranslationService {
             throw TranslationError.modelPackageUnavailable(source: source, target: target)
         }
 
-        if let loadedState = loadedStates[installation.package.packageId] {
+        if let loadedState, loadedState.packageID == installation.package.packageId {
             return loadedState
         }
+
+        loadedState = nil
 
         let manifest = installation.manifest
 
@@ -239,7 +241,7 @@ actor MarianTranslationService: TranslationService {
                 encoderSession: encoderSession,
                 decoderSession: decoderSession
             )
-            loadedStates[installation.package.packageId] = state
+            loadedState = state
             return state
         } catch {
             throw TranslationError.runtimeInitialization(error.localizedDescription)
@@ -266,32 +268,37 @@ actor MarianTranslationService: TranslationService {
             let tensorInfo = try logitsValue.tensorTypeAndShapeInfo()
             let shape = tensorInfo.shape.map(\.intValue)
 
-            guard shape.count == 3, let sequenceLength = shape.dropLast().last, let vocabSize = shape.last else {
+            guard shape.count == 3,
+                  let batchSize = shape.first,
+                  let sequenceLength = shape.dropFirst().first,
+                  let vocabSize = shape.last else {
                 throw TranslationError.inferenceFailed("Unexpected logits tensor shape.")
             }
 
-            let floatBuffer = Data(referencing: tensorData).withUnsafeBytes { rawBuffer in
-                Array(rawBuffer.bindMemory(to: Float.self))
-            }
-            let startIndex = (sequenceLength - 1) * vocabSize
+            let floatData = Data(referencing: tensorData)
+            let startIndex = ((batchSize * sequenceLength) - 1) * vocabSize
             let endIndex = startIndex + vocabSize
 
-            guard startIndex >= 0, endIndex <= floatBuffer.count else {
-                throw TranslationError.inferenceFailed("Decoder logits buffer is out of bounds.")
-            }
+            return try floatData.withUnsafeBytes { rawBuffer in
+                let floatBuffer = rawBuffer.bindMemory(to: Float.self)
 
-            var bestIndex = 0
-            var bestValue = -Float.infinity
-
-            for offset in 0 ..< vocabSize {
-                let candidate = floatBuffer[startIndex + offset]
-                if candidate > bestValue {
-                    bestValue = candidate
-                    bestIndex = offset
+                guard startIndex >= 0, endIndex <= floatBuffer.count else {
+                    throw TranslationError.inferenceFailed("Decoder logits buffer is out of bounds.")
                 }
-            }
 
-            return Int64(bestIndex)
+                var bestIndex = 0
+                var bestValue = -Float.infinity
+
+                for offset in 0 ..< vocabSize {
+                    let candidate = floatBuffer[startIndex + offset]
+                    if candidate > bestValue {
+                        bestValue = candidate
+                        bestIndex = offset
+                    }
+                }
+
+                return Int64(bestIndex)
+            }
         } catch let error as TranslationError {
             throw error
         } catch {

@@ -145,6 +145,7 @@ actor TranslationModelInstaller {
             do {
                 try FileManager.default.unzipItem(at: archiveURL, to: extractedDirectoryURL)
                 log("Unzipped packageId=\(package.packageId) into \(extractedDirectoryURL.path)")
+                logExtractedContents(at: extractedDirectoryURL)
             } catch {
                 log("Unzip failed for packageId=\(package.packageId): \(error.localizedDescription)")
                 throw TranslationError.extractionFailed(error.localizedDescription)
@@ -156,7 +157,11 @@ actor TranslationModelInstaller {
             )
 
             let manifestURL = payloadRootURL.appendingPathComponent(package.manifestRelativePath, isDirectory: false)
-            let manifest = try loadManifest(at: manifestURL)
+            let manifest = try loadManifestOrSynthesizeIfPossible(
+                for: package,
+                modelDirectoryURL: payloadRootURL,
+                manifestURL: manifestURL
+            )
             let modelDirectoryURL = manifestURL.deletingLastPathComponent()
 
             try validate(package: package, manifest: manifest, modelDirectoryURL: modelDirectoryURL)
@@ -216,13 +221,16 @@ actor TranslationModelInstaller {
         }
 
         let packageDirectoryURL = try packageDirectoryURL(for: record.packageId)
-        let manifestURL = packageDirectoryURL.appendingPathComponent(record.manifestRelativePath, isDirectory: false)
-
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+        guard FileManager.default.fileExists(atPath: packageDirectoryURL.path) else {
             return nil
         }
 
-        let manifest = try loadManifest(at: manifestURL)
+        let manifestURL = packageDirectoryURL.appendingPathComponent(record.manifestRelativePath, isDirectory: false)
+        let manifest = try loadManifestOrSynthesizeIfPossible(
+            for: package,
+            modelDirectoryURL: packageDirectoryURL,
+            manifestURL: manifestURL
+        )
         let modelDirectoryURL = manifestURL.deletingLastPathComponent()
         try validate(package: package, manifest: manifest, modelDirectoryURL: modelDirectoryURL)
 
@@ -440,18 +448,9 @@ actor TranslationModelInstaller {
         extractedDirectoryURL: URL,
         package: TranslationModelPackage
     ) throws -> URL? {
-        guard package.family == .marian else {
+        guard let requiredFileNames = rawMarianRequiredFileNames(for: package) else {
             return nil
         }
-
-        let requiredFileNames = [
-            "config.json",
-            "generation_config.json",
-            "tokenizer_config.json",
-            "vocab.json",
-            "encoder_model.onnx",
-            "decoder_model.onnx"
-        ]
 
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
@@ -491,6 +490,21 @@ actor TranslationModelInstaller {
         }
 
         return candidates.first
+    }
+
+    private func rawMarianRequiredFileNames(for package: TranslationModelPackage) -> [String]? {
+        guard package.family == .marian else {
+            return nil
+        }
+
+        return [
+            "config.json",
+            "generation_config.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "encoder_model.onnx",
+            "decoder_model.onnx"
+        ]
     }
 
     private func isValidManifestCandidate(
@@ -537,6 +551,57 @@ actor TranslationModelInstaller {
         }
 
         return rootURL
+    }
+
+    private func loadManifestOrSynthesizeIfPossible(
+        for package: TranslationModelPackage,
+        modelDirectoryURL: URL,
+        manifestURL: URL
+    ) throws -> TranslationModelManifest {
+        do {
+            return try loadManifest(at: manifestURL)
+        } catch let error as TranslationError {
+            guard case .manifestInvalid = error,
+                  let manifest = try synthesizeManifestIfPossible(
+                    for: package,
+                    modelDirectoryURL: modelDirectoryURL,
+                    manifestURL: manifestURL
+                  ) else {
+                throw error
+            }
+
+            log("Recovered invalid manifest for packageId=\(package.packageId) at \(manifestURL.path)")
+            return manifest
+        }
+    }
+
+    private func synthesizeManifestIfPossible(
+        for package: TranslationModelPackage,
+        modelDirectoryURL: URL,
+        manifestURL: URL
+    ) throws -> TranslationModelManifest? {
+        guard let requiredFileNames = rawMarianRequiredFileNames(for: package) else {
+            return nil
+        }
+
+        let fileManager = FileManager.default
+        guard requiredFileNames.allSatisfy({ fileName in
+            fileManager.fileExists(
+                atPath: modelDirectoryURL
+                    .appendingPathComponent(fileName, isDirectory: false)
+                    .path
+            )
+        }) else {
+            return nil
+        }
+
+        let manifest = try synthesizeManifest(
+            for: package,
+            modelDirectoryURL: modelDirectoryURL
+        )
+        try saveManifest(manifest, to: manifestURL)
+        log("Synthesized manifest for packageId=\(package.packageId) at \(manifestURL.path)")
+        return manifest
     }
 
     private func loadManifest(at manifestURL: URL) throws -> TranslationModelManifest {
@@ -615,11 +680,54 @@ actor TranslationModelInstaller {
             ),
             supportedLanguagePairs: [
                 .init(
-                    source: tokenizerConfig.sourceLang ?? package.source,
-                    target: tokenizerConfig.targetLang ?? package.target
+                    source: normalizedLanguageCode(
+                        tokenizerConfig.sourceLang,
+                        fallback: package.source
+                    ),
+                    target: normalizedLanguageCode(
+                        tokenizerConfig.targetLang,
+                        fallback: package.target
+                    )
                 )
             ]
         )
+    }
+
+    private func normalizedLanguageCode(_ rawCode: String?, fallback: String) -> String {
+        guard let rawCode else {
+            return fallback
+        }
+
+        let normalizedCode = rawCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard !normalizedCode.isEmpty else {
+            return fallback
+        }
+
+        switch normalizedCode {
+        case "eng", "en", "english":
+            return "eng"
+        case "zho", "zh", "chi", "cmn", "chinese":
+            return "zho"
+        case "jpn", "ja", "jap", "japanese":
+            return "jpn"
+        case "kor", "ko", "korean":
+            return "kor"
+        case "fra", "fr", "fre", "french":
+            return "fra"
+        case "deu", "de", "ger", "german":
+            return "deu"
+        case "rus", "ru", "russian":
+            return "rus"
+        case "spa", "es", "spanish":
+            return "spa"
+        case "ita", "it", "italian":
+            return "ita"
+        default:
+            return fallback
+        }
     }
 
     private func saveManifest(_ manifest: TranslationModelManifest, to manifestURL: URL) throws {
