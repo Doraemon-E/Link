@@ -40,12 +40,79 @@ actor SpeechModelInstaller {
         return try validInstalledPackage(for: package)
     }
 
+    func package(packageId: String) async throws -> SpeechModelPackage? {
+        try await catalogService.package(packageId: packageId)
+    }
+
+    func packages() async throws -> [SpeechModelPackage] {
+        try await catalogService.packages()
+    }
+
+    func installedPackages() async throws -> [SpeechInstalledPackageSummary] {
+        let index = try loadInstalledIndex()
+        var summaries: [SpeechInstalledPackageSummary] = []
+
+        for record in index.packages.sorted(by: { $0.installedAt > $1.installedAt }) {
+            guard let package = try await catalogService.package(packageId: record.packageId) else {
+                continue
+            }
+
+            guard try validInstalledPackage(for: package) != nil else {
+                continue
+            }
+
+            summaries.append(
+                SpeechInstalledPackageSummary(
+                    packageId: package.packageId,
+                    version: package.version,
+                    archiveSize: package.archiveSize,
+                    installedSize: package.installedSize,
+                    installedAt: record.installedAt
+                )
+            )
+        }
+
+        return summaries
+    }
+
     func install(packageId: String) async throws -> SpeechModelInstallation {
         guard let package = try await catalogService.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw SpeechRecognitionError.packageMissing(packageId)
         }
 
+        return try await install(package: package, archiveURLOverride: nil)
+    }
+
+    func install(packageId: String, archiveURL: URL) async throws -> SpeechModelInstallation {
+        guard let package = try await catalogService.package(packageId: packageId) else {
+            log("Missing package metadata for packageId=\(packageId)")
+            throw SpeechRecognitionError.packageMissing(packageId)
+        }
+
+        return try await install(package: package, archiveURLOverride: archiveURL)
+    }
+
+    func remove(packageId: String) async throws {
+        for candidatePackageId in candidatePackageIDs(for: packageId) {
+            let packageURL = try packageDirectoryURL(for: candidatePackageId)
+            if FileManager.default.fileExists(atPath: packageURL.path) {
+                try FileManager.default.removeItem(at: packageURL)
+            }
+        }
+
+        var index = try loadInstalledIndex()
+        let normalizedPackageId = SpeechModelPackage.normalizePackageId(packageId)
+        index.packages.removeAll {
+            SpeechModelPackage.normalizePackageId($0.packageId) == normalizedPackageId
+        }
+        try saveInstalledIndex(index)
+    }
+
+    private func install(
+        package: SpeechModelPackage,
+        archiveURLOverride: URL?
+    ) async throws -> SpeechModelInstallation {
         if let installation = try validInstalledPackage(for: package) {
             log("Using cached installation for packageId=\(package.packageId)")
             return installation
@@ -63,7 +130,12 @@ actor SpeechModelInstaller {
                 try? FileManager.default.removeItem(at: workingDirectoryURL)
             }
 
-            let archiveURL = try await downloadArchive(for: package, into: workingDirectoryURL)
+            let archiveURL: URL
+            if let archiveURLOverride {
+                archiveURL = archiveURLOverride
+            } else {
+                archiveURL = try await downloadArchive(for: package, into: workingDirectoryURL)
+            }
             try verifyChecksumIfNeeded(for: package, archiveURL: archiveURL)
 
             let extractedDirectoryURL = workingDirectoryURL.appendingPathComponent("extracted", isDirectory: true)
@@ -162,8 +234,8 @@ actor SpeechModelInstaller {
         into workingDirectoryURL: URL
     ) async throws -> URL {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.allowsCellularAccess = false
-        configuration.allowsExpensiveNetworkAccess = false
+        configuration.allowsCellularAccess = true
+        configuration.allowsExpensiveNetworkAccess = true
         configuration.allowsConstrainedNetworkAccess = false
         configuration.waitsForConnectivity = true
 

@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct TranslationModelCatalog: Codable, Equatable {
+struct TranslationModelCatalog: Codable, Equatable, Sendable {
     let version: Int
     let generatedAt: Date?
     let packages: [TranslationModelPackage]
@@ -24,7 +24,7 @@ struct TranslationModelCatalog: Codable, Equatable {
     }
 }
 
-struct TranslationModelPackage: Codable, Identifiable, Equatable {
+struct TranslationModelPackage: Codable, Identifiable, Equatable, Sendable {
     let packageId: String
     let version: String
     let source: String
@@ -40,13 +40,13 @@ struct TranslationModelPackage: Codable, Identifiable, Equatable {
     var id: String { packageId }
 }
 
-struct TranslationInstalledPackagesIndex: Codable {
+struct TranslationInstalledPackagesIndex: Codable, Sendable {
     var packages: [TranslationInstalledPackageRecord]
 
     static let empty = TranslationInstalledPackagesIndex(packages: [])
 }
 
-struct TranslationInstalledPackageRecord: Codable, Equatable {
+struct TranslationInstalledPackageRecord: Codable, Equatable, Sendable {
     let packageId: String
     let version: String
     let manifestRelativePath: String

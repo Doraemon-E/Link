@@ -143,4 +143,13 @@ enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
 
         return allCases.first { $0.whisperLanguageCode == normalizedCode }
     }
+
+    static func fromTranslationModelCode(_ code: String?) -> HomeLanguage? {
+        guard let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalizedCode.isEmpty else {
+            return nil
+        }
+
+        return allCases.first { $0.translationModelCode == normalizedCode }
+    }
 }

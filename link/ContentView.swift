@@ -13,6 +13,7 @@ struct ContentView: View {
     let translationModelInstaller: TranslationModelInstaller
     let speechRecognitionService: SpeechRecognitionService
     let speechModelInstaller: SpeechModelInstaller
+    let modelDownloadCenter: ModelDownloadCenter
     let microphoneRecordingService: MicrophoneRecordingService
 
     var body: some View {
@@ -22,6 +23,7 @@ struct ContentView: View {
             translationModelInstaller: translationModelInstaller,
             speechRecognitionService: speechRecognitionService,
             speechModelInstaller: speechModelInstaller,
+            modelDownloadCenter: modelDownloadCenter,
             microphoneRecordingService: microphoneRecordingService
         )
     }
@@ -32,12 +34,17 @@ struct ContentView: View {
     let installer = TranslationModelInstaller(catalogService: catalogService)
     let speechCatalogService = SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
     let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
+    let downloadCenter = ModelDownloadCenter(
+        translationInstaller: installer,
+        speechInstaller: speechInstaller
+    )
     ContentView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "ContentViewPreview") ?? .standard),
         translationService: MarianTranslationService(installer: installer),
         translationModelInstaller: installer,
         speechRecognitionService: WhisperSpeechRecognitionService(installer: speechInstaller),
         speechModelInstaller: speechInstaller,
+        modelDownloadCenter: downloadCenter,
         microphoneRecordingService: MicrophoneRecordingService()
     )
 }

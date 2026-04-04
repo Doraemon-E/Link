@@ -123,12 +123,65 @@ actor TranslationModelInstaller {
         return try validInstalledPackage(for: package)
     }
 
+    func package(packageId: String) async throws -> TranslationModelPackage? {
+        try await catalogService.package(packageId: packageId)
+    }
+
+    func packages() async throws -> [TranslationModelPackage] {
+        try await catalogService.packages()
+    }
+
+    func installedPackages() async throws -> [TranslationInstalledPackageSummary] {
+        let index = try loadInstalledIndex()
+        var summaries: [TranslationInstalledPackageSummary] = []
+
+        for record in index.packages.sorted(by: { $0.installedAt > $1.installedAt }) {
+            guard let package = try await catalogService.package(packageId: record.packageId) else {
+                continue
+            }
+
+            guard try validInstalledPackage(for: package) != nil else {
+                continue
+            }
+
+            summaries.append(
+                TranslationInstalledPackageSummary(
+                    packageId: package.packageId,
+                    version: package.version,
+                    sourceLanguage: HomeLanguage.fromTranslationModelCode(package.source),
+                    targetLanguage: HomeLanguage.fromTranslationModelCode(package.target),
+                    archiveSize: package.archiveSize,
+                    installedSize: package.installedSize,
+                    installedAt: record.installedAt
+                )
+            )
+        }
+
+        return summaries
+    }
+
     func install(packageId: String) async throws -> TranslationModelInstallation {
         guard let package = try await catalogService.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw TranslationError.packageMissing(packageId: packageId)
         }
 
+        return try await install(package: package, archiveURLOverride: nil)
+    }
+
+    func install(packageId: String, archiveURL: URL) async throws -> TranslationModelInstallation {
+        guard let package = try await catalogService.package(packageId: packageId) else {
+            log("Missing package metadata for packageId=\(packageId)")
+            throw TranslationError.packageMissing(packageId: packageId)
+        }
+
+        return try await install(package: package, archiveURLOverride: archiveURL)
+    }
+
+    private func install(
+        package: TranslationModelPackage,
+        archiveURLOverride: URL?
+    ) async throws -> TranslationModelInstallation {
         if let installation = try validInstalledPackage(for: package) {
             log("Using cached installation for packageId=\(package.packageId)")
             return installation
@@ -147,7 +200,12 @@ actor TranslationModelInstaller {
                 try? FileManager.default.removeItem(at: workingDirectoryURL)
             }
 
-            let archiveURL = try await downloadArchive(for: package, into: workingDirectoryURL)
+            let archiveURL: URL
+            if let archiveURLOverride {
+                archiveURL = archiveURLOverride
+            } else {
+                archiveURL = try await downloadArchive(for: package, into: workingDirectoryURL)
+            }
             try verifyChecksumIfNeeded(for: package, archiveURL: archiveURL)
 
             let extractedDirectoryURL = workingDirectoryURL.appendingPathComponent("extracted", isDirectory: true)
@@ -290,8 +348,8 @@ actor TranslationModelInstaller {
         into workingDirectoryURL: URL
     ) async throws -> URL {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.allowsCellularAccess = false
-        configuration.allowsExpensiveNetworkAccess = false
+        configuration.allowsCellularAccess = true
+        configuration.allowsExpensiveNetworkAccess = true
         configuration.allowsConstrainedNetworkAccess = false
         configuration.waitsForConnectivity = true
 

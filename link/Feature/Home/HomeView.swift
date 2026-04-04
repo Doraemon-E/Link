@@ -20,6 +20,7 @@ struct HomeView: View {
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
         speechModelInstaller: SpeechModelInstaller,
+        modelDownloadCenter: ModelDownloadCenter,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
         _viewModel = State(
@@ -29,6 +30,7 @@ struct HomeView: View {
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
                 speechModelInstaller: speechModelInstaller,
+                modelDownloadCenter: modelDownloadCenter,
                 microphoneRecordingService: microphoneRecordingService
             )
         )
@@ -117,6 +119,35 @@ struct HomeView: View {
                 isPresented: $viewModel.isSessionHistoryPresented
             )
         }
+        .sheet(isPresented: $viewModel.isDownloadManagerPresented) {
+            ModelDownloadsSheet(
+                processingItems: viewModel.processingDownloadItems,
+                resumableItems: viewModel.resumableDownloadItems,
+                failedItems: viewModel.failedDownloadItems,
+                installedItems: viewModel.installedDownloadItems,
+                availableItems: viewModel.availableDownloadItems,
+                onDownload: { item in
+                    Task {
+                        await viewModel.startDownload(item: item)
+                    }
+                },
+                onResume: { itemID in
+                    Task {
+                        await viewModel.resumeDownload(itemID: itemID)
+                    }
+                },
+                onRetry: { itemID in
+                    Task {
+                        await viewModel.retryDownload(itemID: itemID)
+                    }
+                },
+                onDelete: { itemID in
+                    Task {
+                        await viewModel.deleteInstalledDownload(itemID: itemID)
+                    }
+                }
+            )
+        }
         .confirmationDialog(
             viewModel.activeDownloadPrompt?.title ?? "",
             isPresented: Binding(
@@ -160,9 +191,7 @@ struct HomeView: View {
                 Task {
                     await viewModel.installSpeechModelAndResumeIfNeeded(
                         packageId: packageId,
-                        shouldResumeRecording: shouldResumeRecording,
-                        using: modelContext,
-                        sessions: sessions
+                        shouldResumeRecording: shouldResumeRecording
                     )
                 }
             }
@@ -209,6 +238,16 @@ struct HomeView: View {
         .onChange(of: viewModel.isLanguageSheetPresented) { _, isPresented in
             if !isPresented {
                 viewModel.presentDeferredDownloadPromptIfNeeded()
+            }
+        }
+        .onChange(of: viewModel.speechResumeRequestToken) { _, token in
+            guard token > 0 else { return }
+
+            Task {
+                await viewModel.handlePendingSpeechResumeIfNeeded(
+                    using: modelContext,
+                    sessions: sessions
+                )
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -341,11 +380,14 @@ struct HomeView: View {
 
     private var downloadToolbarButton: some View {
         toolbarIconButton(
-            accessibilityLabel: viewModel.isInstallingTranslationModel ? "正在下载语言包" : "下载语言包",
+            accessibilityLabel: "下载管理",
             isEnabled: viewModel.canStartDownloadFromToolbar,
-            action: viewModel.presentDownloadPrompt
+            action: viewModel.openDownloadManager
         ) {
-            HomeDownloadToolbarIcon(isDownloading: viewModel.isInstallingTranslationModel)
+            HomeDownloadToolbarIcon(
+                isDownloading: viewModel.downloadManagerIsBusy,
+                hasAttention: viewModel.downloadManagerHasAttention
+            )
         }
     }
 
@@ -398,11 +440,12 @@ struct HomeView: View {
 
 private struct HomeDownloadToolbarIcon: View {
     let isDownloading: Bool
+    let hasAttention: Bool
     @State private var isAnimating = false
 
     var body: some View {
         ZStack {
-            Image(systemName: isDownloading ? "arrow.down.circle.fill" : "arrow.down.circle")
+            Image(systemName: isDownloading ? "arrow.down.circle.fill" : "tray.and.arrow.down")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(isDownloading ? Color.accentColor : Color.primary)
 
@@ -413,6 +456,11 @@ private struct HomeDownloadToolbarIcon: View {
                 }
                 .frame(width: 18, height: 18)
                 .clipped()
+            } else if hasAttention {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                    .offset(x: 8, y: -8)
             }
         }
         .onAppear {
@@ -442,17 +490,20 @@ private struct HomeDownloadToolbarIcon: View {
 #Preview {
     let catalogService = TranslationModelCatalogService(remoteCatalogURL: nil, bundle: .main)
     let installer = TranslationModelInstaller(catalogService: catalogService)
+    let speechInstaller = SpeechModelInstaller(
+        catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+    )
     HomeView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
         translationService: MarianTranslationService(installer: installer),
         translationModelInstaller: installer,
         speechRecognitionService: WhisperSpeechRecognitionService(
-            installer: SpeechModelInstaller(
-                catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
-            )
+            installer: speechInstaller
         ),
-        speechModelInstaller: SpeechModelInstaller(
-            catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+        speechModelInstaller: speechInstaller,
+        modelDownloadCenter: ModelDownloadCenter(
+            translationInstaller: installer,
+            speechInstaller: speechInstaller
         ),
         microphoneRecordingService: MicrophoneRecordingService()
     )

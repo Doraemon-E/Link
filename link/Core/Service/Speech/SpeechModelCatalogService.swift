@@ -92,6 +92,10 @@ actor SpeechModelCatalogService {
         return nil
     }
 
+    func packages() async throws -> [SpeechModelPackage] {
+        try await catalog().packages
+    }
+
     private func decodeCatalog(from data: Data) throws -> SpeechModelCatalog {
         do {
             let decoder = JSONDecoder()

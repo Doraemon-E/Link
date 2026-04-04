@@ -109,6 +109,10 @@ actor TranslationModelCatalogService {
         return nil
     }
 
+    func packages() async throws -> [TranslationModelPackage] {
+        try await catalog().packages
+    }
+
     private func decodeCatalog(from data: Data) throws -> TranslationModelCatalog {
         do {
             let decoder = JSONDecoder()

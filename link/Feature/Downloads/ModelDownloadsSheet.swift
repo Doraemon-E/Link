@@ -1,0 +1,205 @@
+//
+//  ModelDownloadsSheet.swift
+//  link
+//
+//  Created by Codex on 2026/4/4.
+//
+
+import SwiftUI
+
+struct ModelDownloadsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let processingItems: [ModelDownloadItem]
+    let resumableItems: [ModelDownloadItem]
+    let failedItems: [ModelDownloadItem]
+    let installedItems: [ModelDownloadItem]
+    let availableItems: [ModelDownloadItem]
+    let onDownload: (ModelDownloadItem) -> Void
+    let onResume: (String) -> Void
+    let onRetry: (String) -> Void
+    let onDelete: (String) -> Void
+
+    private var allItemsAreEmpty: Bool {
+        processingItems.isEmpty &&
+        resumableItems.isEmpty &&
+        failedItems.isEmpty &&
+        installedItems.isEmpty &&
+        availableItems.isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if allItemsAreEmpty {
+                    emptyState
+                } else {
+                    List {
+                        if !processingItems.isEmpty {
+                            section(title: "正在处理", items: processingItems)
+                        }
+
+                        if !resumableItems.isEmpty {
+                            section(title: "可继续下载", items: resumableItems)
+                        }
+
+                        if !failedItems.isEmpty {
+                            section(title: "下载失败", items: failedItems)
+                        }
+
+                        if !availableItems.isEmpty {
+                            section(title: "可下载", items: availableItems)
+                        }
+
+                        if !installedItems.isEmpty {
+                            section(title: "已安装", items: installedItems)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle("下载管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section(title: String, items: [ModelDownloadItem]) -> some View {
+        Section(title) {
+            ForEach(items) { item in
+                ModelDownloadRow(
+                    item: item,
+                    onDownload: { onDownload(item) },
+                    onResume: { onResume(item.id) },
+                    onRetry: { onRetry(item.id) },
+                    onDelete: { onDelete(item.id) }
+                )
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "tray")
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Text("还没有下载任务")
+                .font(.headline)
+
+            Text("新的翻译模型或语音模型开始下载后，会在这里显示进度和已安装状态。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct ModelDownloadRow: View {
+    let item: ModelDownloadItem
+    let onDownload: () -> Void
+    let onResume: () -> Void
+    let onRetry: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.descriptor.title)
+                        .font(.body.weight(.semibold))
+
+                    Text(item.descriptor.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Text(item.kind.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Text(item.progress.phase.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+
+                if item.progress.totalBytes > 0 && item.progress.phase != .idle {
+                    Text("\(item.progress.downloadedBytes.formattedModelSize) / \(item.progress.totalBytes.formattedModelSize)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(item.progress.fractionCompleted.formattedPercent)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !item.isInstalled && item.progress.phase != .failed && item.progress.phase != .idle {
+                ProgressView(value: item.progress.fractionCompleted)
+                    .tint(statusColor)
+            }
+
+            if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+
+                switch item.progress.phase {
+                case .idle:
+                    Button("下载", action: onDownload)
+                        .buttonStyle(.borderedProminent)
+                case .pausedResumable:
+                    Button("继续下载", action: onResume)
+                        .buttonStyle(.borderedProminent)
+                case .failed:
+                    Button("重试", action: onRetry)
+                        .buttonStyle(.borderedProminent)
+                default:
+                    EmptyView()
+                }
+
+                if item.isInstalled {
+                    Button("删除", role: .destructive, action: onDelete)
+                        .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusColor: Color {
+        switch item.progress.phase {
+        case .failed:
+            return .red
+        case .pausedResumable:
+            return .orange
+        case .completed:
+            return .green
+        default:
+            return .accentColor
+        }
+    }
+}
+
+private extension Double {
+    var formattedPercent: String {
+        "\(Int((self * 100).rounded()))%"
+    }
+}

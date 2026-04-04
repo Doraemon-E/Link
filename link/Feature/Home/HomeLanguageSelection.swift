@@ -44,7 +44,7 @@ struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
             parts.append("安装后约占用\(installedSize.formattedModelSize)")
         }
 
-        parts.append("下载仅在 Wi-Fi 下进行")
+        parts.append("下载支持中断后继续")
         return parts.joined(separator: "，") + "。"
     }
 }

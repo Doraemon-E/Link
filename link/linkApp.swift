@@ -15,6 +15,7 @@ struct linkApp: App {
     private let translationService: TranslationService
     private let speechModelInstaller: SpeechModelInstaller
     private let speechRecognitionService: SpeechRecognitionService
+    private let modelDownloadCenter: ModelDownloadCenter
     private let microphoneRecordingService: MicrophoneRecordingService
 
     init() {
@@ -22,16 +23,22 @@ struct linkApp: App {
         let installer = TranslationModelInstaller(catalogService: catalogService)
         let speechCatalogService = SpeechModelCatalogService()
         let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
+        let downloadCenter = ModelDownloadCenter(
+            translationInstaller: installer,
+            speechInstaller: speechInstaller
+        )
         self.appSettings = AppSettings()
         self.translationModelInstaller = installer
         self.translationService = MarianTranslationService(installer: installer)
         self.speechModelInstaller = speechInstaller
         self.speechRecognitionService = WhisperSpeechRecognitionService(installer: speechInstaller)
+        self.modelDownloadCenter = downloadCenter
         self.microphoneRecordingService = MicrophoneRecordingService()
 
         Task.detached(priority: .utility) {
             await catalogService.warmUpCatalog()
             await speechCatalogService.warmUpCatalog()
+            await downloadCenter.warmUp()
         }
     }
 
@@ -43,6 +50,7 @@ struct linkApp: App {
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
                 speechModelInstaller: speechModelInstaller,
+                modelDownloadCenter: modelDownloadCenter,
                 microphoneRecordingService: microphoneRecordingService
             )
         }

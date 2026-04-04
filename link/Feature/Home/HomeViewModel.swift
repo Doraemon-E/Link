@@ -28,6 +28,7 @@ final class HomeViewModel {
     }
     var isLanguageSheetPresented = false
     var isSessionHistoryPresented = false
+    var isDownloadManagerPresented = false
     var messageText = ""
     var isChatInputFocused = false
     var sessionPresentation: SessionPresentation = .none
@@ -35,21 +36,23 @@ final class HomeViewModel {
     var deferredDownloadPrompt: HomeLanguageDownloadPrompt?
     var activeDownloadPrompt: HomeLanguageDownloadPrompt?
     var downloadErrorMessage: String?
-    var isInstallingTranslationModel = false
     var isRecordingSpeech = false
     var isTranscribingSpeech = false
-    var isInstallingSpeechModel = false
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
     var speechErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
     var lastSpeechRecordingURL: URL?
     var isPlayingLastSpeechRecording = false
     var streamingStatesByMessageID: [UUID: StreamingMessageState] = [:]
+    var downloadManagerItems: [ModelDownloadItem] = []
+    var downloadManagerSummary: ModelDownloadManagerSummary = .empty
+    var speechResumeRequestToken = 0
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
+    @ObservationIgnored private let modelDownloadCenter: ModelDownloadCenter
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
     @ObservationIgnored private let appSettings: AppSettings
@@ -57,6 +60,9 @@ final class HomeViewModel {
     @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
     @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var downloadObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var downloadMilestoneSignature = ""
+    @ObservationIgnored private var pendingSpeechResumePackageID: String?
 
     private enum TranslationRequestOrigin {
         case manual
@@ -69,6 +75,7 @@ final class HomeViewModel {
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
         speechModelInstaller: SpeechModelInstaller,
+        modelDownloadCenter: ModelDownloadCenter,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
         self.appSettings = appSettings
@@ -76,11 +83,13 @@ final class HomeViewModel {
         self.translationModelInstaller = translationModelInstaller
         self.speechRecognitionService = speechRecognitionService
         self.speechModelInstaller = speechModelInstaller
+        self.modelDownloadCenter = modelDownloadCenter
         self.microphoneRecordingService = microphoneRecordingService
         self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
             translationService: translationService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
+        startObservingDownloads()
     }
 
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
@@ -88,6 +97,9 @@ final class HomeViewModel {
             selectedLanguage = appSettings.selectedTargetLanguage
         }
         removeEmptySessions(using: modelContext, sessions: sessions)
+        Task {
+            await modelDownloadCenter.warmUp()
+        }
     }
 
     func displayedMessages(in sessions: [ChatSession]) -> [ChatMessage] {
@@ -222,8 +234,16 @@ final class HomeViewModel {
         self.deferredDownloadPrompt = nil
     }
 
+    func openDownloadManager() {
+        isDownloadManagerPresented = true
+    }
+
     func presentDownloadPrompt() {
-        guard !isInstallingTranslationModel, let downloadableLanguagePrompt else { return }
+        guard let downloadableLanguagePrompt else {
+            openDownloadManager()
+            return
+        }
+
         activeDownloadPrompt = downloadableLanguagePrompt
     }
 
@@ -254,32 +274,13 @@ final class HomeViewModel {
     }
 
     func installTranslationModel(packageIds: [String]) async {
-        guard !isInstallingTranslationModel else { return }
         guard !packageIds.isEmpty else { return }
 
-        isInstallingTranslationModel = true
         downloadErrorMessage = nil
         activeDownloadPrompt = nil
-
-        defer {
-            isInstallingTranslationModel = false
-        }
-
-        do {
-            for packageId in packageIds {
-                _ = try await translationModelInstaller.install(packageId: packageId)
-            }
-
-            await refreshDownloadAvailabilityForCurrentSelection()
-        } catch let error as TranslationError {
-            print("[HomeViewModel] installTranslationModel failed for packageIds=\(packageIds.joined(separator: ",")): \(error.localizedDescription)")
-            downloadErrorMessage = error.userFacingMessage
-            await refreshDownloadAvailabilityForCurrentSelection()
-        } catch {
-            print("[HomeViewModel] installTranslationModel failed for packageIds=\(packageIds.joined(separator: ",")): \(error.localizedDescription)")
-            downloadErrorMessage = "模型下载失败，请稍后重试。"
-            await refreshDownloadAvailabilityForCurrentSelection()
-        }
+        isDownloadManagerPresented = true
+        await modelDownloadCenter.startTranslationDownloads(packageIDs: packageIds)
+        await refreshDownloadAvailabilityForCurrentSelection()
     }
 
     func toggleSpeechRecording(using modelContext: ModelContext, sessions: [ChatSession]) async {
@@ -425,42 +426,110 @@ final class HomeViewModel {
 
     func installSpeechModelAndResumeIfNeeded(
         packageId: String,
-        shouldResumeRecording: Bool,
-        using modelContext: ModelContext,
-        sessions: [ChatSession]
+        shouldResumeRecording: Bool
     ) async {
-        guard !isInstallingSpeechModel else { return }
-
-        isInstallingSpeechModel = true
         speechErrorMessage = nil
         activeSpeechDownloadPrompt = nil
-
-        defer {
-            isInstallingSpeechModel = false
-        }
-
-        do {
-            _ = try await speechModelInstaller.install(packageId: packageId)
-            pendingVoiceStartAfterInstall = false
-
-            if shouldResumeRecording {
-                await startSpeechRecording(using: modelContext, sessions: sessions)
-            }
-        } catch let error as SpeechRecognitionError {
-            pendingVoiceStartAfterInstall = false
-            speechErrorMessage = error.userFacingMessage
-        } catch {
-            pendingVoiceStartAfterInstall = false
-            speechErrorMessage = "语音模型下载失败，请稍后再试。"
-        }
+        isDownloadManagerPresented = true
+        pendingVoiceStartAfterInstall = shouldResumeRecording
+        pendingSpeechResumePackageID = packageId
+        await modelDownloadCenter.startSpeechDownload(packageId: packageId)
     }
 
     var shouldShowDownloadToolbarButton: Bool {
-        isInstallingTranslationModel || downloadableLanguagePrompt != nil
+        true
     }
 
     var canStartDownloadFromToolbar: Bool {
-        !isInstallingTranslationModel && downloadableLanguagePrompt != nil
+        true
+    }
+
+    var isInstallingTranslationModel: Bool {
+        activeDownloadItems.contains { $0.kind == .translation }
+    }
+
+    var isInstallingSpeechModel: Bool {
+        activeDownloadItems.contains { $0.kind == .speech }
+    }
+
+    var downloadManagerHasAttention: Bool {
+        downloadManagerSummary.hasAttention
+    }
+
+    var downloadManagerIsBusy: Bool {
+        downloadManagerSummary.hasActiveTasks
+    }
+
+    var activeDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter {
+            [.preparing, .downloading, .verifying, .installing].contains($0.progress.phase)
+        }
+    }
+
+    var processingDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter {
+            [.preparing, .downloading, .verifying, .installing].contains($0.progress.phase)
+        }
+    }
+
+    var resumableDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter { $0.progress.phase == .pausedResumable }
+    }
+
+    var failedDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter { $0.progress.phase == .failed }
+    }
+
+    var installedDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter(\.isInstalled)
+    }
+
+    var availableDownloadItems: [ModelDownloadItem] {
+        downloadManagerItems.filter {
+            !$0.isInstalled && $0.progress.phase == .idle
+        }
+    }
+
+    func retryDownload(itemID: String) async {
+        await modelDownloadCenter.retry(itemID: itemID)
+    }
+
+    func resumeDownload(itemID: String) async {
+        await modelDownloadCenter.resume(itemID: itemID)
+    }
+
+    func startDownload(item: ModelDownloadItem) async {
+        switch item.kind {
+        case .translation:
+            await modelDownloadCenter.startTranslationDownloads(packageIDs: [item.descriptor.packageId])
+        case .speech:
+            await modelDownloadCenter.startSpeechDownload(packageId: item.descriptor.packageId)
+        }
+    }
+
+    func deleteInstalledDownload(itemID: String) async {
+        do {
+            try await modelDownloadCenter.removeInstalled(itemID: itemID)
+            await refreshDownloadAvailabilityForCurrentSelection()
+        } catch let error as TranslationError {
+            downloadErrorMessage = error.userFacingMessage
+        } catch let error as SpeechRecognitionError {
+            speechErrorMessage = error.userFacingMessage
+        } catch {
+            downloadErrorMessage = "删除模型失败，请稍后再试。"
+        }
+    }
+
+    func handlePendingSpeechResumeIfNeeded(
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
+    ) async {
+        guard speechResumeRequestToken > 0 else {
+            return
+        }
+
+        speechResumeRequestToken = 0
+        await startSpeechRecording(using: modelContext, sessions: sessions)
     }
 
     private var isDraftSession: Bool {
@@ -516,6 +585,60 @@ final class HomeViewModel {
         }
 
         saveContext(using: modelContext)
+    }
+
+    private func startObservingDownloads() {
+        guard downloadObservationTask == nil else {
+            return
+        }
+
+        downloadObservationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await self.modelDownloadCenter.streamSnapshots()
+
+            for await snapshot in stream {
+                self.downloadManagerItems = snapshot.items
+                self.downloadManagerSummary = snapshot.summary
+                self.handleDownloadMilestones(for: snapshot)
+            }
+        }
+    }
+
+    private func handleDownloadMilestones(for snapshot: ModelDownloadsSnapshot) {
+        let milestoneSignature = snapshot.items
+            .map { "\($0.id):\($0.progress.phase.rawValue):\($0.isInstalled)" }
+            .sorted()
+            .joined(separator: "|")
+
+        if milestoneSignature != downloadMilestoneSignature {
+            downloadMilestoneSignature = milestoneSignature
+
+            Task {
+                await refreshDownloadAvailabilityForCurrentSelection()
+            }
+        }
+
+        guard pendingVoiceStartAfterInstall,
+              let packageID = pendingSpeechResumePackageID else {
+            return
+        }
+
+        let matchingItemID = ModelDownloadDescriptor.itemID(kind: .speech, packageId: packageID)
+
+        if snapshot.items.contains(where: {
+            $0.id == matchingItemID && $0.isInstalled
+        }) {
+            pendingVoiceStartAfterInstall = false
+            pendingSpeechResumePackageID = nil
+            speechResumeRequestToken += 1
+        }
+
+        if snapshot.items.contains(where: {
+            $0.id == matchingItemID && $0.progress.phase == .failed
+        }) {
+            pendingVoiceStartAfterInstall = false
+            pendingSpeechResumePackageID = nil
+        }
     }
 
     private func saveContext(using modelContext: ModelContext) {

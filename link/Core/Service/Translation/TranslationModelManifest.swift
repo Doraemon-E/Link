@@ -7,19 +7,19 @@
 
 import Foundation
 
-struct TranslationModelManifest: Codable {
-    enum Family: String, Codable {
+struct TranslationModelManifest: Codable, Sendable {
+    enum Family: String, Codable, Sendable {
         case marian
         case mt5
     }
 
-    struct LanguagePair: Codable {
+    struct LanguagePair: Codable, Sendable {
         let source: String
         let target: String
     }
 
-    struct Tokenizer: Codable {
-        enum Kind: String, Codable {
+    struct Tokenizer: Codable, Sendable {
+        enum Kind: String, Codable, Sendable {
             case marianSentencePieceVocabulary = "marian_sentencepiece_vocabulary"
             case sentencePiece = "sentencepiece"
         }
@@ -32,13 +32,13 @@ struct TranslationModelManifest: Codable {
         let extraIds: Int?
     }
 
-    struct ONNXFiles: Codable {
+    struct ONNXFiles: Codable, Sendable {
         let encoder: String
         let decoder: String
         let decoderWithPast: String?
     }
 
-    struct Generation: Codable {
+    struct Generation: Codable, Sendable {
         let maxInputLength: Int
         let maxOutputLength: Int
         let bosTokenId: Int
@@ -48,7 +48,7 @@ struct TranslationModelManifest: Codable {
         let suppressedTokenIds: [Int]?
     }
 
-    struct TensorNames: Codable {
+    struct TensorNames: Codable, Sendable {
         let encoderInputIDs: String
         let encoderAttentionMask: String
         let encoderOutput: String
