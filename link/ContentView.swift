@@ -10,11 +10,17 @@ import SwiftUI
 struct ContentView: View {
     let translationService: TranslationService
     let translationModelInstaller: TranslationModelInstaller
+    let speechRecognitionService: SpeechRecognitionService
+    let speechModelInstaller: SpeechModelInstaller
+    let microphoneRecordingService: MicrophoneRecordingService
 
     var body: some View {
         HomeView(
             translationService: translationService,
-            translationModelInstaller: translationModelInstaller
+            translationModelInstaller: translationModelInstaller,
+            speechRecognitionService: speechRecognitionService,
+            speechModelInstaller: speechModelInstaller,
+            microphoneRecordingService: microphoneRecordingService
         )
     }
 }
@@ -22,8 +28,13 @@ struct ContentView: View {
 #Preview {
     let catalogService = TranslationModelCatalogService(remoteCatalogURL: nil, bundle: .main)
     let installer = TranslationModelInstaller(catalogService: catalogService)
+    let speechCatalogService = SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+    let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
     ContentView(
         translationService: MarianTranslationService(installer: installer),
-        translationModelInstaller: installer
+        translationModelInstaller: installer,
+        speechRecognitionService: WhisperSpeechRecognitionService(installer: speechInstaller),
+        speechModelInstaller: speechInstaller,
+        microphoneRecordingService: MicrophoneRecordingService()
     )
 }

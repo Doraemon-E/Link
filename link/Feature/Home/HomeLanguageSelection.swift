@@ -55,7 +55,7 @@ enum HomeLanguageSelectionResolution: Equatable, Sendable {
     case failure(String)
 }
 
-private extension Int64 {
+extension Int64 {
     var formattedModelSize: String {
         ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
     }

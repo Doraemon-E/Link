@@ -30,15 +30,32 @@ final class HomeViewModel {
     var activeDownloadPrompt: HomeLanguageDownloadPrompt?
     var downloadErrorMessage: String?
     var isInstallingTranslationModel = false
+    var isRecordingSpeech = false
+    var isTranscribingSpeech = false
+    var isInstallingSpeechModel = false
+    var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
+    var speechErrorMessage: String?
+    var pendingVoiceStartAfterInstall = false
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
+    @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
+    @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
+    @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
+    @ObservationIgnored private var autoStopSpeechTask: Task<Void, Never>?
+
     init(
         translationService: TranslationService,
-        translationModelInstaller: TranslationModelInstaller
+        translationModelInstaller: TranslationModelInstaller,
+        speechRecognitionService: SpeechRecognitionService,
+        speechModelInstaller: SpeechModelInstaller,
+        microphoneRecordingService: MicrophoneRecordingService
     ) {
         self.translationService = translationService
         self.translationModelInstaller = translationModelInstaller
+        self.speechRecognitionService = speechRecognitionService
+        self.speechModelInstaller = speechModelInstaller
+        self.microphoneRecordingService = microphoneRecordingService
     }
 
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
@@ -100,62 +117,18 @@ final class HomeViewModel {
 
     func sendCurrentMessage(using modelContext: ModelContext, sessions: [ChatSession]) {
         let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return }
-
-        let session: ChatSession
-        switch sessionPresentation {
-        case .draft:
-            session = createNewSession(using: modelContext)
-        case .persisted(let sessionID):
-            if let existingSession = sessions.first(where: { $0.id == sessionID }) {
-                session = existingSession
-            } else if let fallbackSession = latestNonEmptySession(in: sessions) {
-                session = fallbackSession
-                sessionPresentation = .persisted(fallbackSession.id)
-            } else {
-                session = createNewSession(using: modelContext)
-            }
-        case .none:
-            session = createNewSession(using: modelContext)
+        guard !trimmedText.isEmpty, !isRecordingSpeech, !isTranscribingSpeech, !isInstallingSpeechModel else {
+            return
         }
 
-        let nextSequence = (session.messages.map(\.sequence).max() ?? -1) + 1
-        let now = Date()
-        let userMessage = ChatMessage(
-            sender: .user,
+        submitMessage(
             text: trimmedText,
-            createdAt: now,
-            sequence: nextSequence,
-            session: session
+            sourceLanguage: sourceLanguage,
+            targetLanguage: selectedLanguage,
+            using: modelContext,
+            sessions: sessions,
+            clearInput: true
         )
-        let assistantMessage = ChatMessage(
-            sender: .assistant,
-            text: "翻译中…",
-            createdAt: now.addingTimeInterval(0.001),
-            sequence: nextSequence + 1,
-            session: session
-        )
-
-        modelContext.insert(userMessage)
-        modelContext.insert(assistantMessage)
-        session.updatedAt = assistantMessage.createdAt
-
-        messageText = ""
-        saveContext(using: modelContext)
-
-        let assistantMessageID = assistantMessage.id
-        let sourceLanguage = sourceLanguage
-        let targetLanguage = selectedLanguage
-
-        Task { @MainActor in
-            await resolveTranslation(
-                for: assistantMessageID,
-                originalText: trimmedText,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                using: modelContext
-            )
-        }
     }
 
     func resolveLanguageSelection(
@@ -213,6 +186,11 @@ final class HomeViewModel {
         activeDownloadPrompt = nil
     }
 
+    func dismissSpeechDownloadPrompt() {
+        activeSpeechDownloadPrompt = nil
+        pendingVoiceStartAfterInstall = false
+    }
+
     func refreshDownloadAvailabilityForCurrentSelection() async {
         let source = sourceLanguage
         let target = selectedLanguage
@@ -256,6 +234,122 @@ final class HomeViewModel {
             print("[HomeViewModel] installTranslationModel failed for packageIds=\(packageIds.joined(separator: ",")): \(error.localizedDescription)")
             downloadErrorMessage = "模型下载失败，请稍后重试。"
             await refreshDownloadAvailabilityForCurrentSelection()
+        }
+    }
+
+    func toggleSpeechRecording(using modelContext: ModelContext, sessions: [ChatSession]) async {
+        guard !isTranscribingSpeech, !isInstallingSpeechModel else {
+            return
+        }
+
+        if isRecordingSpeech {
+            await stopSpeechRecordingAndTranslate(using: modelContext, sessions: sessions)
+            return
+        }
+
+        do {
+            if let prompt = try await speechDownloadPromptIfNeeded() {
+                activeSpeechDownloadPrompt = prompt
+                pendingVoiceStartAfterInstall = true
+                return
+            }
+
+            await startSpeechRecording(using: modelContext, sessions: sessions)
+        } catch let error as SpeechRecognitionError {
+            speechErrorMessage = error.userFacingMessage
+        } catch {
+            speechErrorMessage = "语音识别暂时不可用，请稍后再试。"
+        }
+    }
+
+    func startSpeechRecording(using modelContext: ModelContext, sessions: [ChatSession]) async {
+        guard !isRecordingSpeech, !isTranscribingSpeech, !isInstallingSpeechModel else {
+            return
+        }
+
+        speechErrorMessage = nil
+        pendingVoiceStartAfterInstall = false
+
+        do {
+            try await microphoneRecordingService.startRecording()
+            isRecordingSpeech = true
+            isChatInputFocused = false
+            scheduleAutoStopSpeechTask(using: modelContext, sessions: sessions)
+        } catch let error as SpeechRecognitionError {
+            speechErrorMessage = error.userFacingMessage
+        } catch {
+            speechErrorMessage = "无法开始录音，请稍后重试。"
+        }
+    }
+
+    func stopSpeechRecordingAndTranslate(using modelContext: ModelContext, sessions: [ChatSession]) async {
+        guard isRecordingSpeech else { return }
+
+        autoStopSpeechTask?.cancel()
+        autoStopSpeechTask = nil
+        isRecordingSpeech = false
+        isTranscribingSpeech = true
+        speechErrorMessage = nil
+
+        defer {
+            isTranscribingSpeech = false
+        }
+
+        do {
+            let samples = try await microphoneRecordingService.stopRecording()
+            let recognitionResult = try await speechRecognitionService.transcribe(samples: samples)
+            let transcribedText = recognitionResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !transcribedText.isEmpty else {
+                throw SpeechRecognitionError.emptyTranscription
+            }
+
+            let effectiveSourceLanguage = HomeLanguage.fromWhisperLanguageCode(
+                recognitionResult.detectedLanguage
+            ) ?? sourceLanguage
+
+            submitMessage(
+                text: transcribedText,
+                sourceLanguage: effectiveSourceLanguage,
+                targetLanguage: selectedLanguage,
+                using: modelContext,
+                sessions: sessions,
+                clearInput: false
+            )
+        } catch let error as SpeechRecognitionError {
+            microphoneRecordingService.cancelRecording()
+            speechErrorMessage = error.userFacingMessage
+        } catch {
+            microphoneRecordingService.cancelRecording()
+            speechErrorMessage = "语音识别失败了，请稍后再试。"
+        }
+    }
+
+    func installSpeechModelAndResumeIfNeeded(using modelContext: ModelContext, sessions: [ChatSession]) async {
+        guard !isInstallingSpeechModel, let prompt = activeSpeechDownloadPrompt else { return }
+
+        isInstallingSpeechModel = true
+        speechErrorMessage = nil
+        activeSpeechDownloadPrompt = nil
+
+        defer {
+            isInstallingSpeechModel = false
+        }
+
+        do {
+            _ = try await speechModelInstaller.install(packageId: prompt.packageId)
+            let shouldResumeRecording = pendingVoiceStartAfterInstall
+            pendingVoiceStartAfterInstall = false
+
+            if shouldResumeRecording {
+                await startSpeechRecording(using: modelContext, sessions: sessions)
+            }
+        } catch let error as SpeechRecognitionError {
+            pendingVoiceStartAfterInstall = false
+            speechErrorMessage = error.userFacingMessage
+        } catch {
+            pendingVoiceStartAfterInstall = false
+            speechErrorMessage = "语音模型下载失败，请稍后再试。"
         }
     }
 
@@ -321,6 +415,103 @@ final class HomeViewModel {
         } catch {
             print("Failed to save chat data: \(error)")
         }
+    }
+
+    private func scheduleAutoStopSpeechTask(using modelContext: ModelContext, sessions: [ChatSession]) {
+        autoStopSpeechTask?.cancel()
+        autoStopSpeechTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                return
+            }
+
+            guard let self, self.isRecordingSpeech else { return }
+            await self.stopSpeechRecordingAndTranslate(using: modelContext, sessions: sessions)
+        }
+    }
+
+    private func submitMessage(
+        text: String,
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
+        using modelContext: ModelContext,
+        sessions: [ChatSession],
+        clearInput: Bool
+    ) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+
+        let session = resolveSession(using: modelContext, sessions: sessions)
+        let assistantMessageID = insertConversationExchange(
+            text: trimmedText,
+            into: session,
+            using: modelContext
+        )
+
+        if clearInput {
+            messageText = ""
+        }
+
+        Task { @MainActor in
+            await resolveTranslation(
+                for: assistantMessageID,
+                originalText: trimmedText,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                using: modelContext
+            )
+        }
+    }
+
+    private func resolveSession(using modelContext: ModelContext, sessions: [ChatSession]) -> ChatSession {
+        switch sessionPresentation {
+        case .draft:
+            return createNewSession(using: modelContext)
+        case .persisted(let sessionID):
+            if let existingSession = sessions.first(where: { $0.id == sessionID }) {
+                return existingSession
+            }
+
+            if let fallbackSession = latestNonEmptySession(in: sessions) {
+                sessionPresentation = .persisted(fallbackSession.id)
+                return fallbackSession
+            }
+
+            return createNewSession(using: modelContext)
+        case .none:
+            return createNewSession(using: modelContext)
+        }
+    }
+
+    private func insertConversationExchange(
+        text: String,
+        into session: ChatSession,
+        using modelContext: ModelContext
+    ) -> UUID {
+        let nextSequence = (session.messages.map(\.sequence).max() ?? -1) + 1
+        let now = Date()
+        let userMessage = ChatMessage(
+            sender: .user,
+            text: text,
+            createdAt: now,
+            sequence: nextSequence,
+            session: session
+        )
+        let assistantMessage = ChatMessage(
+            sender: .assistant,
+            text: "翻译中…",
+            createdAt: now.addingTimeInterval(0.001),
+            sequence: nextSequence + 1,
+            session: session
+        )
+
+        modelContext.insert(userMessage)
+        modelContext.insert(assistantMessage)
+        session.updatedAt = assistantMessage.createdAt
+        saveContext(using: modelContext)
+
+        return assistantMessage.id
     }
 
     private func resolveTranslation(
@@ -392,6 +583,18 @@ final class HomeViewModel {
         } catch {
             return nil
         }
+    }
+
+    private func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt? {
+        guard let package = try await speechModelInstaller.defaultPackageMetadata() else {
+            throw SpeechRecognitionError.modelPackageUnavailable
+        }
+
+        if try await speechModelInstaller.isDefaultPackageInstalled() {
+            return nil
+        }
+
+        return SpeechModelDownloadPrompt(package: package)
     }
 
 }

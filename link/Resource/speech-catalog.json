@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-04T00:00:00Z",
+  "packages": [
+    {
+      "packageId": "whisper-base-multilingual-q5_1",
+      "version": "1.0.0",
+      "family": "whisper",
+      "archiveURL": "https://link.hackerapp.site/link/speech/packages/whisper-base-q5_1.zip",
+      "sha256": "4e3ee0d8ca266b9335ef4715d5b9f54e7c044d21b9cddb4cf19841cf9ff7ee0f",
+      "archiveSize": 56692656,
+      "installedSize": 59707625,
+      "modelRelativePath": "model.gguf",
+      "minAppVersion": "1.0.0"
+    }
+  ]
+}

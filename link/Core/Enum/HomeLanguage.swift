@@ -88,4 +88,36 @@ enum HomeLanguage: String, CaseIterable, Identifiable, Sendable {
             return "ita"
         }
     }
+
+    var whisperLanguageCode: String {
+        switch self {
+        case .chinese:
+            return "zh"
+        case .english:
+            return "en"
+        case .japanese:
+            return "ja"
+        case .korean:
+            return "ko"
+        case .french:
+            return "fr"
+        case .german:
+            return "de"
+        case .russian:
+            return "ru"
+        case .spanish:
+            return "es"
+        case .italian:
+            return "it"
+        }
+    }
+
+    static func fromWhisperLanguageCode(_ code: String?) -> HomeLanguage? {
+        guard let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalizedCode.isEmpty else {
+            return nil
+        }
+
+        return allCases.first { $0.whisperLanguageCode == normalizedCode }
+    }
 }

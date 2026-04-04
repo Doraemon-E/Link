@@ -16,12 +16,18 @@ struct HomeView: View {
 
     init(
         translationService: TranslationService,
-        translationModelInstaller: TranslationModelInstaller
+        translationModelInstaller: TranslationModelInstaller,
+        speechRecognitionService: SpeechRecognitionService,
+        speechModelInstaller: SpeechModelInstaller,
+        microphoneRecordingService: MicrophoneRecordingService
     ) {
         _viewModel = State(
             initialValue: HomeViewModel(
                 translationService: translationService,
-                translationModelInstaller: translationModelInstaller
+                translationModelInstaller: translationModelInstaller,
+                speechRecognitionService: speechRecognitionService,
+                speechModelInstaller: speechModelInstaller,
+                microphoneRecordingService: microphoneRecordingService
             )
         )
     }
@@ -133,6 +139,33 @@ struct HomeView: View {
         } message: { prompt in
             Text(prompt.message)
         }
+        .confirmationDialog(
+            viewModel.activeSpeechDownloadPrompt?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.activeSpeechDownloadPrompt != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.dismissSpeechDownloadPrompt()
+                    }
+                }
+            ),
+            presenting: viewModel.activeSpeechDownloadPrompt
+        ) { prompt in
+            Button("下载并安装") {
+                Task {
+                    await viewModel.installSpeechModelAndResumeIfNeeded(
+                        using: modelContext,
+                        sessions: sessions
+                    )
+                }
+            }
+
+            Button("取消", role: .cancel) {
+                viewModel.dismissSpeechDownloadPrompt()
+            }
+        } message: { prompt in
+            Text(prompt.message)
+        }
         .alert(
             "模型下载失败",
             isPresented: Binding(
@@ -148,6 +181,21 @@ struct HomeView: View {
         } message: {
             Text(viewModel.downloadErrorMessage ?? "")
         }
+        .alert(
+            "语音识别失败",
+            isPresented: Binding(
+                get: { viewModel.speechErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.speechErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(viewModel.speechErrorMessage ?? "")
+        }
         .task {
             await viewModel.refreshDownloadAvailabilityForCurrentSelection()
         }
@@ -160,9 +208,19 @@ struct HomeView: View {
             HomeChatInputBar(
                 text: $viewModel.messageText,
                 isFocused: $viewModel.isChatInputFocused,
+                isRecordingSpeech: viewModel.isRecordingSpeech,
+                isSpeechBusy: viewModel.isTranscribingSpeech || viewModel.isInstallingSpeechModel,
                 onFocusActivated: viewModel.handleInputFocusActivated,
                 onSend: {
                     viewModel.sendCurrentMessage(using: modelContext, sessions: sessions)
+                },
+                onVoiceInput: {
+                    Task {
+                        await viewModel.toggleSpeechRecording(
+                            using: modelContext,
+                            sessions: sessions
+                        )
+                    }
                 }
             )
         }
@@ -367,7 +425,16 @@ private struct HomeDownloadToolbarIcon: View {
     let installer = TranslationModelInstaller(catalogService: catalogService)
     HomeView(
         translationService: MarianTranslationService(installer: installer),
-        translationModelInstaller: installer
+        translationModelInstaller: installer,
+        speechRecognitionService: WhisperSpeechRecognitionService(
+            installer: SpeechModelInstaller(
+                catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+            )
+        ),
+        speechModelInstaller: SpeechModelInstaller(
+            catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+        ),
+        microphoneRecordingService: MicrophoneRecordingService()
     )
         .modelContainer(for: [ChatSession.self, ChatMessage.self], inMemory: true)
 }

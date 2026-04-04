@@ -10,9 +10,12 @@ import SwiftUI
 struct HomeChatInputBar: View {
     @Binding var text: String
     @Binding var isFocused: Bool
+    let isRecordingSpeech: Bool
+    let isSpeechBusy: Bool
 
     let onFocusActivated: () -> Void
     let onSend: () -> Void
+    let onVoiceInput: () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
 
@@ -22,9 +25,12 @@ struct HomeChatInputBar: View {
                 .textFieldStyle(.plain)
                 .focused($isTextFieldFocused)
                 .submitLabel(.send)
+                .disabled(isInputDisabled)
                 .onSubmit {
                     handleSend()
                 }
+
+            speechButton
 
             Button(action: handleSend) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -61,7 +67,29 @@ struct HomeChatInputBar: View {
     }
 
     private var isSendEnabled: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isInputDisabled
+    }
+
+    private var isInputDisabled: Bool {
+        isRecordingSpeech || isSpeechBusy
+    }
+
+    @ViewBuilder
+    private var speechButton: some View {
+        if isSpeechBusy && !isRecordingSpeech {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 28, height: 28)
+        } else {
+            Button(action: onVoiceInput) {
+                Image(systemName: isRecordingSpeech ? "stop.circle.fill" : "mic.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(isRecordingSpeech ? Color.red : Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isRecordingSpeech ? "结束录音" : "开始录音")
+            .disabled(isSpeechBusy && !isRecordingSpeech)
+        }
     }
 
     private func handleSend() {
@@ -74,7 +102,10 @@ struct HomeChatInputBar: View {
     HomeChatInputBar(
         text: .constant(""),
         isFocused: .constant(false),
+        isRecordingSpeech: false,
+        isSpeechBusy: false,
         onFocusActivated: {},
-        onSend: {}
+        onSend: {},
+        onVoiceInput: {}
     )
 }

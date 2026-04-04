@@ -12,15 +12,24 @@ import SwiftData
 struct linkApp: App {
     private let translationModelInstaller: TranslationModelInstaller
     private let translationService: TranslationService
+    private let speechModelInstaller: SpeechModelInstaller
+    private let speechRecognitionService: SpeechRecognitionService
+    private let microphoneRecordingService: MicrophoneRecordingService
 
     init() {
         let catalogService = TranslationModelCatalogService()
         let installer = TranslationModelInstaller(catalogService: catalogService)
+        let speechCatalogService = SpeechModelCatalogService()
+        let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
         self.translationModelInstaller = installer
         self.translationService = MarianTranslationService(installer: installer)
+        self.speechModelInstaller = speechInstaller
+        self.speechRecognitionService = WhisperSpeechRecognitionService(installer: speechInstaller)
+        self.microphoneRecordingService = MicrophoneRecordingService()
 
         Task.detached(priority: .utility) {
             await catalogService.warmUpCatalog()
+            await speechCatalogService.warmUpCatalog()
         }
     }
 
@@ -28,7 +37,10 @@ struct linkApp: App {
         WindowGroup {
             ContentView(
                 translationService: translationService,
-                translationModelInstaller: translationModelInstaller
+                translationModelInstaller: translationModelInstaller,
+                speechRecognitionService: speechRecognitionService,
+                speechModelInstaller: speechModelInstaller,
+                microphoneRecordingService: microphoneRecordingService
             )
         }
         .modelContainer(for: [ChatSession.self, ChatMessage.self])
