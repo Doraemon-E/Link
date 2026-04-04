@@ -28,8 +28,6 @@ final class HomeViewModel {
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
-    @ObservationIgnored private let logger = AppLogger.viewModel
-
     init(
         translationService: TranslationService,
         translationModelInstaller: TranslationModelInstaller
@@ -143,22 +141,9 @@ final class HomeViewModel {
         let assistantMessageID = assistantMessage.id
         let sourceLanguage = sourceLanguage
         let targetLanguage = selectedLanguage
-        let traceID = AppTrace.newTraceID()
-
-        logger.info(
-            "Queued translation request",
-            metadata: [
-                "assistant_message_id": assistantMessageID.uuidString,
-                "input_length": "\(trimmedText.count)",
-                "source_language": sourceLanguage.translationModelCode,
-                "target_language": targetLanguage.translationModelCode,
-                "trace_id": traceID
-            ]
-        )
 
         Task { @MainActor in
             await resolveTranslation(
-                traceID: traceID,
                 for: assistantMessageID,
                 originalText: trimmedText,
                 sourceLanguage: sourceLanguage,
@@ -172,116 +157,41 @@ final class HomeViewModel {
         source: HomeLanguage,
         target: HomeLanguage
     ) async -> HomeLanguageSelectionResolution {
-        let traceID = AppTrace.newTraceID()
-        let startedAt = Date()
+        guard source != target else {
+            return .ready
+        }
 
-        return await AppTrace.withTrace(
-            traceID: traceID,
-            metadata: Self.languageMetadata(source: source, target: target)
-        ) {
-            logger.info("Resolving language selection")
-
-            guard source != target else {
-                logger.info(
-                    "Language selection resolved without download",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "resolution": "same_language"
-                    ]
-                )
+        do {
+            if try await translationModelInstaller.isInstalled(source: source, target: target) {
                 return .ready
             }
 
-            do {
-                if try await translationModelInstaller.isInstalled(source: source, target: target) {
-                    logger.info(
-                        "Language selection resolved without download",
-                        metadata: [
-                            "duration_ms": appElapsedMilliseconds(since: startedAt),
-                            "resolution": "installed"
-                        ]
-                    )
-                    return .ready
-                }
-
-                guard let package = try await translationModelInstaller.packageMetadata(source: source, target: target) else {
-                    logger.error(
-                        "Language selection failed because package metadata is unavailable",
-                        metadata: ["duration_ms": appElapsedMilliseconds(since: startedAt)]
-                    )
-                    return .failure(
-                        TranslationError
-                            .modelPackageUnavailable(source: source, target: target)
-                            .userFacingMessage
-                    )
-                }
-
-                logger.info(
-                    "Language selection requires download",
-                    metadata: [
-                        "archive_size": "\(package.archiveSize)",
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "installed_size": "\(package.installedSize)",
-                        "package_id": package.packageId
-                    ]
+            guard let package = try await translationModelInstaller.packageMetadata(source: source, target: target) else {
+                return .failure(
+                    TranslationError
+                        .modelPackageUnavailable(source: source, target: target)
+                        .userFacingMessage
                 )
-
-                return .requiresDownload(
-                    HomeLanguageDownloadPrompt(
-                        packageId: package.packageId,
-                        sourceLanguage: source,
-                        targetLanguage: target,
-                        archiveSize: package.archiveSize,
-                        installedSize: package.installedSize
-                    )
-                )
-            } catch let error as TranslationError {
-                logger.error(
-                    "Language selection resolution failed",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "error": appLogErrorDescription(error)
-                    ]
-                )
-                return .failure(error.userFacingMessage)
-            } catch {
-                logger.error(
-                    "Language selection resolution failed",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "error": appLogErrorDescription(error)
-                    ]
-                )
-                return .failure("暂时无法检查翻译模型，请稍后再试。")
             }
+
+            return .requiresDownload(
+                HomeLanguageDownloadPrompt(
+                    packageId: package.packageId,
+                    sourceLanguage: source,
+                    targetLanguage: target,
+                    archiveSize: package.archiveSize,
+                    installedSize: package.installedSize
+                )
+            )
+        } catch let error as TranslationError {
+            return .failure(error.userFacingMessage)
+        } catch {
+            return .failure("暂时无法检查翻译模型，请稍后再试。")
         }
     }
 
     func installTranslationModel(packageId: String) async throws {
-        let startedAt = Date()
-
-        try await AppTrace.withTrace(
-            metadata: ["package_id": packageId]
-        ) {
-            logger.info("User initiated translation model installation")
-
-            do {
-                _ = try await translationModelInstaller.install(packageId: packageId)
-                logger.info(
-                    "User initiated translation model installation finished",
-                    metadata: ["duration_ms": appElapsedMilliseconds(since: startedAt)]
-                )
-            } catch {
-                logger.error(
-                    "User initiated translation model installation failed",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "error": appLogErrorDescription(error)
-                    ]
-                )
-                throw error
-            }
-        }
+        _ = try await translationModelInstaller.install(packageId: packageId)
     }
 
     private var isDraftSession: Bool {
@@ -336,88 +246,41 @@ final class HomeViewModel {
         do {
             try modelContext.save()
         } catch {
-            logger.error(
-                "Failed to save chat data",
-                metadata: ["error": appLogErrorDescription(error)]
-            )
+            print("Failed to save chat data: \(error)")
         }
     }
 
     private func resolveTranslation(
-        traceID: String,
         for assistantMessageID: UUID,
         originalText: String,
         sourceLanguage: HomeLanguage,
         targetLanguage: HomeLanguage,
         using modelContext: ModelContext
     ) async {
-        let startedAt = Date()
-
-        await AppTrace.withTrace(
-            traceID: traceID,
-            metadata: Self.translationRequestMetadata(
-                assistantMessageID: assistantMessageID,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage
-            )
-        ) {
-            logger.info(
-                "Translation request started",
-                metadata: ["input_length": "\(originalText.count)"]
+        do {
+            let translatedText = try await translationService.translate(
+                text: originalText,
+                source: sourceLanguage,
+                target: targetLanguage
             )
 
-            do {
-                let translatedText = try await translationService.translate(
-                    text: originalText,
-                    source: sourceLanguage,
-                    target: targetLanguage
-                )
-
-                logger.info(
-                    "Translation request finished",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "output_length": "\(translatedText.count)",
-                        "status": "success"
-                    ]
-                )
-
-                updateAssistantMessage(
-                    id: assistantMessageID,
-                    text: translatedText,
-                    using: modelContext
-                )
-            } catch let error as TranslationError {
-                logger.error(
-                    "Translation request finished with translation error",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "error": appLogErrorDescription(error),
-                        "status": "translation_error"
-                    ]
-                )
-
-                updateAssistantMessage(
-                    id: assistantMessageID,
-                    text: error.userFacingMessage,
-                    using: modelContext
-                )
-            } catch {
-                logger.error(
-                    "Translation request finished with unexpected error",
-                    metadata: [
-                        "duration_ms": appElapsedMilliseconds(since: startedAt),
-                        "error": appLogErrorDescription(error),
-                        "status": "unexpected_error"
-                    ]
-                )
-
-                updateAssistantMessage(
-                    id: assistantMessageID,
-                    text: "翻译失败了，请稍后再试。",
-                    using: modelContext
-                )
-            }
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: translatedText,
+                using: modelContext
+            )
+        } catch let error as TranslationError {
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: error.userFacingMessage,
+                using: modelContext
+            )
+        } catch {
+            updateAssistantMessage(
+                id: assistantMessageID,
+                text: "翻译失败了，请稍后再试。",
+                using: modelContext
+            )
         }
     }
 
@@ -433,10 +296,6 @@ final class HomeViewModel {
         )
 
         guard let message = try? modelContext.fetch(descriptor).first else {
-            logger.error(
-                "Assistant message update skipped because message was not found",
-                metadata: ["assistant_message_id": id.uuidString]
-            )
             return
         }
 
@@ -445,24 +304,4 @@ final class HomeViewModel {
         saveContext(using: modelContext)
     }
 
-    private static func languageMetadata(
-        source: HomeLanguage,
-        target: HomeLanguage
-    ) -> [String: String] {
-        [
-            "source_language": source.translationModelCode,
-            "target_language": target.translationModelCode
-        ]
-    }
-
-    private static func translationRequestMetadata(
-        assistantMessageID: UUID,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
-    ) -> [String: String] {
-        languageMetadata(source: sourceLanguage, target: targetLanguage).merging(
-            ["assistant_message_id": assistantMessageID.uuidString],
-            uniquingKeysWith: { _, newValue in newValue }
-        )
-    }
 }

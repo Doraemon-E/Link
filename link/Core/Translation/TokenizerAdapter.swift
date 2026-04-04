@@ -17,7 +17,6 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
     private let reverseVocabulary: [Int: String]
     private let unkTokenID: Int
     private let maxPieceLength: Int
-    private let logger = AppLogger.translationTokenizer
 
     init(modelDirectoryURL: URL, manifest: TranslationModelManifest) throws {
         guard manifest.tokenizer.kind == .marianSentencePieceVocabulary else {
@@ -55,15 +54,6 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
             self.reverseVocabulary = Dictionary(uniqueKeysWithValues: decodedVocabulary.map { ($1, $0) })
             self.unkTokenID = unkTokenID
             self.maxPieceLength = decodedVocabulary.keys.map(\.count).max() ?? 1
-
-            logger.info(
-                "Initialized Marian tokenizer",
-                metadata: [
-                    "max_piece_length": "\(maxPieceLength)",
-                    "vocabulary_file": manifest.tokenizer.vocabularyFile,
-                    "vocabulary_size": "\(decodedVocabulary.count)"
-                ]
-            )
         } catch let error as TranslationError {
             throw error
         } catch {
@@ -75,7 +65,6 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
         let normalized = normalize(text)
 
         guard !normalized.isEmpty else {
-            logger.debug("Tokenizer encode returned only EOS because the input is empty after normalization")
             return [Int64(eosTokenID)]
         }
 
@@ -112,13 +101,6 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
         }
 
         tokenIDs.append(Int64(eosTokenID))
-        logger.debug(
-            "Tokenizer encoded text",
-            metadata: [
-                "character_count": "\(normalized.count)",
-                "token_count": "\(tokenIDs.count)"
-            ]
-        )
         return tokenIDs
     }
 
@@ -149,13 +131,6 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
             .replacingOccurrences(of: "▁", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        logger.debug(
-            "Tokenizer decoded text",
-            metadata: [
-                "decoded_character_count": "\(sentence.count)",
-                "token_count": "\(tokenIDs.count)"
-            ]
-        )
         return sentence
     }
 
