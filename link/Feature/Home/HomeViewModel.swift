@@ -44,16 +44,24 @@ final class HomeViewModel {
     var pendingVoiceStartAfterInstall = false
     var lastSpeechRecordingURL: URL?
     var isPlayingLastSpeechRecording = false
+    var streamingStatesByMessageID: [UUID: StreamingMessageState] = [:]
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
+    @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
     @ObservationIgnored private let appSettings: AppSettings
     @ObservationIgnored private var autoStopSpeechTask: Task<Void, Never>?
     @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
+    @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
+
+    private enum TranslationRequestOrigin {
+        case manual
+        case speech
+    }
 
     init(
         appSettings: AppSettings,
@@ -69,6 +77,9 @@ final class HomeViewModel {
         self.speechRecognitionService = speechRecognitionService
         self.speechModelInstaller = speechModelInstaller
         self.microphoneRecordingService = microphoneRecordingService
+        self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
+            translationService: translationService
+        )
         self.selectedLanguage = appSettings.selectedTargetLanguage
     }
 
@@ -86,6 +97,20 @@ final class HomeViewModel {
 
     func displayedMessageIDs(in sessions: [ChatSession]) -> [UUID] {
         displayedMessages(in: sessions).map(\.id)
+    }
+
+    func displayedMessageRenderKeys(in sessions: [ChatSession]) -> [String] {
+        displayedMessages(in: sessions).map { message in
+            let streamingState = streamingStatesByMessageID[message.id]
+            let revision = streamingState?.revision ?? 0
+            let displayText = streamingState?.displayText ?? message.text
+            let statusText = streamingState?.statusText ?? ""
+            return "\(message.id.uuidString)-\(revision)-\(statusText)-\(displayText)"
+        }
+    }
+
+    func streamingState(for message: ChatMessage) -> StreamingMessageState? {
+        streamingStatesByMessageID[message.id]
     }
 
     func shouldShowNavigationBar(in sessions: [ChatSession]) -> Bool {
@@ -144,6 +169,7 @@ final class HomeViewModel {
             targetLanguage: selectedLanguage,
             audioURL: nil,
             speechContent: nil,
+            translationOrigin: .manual,
             using: modelContext,
             sessions: sessions,
             clearInput: true
@@ -335,6 +361,7 @@ final class HomeViewModel {
                 targetLanguage: selectedLanguage,
                 audioURL: recordingResult.preservedRecordingURL?.absoluteString,
                 speechContent: transcribedText,
+                translationOrigin: .speech,
                 using: modelContext,
                 sessions: sessions,
                 clearInput: false
@@ -519,6 +546,7 @@ final class HomeViewModel {
         targetLanguage: HomeLanguage,
         audioURL: String?,
         speechContent: String?,
+        translationOrigin: TranslationRequestOrigin,
         using modelContext: ModelContext,
         sessions: [ChatSession],
         clearInput: Bool
@@ -544,15 +572,14 @@ final class HomeViewModel {
             messageText = ""
         }
 
-        Task { @MainActor in
-            await resolveTranslation(
-                for: assistantMessageID,
-                originalText: trimmedText,
-                sourceLanguage: sourceLanguage,
-                targetLanguage: targetLanguage,
-                using: modelContext
-            )
-        }
+        startStreamingTranslation(
+            for: assistantMessageID,
+            originalText: trimmedText,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            translationOrigin: translationOrigin,
+            using: modelContext
+        )
     }
 
     private func resolveSession(
@@ -612,7 +639,7 @@ final class HomeViewModel {
         )
         let assistantMessage = ChatMessage(
             sender: .assistant,
-            text: "翻译中…",
+            text: "",
             createdAt: now.addingTimeInterval(0.001),
             sequence: nextSequence + 1,
             session: session
@@ -626,38 +653,107 @@ final class HomeViewModel {
         return assistantMessage.id
     }
 
-    private func resolveTranslation(
+    private func startStreamingTranslation(
         for assistantMessageID: UUID,
         originalText: String,
         sourceLanguage: HomeLanguage,
         targetLanguage: HomeLanguage,
+        translationOrigin: TranslationRequestOrigin,
         using modelContext: ModelContext
-    ) async {
-        do {
-            let translatedText = try await translationService.translate(
-                text: originalText,
-                source: sourceLanguage,
-                target: targetLanguage
-            )
+    ) {
+        translationTasksByMessageID[assistantMessageID]?.cancel()
+        streamingStatesByMessageID[assistantMessageID] = StreamingMessageState(
+            messageID: assistantMessageID,
+            committedText: "",
+            liveText: nil,
+            phase: .translating,
+            revision: 0
+        )
 
-            updateAssistantMessage(
-                id: assistantMessageID,
-                text: translatedText,
-                using: modelContext
-            )
-        } catch let error as TranslationError {
-            updateAssistantMessage(
-                id: assistantMessageID,
-                text: error.userFacingMessage,
-                using: modelContext
-            )
-        } catch {
-            updateAssistantMessage(
-                id: assistantMessageID,
-                text: "翻译失败了，请稍后再试。",
-                using: modelContext
-            )
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            defer {
+                self.translationTasksByMessageID.removeValue(forKey: assistantMessageID)
+            }
+
+            do {
+                let stream: AsyncThrowingStream<ConversationStreamingEvent, Error>
+                switch translationOrigin {
+                case .manual:
+                    stream = await self.conversationStreamingCoordinator.startManualTranslation(
+                        messageID: assistantMessageID,
+                        text: originalText,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage
+                    )
+                case .speech:
+                    stream = await self.conversationStreamingCoordinator.startSpeechTranslation(
+                        messageID: assistantMessageID,
+                        text: originalText,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage
+                    )
+                }
+
+                for try await event in stream {
+                    self.handleStreamingConversationEvent(event, using: modelContext)
+                }
+            } catch is CancellationError {
+                self.streamingStatesByMessageID.removeValue(forKey: assistantMessageID)
+            } catch let error as TranslationError {
+                self.failStreamingTranslation(
+                    for: assistantMessageID,
+                    message: error.userFacingMessage,
+                    using: modelContext
+                )
+            } catch {
+                self.failStreamingTranslation(
+                    for: assistantMessageID,
+                    message: "翻译失败了，请稍后再试。",
+                    using: modelContext
+                )
+            }
         }
+
+        translationTasksByMessageID[assistantMessageID] = task
+    }
+
+    private func handleStreamingConversationEvent(
+        _ event: ConversationStreamingEvent,
+        using modelContext: ModelContext
+    ) {
+        switch event {
+        case .state(let state):
+            streamingStatesByMessageID[state.messageID] = state
+        case .completed(let messageID, let text):
+            updateAssistantMessage(
+                id: messageID,
+                text: text,
+                using: modelContext
+            )
+            streamingStatesByMessageID.removeValue(forKey: messageID)
+        }
+    }
+
+    private func failStreamingTranslation(
+        for assistantMessageID: UUID,
+        message: String,
+        using modelContext: ModelContext
+    ) {
+        streamingStatesByMessageID[assistantMessageID] = StreamingMessageState(
+            messageID: assistantMessageID,
+            committedText: message,
+            liveText: nil,
+            phase: .failed(message),
+            revision: (streamingStatesByMessageID[assistantMessageID]?.revision ?? 0) + 1
+        )
+        updateAssistantMessage(
+            id: assistantMessageID,
+            text: message,
+            using: modelContext
+        )
+        streamingStatesByMessageID.removeValue(forKey: assistantMessageID)
     }
 
     private func updateAssistantMessage(

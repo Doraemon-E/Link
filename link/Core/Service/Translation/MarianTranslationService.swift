@@ -106,6 +106,52 @@ actor MarianTranslationService: TranslationService {
         return translatedText
     }
 
+    func streamTranslation(
+        text: String,
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) -> AsyncThrowingStream<TranslationStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    continuation.yield(.started)
+
+                    let translatedText = try await self.translate(
+                        text: text,
+                        source: source,
+                        target: target
+                    )
+
+                    var revision = 0
+                    for try await partialText in TypingRenderer.stream(
+                        text: translatedText,
+                        language: target
+                    ) {
+                        revision += 1
+                        continuation.yield(
+                            .partial(
+                                text: partialText,
+                                revision: revision,
+                                isFinal: partialText == translatedText
+                            )
+                        )
+                    }
+
+                    continuation.yield(.completed(text: translatedText))
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     private func translateDirect(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
         let state = try await loadState(source: source, target: target)
 

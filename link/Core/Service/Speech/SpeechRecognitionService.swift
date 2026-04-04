@@ -12,7 +12,19 @@ struct SpeechRecognitionResult: Sendable {
     let detectedLanguage: String?
 }
 
-protocol SpeechRecognitionService {
+enum SpeechTranscriptEvent: Sendable, Equatable {
+    case started
+    case partial(text: String, revision: Int, isFinal: Bool, detectedLanguage: HomeLanguage?)
+    case completed(text: String, detectedLanguage: HomeLanguage?)
+}
+
+protocol SpeechRecognitionStreamingService: Sendable {
+    func streamTranscription(
+        audioStream: AsyncStream<[Float]>
+    ) -> AsyncThrowingStream<SpeechTranscriptEvent, Error>
+}
+
+protocol SpeechRecognitionService: Sendable {
     func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult
 }
 

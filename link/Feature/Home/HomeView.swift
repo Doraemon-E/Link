@@ -81,7 +81,7 @@ struct HomeView: View {
                     viewModel.onAppear(using: modelContext, sessions: sessions)
                     scrollToBottom(with: proxy, animated: false)
                 }
-                .onChange(of: displayedMessageIDs) { _, _ in
+                .onChange(of: displayedMessageRenderKeys) { _, _ in
                     scrollToBottom(with: proxy)
                 }
             }
@@ -246,6 +246,10 @@ struct HomeView: View {
         viewModel.displayedMessageIDs(in: sessions)
     }
 
+    private var displayedMessageRenderKeys: [String] {
+        viewModel.displayedMessageRenderKeys(in: sessions)
+    }
+
     private var shouldShowNavigationBar: Bool {
         viewModel.shouldShowNavigationBar(in: sessions)
     }
@@ -295,7 +299,10 @@ struct HomeView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(displayedMessages, id: \.id) { message in
-                    HomeChatMessageBubble(message: message)
+                    HomeChatMessageBubble(
+                        message: message,
+                        streamingState: viewModel.streamingState(for: message)
+                    )
                         .id(message.id)
                 }
             }
