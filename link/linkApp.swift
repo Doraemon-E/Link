@@ -10,6 +10,7 @@ import SwiftData
 
 @main
 struct linkApp: App {
+    private let appSettings: AppSettings
     private let translationModelInstaller: TranslationModelInstaller
     private let translationService: TranslationService
     private let speechModelInstaller: SpeechModelInstaller
@@ -21,6 +22,7 @@ struct linkApp: App {
         let installer = TranslationModelInstaller(catalogService: catalogService)
         let speechCatalogService = SpeechModelCatalogService()
         let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
+        self.appSettings = AppSettings()
         self.translationModelInstaller = installer
         self.translationService = MarianTranslationService(installer: installer)
         self.speechModelInstaller = speechInstaller
@@ -36,6 +38,7 @@ struct linkApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(
+                appSettings: appSettings,
                 translationService: translationService,
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,

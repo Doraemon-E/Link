@@ -20,7 +20,12 @@ final class HomeViewModel {
     }
 
     var sourceLanguage: HomeLanguage = .chinese
-    var selectedLanguage: HomeLanguage = .english
+    var selectedLanguage: HomeLanguage {
+        didSet {
+            guard appSettings.selectedTargetLanguage != selectedLanguage else { return }
+            appSettings.selectedTargetLanguage = selectedLanguage
+        }
+    }
     var isLanguageSheetPresented = false
     var isSessionHistoryPresented = false
     var messageText = ""
@@ -45,25 +50,32 @@ final class HomeViewModel {
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
+    @ObservationIgnored private let appSettings: AppSettings
     @ObservationIgnored private var autoStopSpeechTask: Task<Void, Never>?
     @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
 
     init(
+        appSettings: AppSettings,
         translationService: TranslationService,
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
         speechModelInstaller: SpeechModelInstaller,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
+        self.appSettings = appSettings
         self.translationService = translationService
         self.translationModelInstaller = translationModelInstaller
         self.speechRecognitionService = speechRecognitionService
         self.speechModelInstaller = speechModelInstaller
         self.microphoneRecordingService = microphoneRecordingService
+        self.selectedLanguage = appSettings.selectedTargetLanguage
     }
 
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
+        if selectedLanguage != appSettings.selectedTargetLanguage {
+            selectedLanguage = appSettings.selectedTargetLanguage
+        }
         removeEmptySessions(using: modelContext, sessions: sessions)
     }
 
@@ -130,6 +142,8 @@ final class HomeViewModel {
             text: trimmedText,
             sourceLanguage: sourceLanguage,
             targetLanguage: selectedLanguage,
+            audioURL: nil,
+            speechContent: nil,
             using: modelContext,
             sessions: sessions,
             clearInput: true
@@ -319,6 +333,8 @@ final class HomeViewModel {
                 text: transcribedText,
                 sourceLanguage: effectiveSourceLanguage,
                 targetLanguage: selectedLanguage,
+                audioURL: recordingResult.preservedRecordingURL?.absoluteString,
+                speechContent: transcribedText,
                 using: modelContext,
                 sessions: sessions,
                 clearInput: false
@@ -444,8 +460,15 @@ final class HomeViewModel {
     }
 
     @discardableResult
-    private func createNewSession(using modelContext: ModelContext) -> ChatSession {
-        let session = ChatSession()
+    private func createNewSession(
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
+        using modelContext: ModelContext
+    ) -> ChatSession {
+        let session = ChatSession(
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage
+        )
         modelContext.insert(session)
         sessionPresentation = .persisted(session.id)
         return session
@@ -494,6 +517,8 @@ final class HomeViewModel {
         text: String,
         sourceLanguage: HomeLanguage,
         targetLanguage: HomeLanguage,
+        audioURL: String?,
+        speechContent: String?,
         using modelContext: ModelContext,
         sessions: [ChatSession],
         clearInput: Bool
@@ -501,9 +526,16 @@ final class HomeViewModel {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
-        let session = resolveSession(using: modelContext, sessions: sessions)
+        let session = resolveSession(
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            using: modelContext,
+            sessions: sessions
+        )
         let assistantMessageID = insertConversationExchange(
             text: trimmedText,
+            audioURL: audioURL,
+            speechContent: speechContent,
             into: session,
             using: modelContext
         )
@@ -523,10 +555,19 @@ final class HomeViewModel {
         }
     }
 
-    private func resolveSession(using modelContext: ModelContext, sessions: [ChatSession]) -> ChatSession {
+    private func resolveSession(
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
+    ) -> ChatSession {
         switch sessionPresentation {
         case .draft:
-            return createNewSession(using: modelContext)
+            return createNewSession(
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                using: modelContext
+            )
         case .persisted(let sessionID):
             if let existingSession = sessions.first(where: { $0.id == sessionID }) {
                 return existingSession
@@ -537,14 +578,24 @@ final class HomeViewModel {
                 return fallbackSession
             }
 
-            return createNewSession(using: modelContext)
+            return createNewSession(
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                using: modelContext
+            )
         case .none:
-            return createNewSession(using: modelContext)
+            return createNewSession(
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+                using: modelContext
+            )
         }
     }
 
     private func insertConversationExchange(
         text: String,
+        audioURL: String?,
+        speechContent: String?,
         into session: ChatSession,
         using modelContext: ModelContext
     ) -> UUID {
@@ -553,6 +604,8 @@ final class HomeViewModel {
         let userMessage = ChatMessage(
             sender: .user,
             text: text,
+            audioURL: audioURL,
+            speechContent: speechContent,
             createdAt: now,
             sequence: nextSequence,
             session: session
@@ -655,5 +708,4 @@ final class HomeViewModel {
 
         return SpeechModelDownloadPrompt(package: package)
     }
-
 }

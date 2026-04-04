@@ -1,4 +1,5 @@
 Pods/
+.derived-data/
 Resource/
 !link/Resource/
 link/Resource/*

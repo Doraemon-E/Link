@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    let appSettings: AppSettings
     let translationService: TranslationService
     let translationModelInstaller: TranslationModelInstaller
     let speechRecognitionService: SpeechRecognitionService
@@ -16,6 +17,7 @@ struct ContentView: View {
 
     var body: some View {
         HomeView(
+            appSettings: appSettings,
             translationService: translationService,
             translationModelInstaller: translationModelInstaller,
             speechRecognitionService: speechRecognitionService,
@@ -31,6 +33,7 @@ struct ContentView: View {
     let speechCatalogService = SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
     let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
     ContentView(
+        appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "ContentViewPreview") ?? .standard),
         translationService: MarianTranslationService(installer: installer),
         translationModelInstaller: installer,
         speechRecognitionService: WhisperSpeechRecognitionService(installer: speechInstaller),

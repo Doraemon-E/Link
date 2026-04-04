@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
     init(
+        appSettings: AppSettings,
         translationService: TranslationService,
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
@@ -23,6 +24,7 @@ struct HomeView: View {
     ) {
         _viewModel = State(
             initialValue: HomeViewModel(
+                appSettings: appSettings,
                 translationService: translationService,
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
@@ -434,6 +436,7 @@ private struct HomeDownloadToolbarIcon: View {
     let catalogService = TranslationModelCatalogService(remoteCatalogURL: nil, bundle: .main)
     let installer = TranslationModelInstaller(catalogService: catalogService)
     HomeView(
+        appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
         translationService: MarianTranslationService(installer: installer),
         translationModelInstaller: installer,
         speechRecognitionService: WhisperSpeechRecognitionService(
