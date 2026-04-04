@@ -8,7 +8,7 @@
 import Foundation
 
 enum TranslationModelHostingConfiguration {
-    static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/translation/catalog.json")
+    static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/translation/translation-catalog.json")
 }
 
 actor TranslationModelCatalogService {

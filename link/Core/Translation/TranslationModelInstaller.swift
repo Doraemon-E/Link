@@ -38,6 +38,7 @@ actor TranslationModelInstaller {
         let eosTokenId: Int?
         let padTokenId: Int?
         let decoderStartTokenId: Int?
+        let badWordsIds: [[Int]]?
 
         enum CodingKeys: String, CodingKey {
             case maxLength = "max_length"
@@ -45,6 +46,7 @@ actor TranslationModelInstaller {
             case eosTokenId = "eos_token_id"
             case padTokenId = "pad_token_id"
             case decoderStartTokenId = "decoder_start_token_id"
+            case badWordsIds = "bad_words_ids"
         }
     }
 
@@ -667,7 +669,14 @@ actor TranslationModelInstaller {
                     ?? config.decoderStartTokenId
                     ?? generationConfig.padTokenId
                     ?? config.padTokenId
-                    ?? 65000
+                    ?? 65000,
+                suppressedTokenIds: generationConfig.badWordsIds?.compactMap { tokenIDs in
+                    guard tokenIDs.count == 1 else {
+                        return nil
+                    }
+
+                    return tokenIDs[0]
+                }
             ),
             tensorNames: .init(
                 encoderInputIDs: "input_ids",

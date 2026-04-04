@@ -152,8 +152,13 @@ struct HomeView: View {
             presenting: viewModel.activeSpeechDownloadPrompt
         ) { prompt in
             Button("下载并安装") {
+                let packageId = prompt.packageId
+                let shouldResumeRecording = viewModel.pendingVoiceStartAfterInstall
+
                 Task {
                     await viewModel.installSpeechModelAndResumeIfNeeded(
+                        packageId: packageId,
+                        shouldResumeRecording: shouldResumeRecording,
                         using: modelContext,
                         sessions: sessions
                     )

@@ -8,7 +8,7 @@
 import Foundation
 
 enum SpeechModelHostingConfiguration {
-    static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/speech/catalog.json")
+    static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/speech/speech-catalog.json")
 }
 
 actor SpeechModelCatalogService {
@@ -132,7 +132,7 @@ actor SpeechModelCatalogService {
     }
 
     private func cachedCatalogURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("catalog.json", isDirectory: false)
+        try baseDirectoryURL().appendingPathComponent("speech-catalog.json", isDirectory: false)
     }
 
     private func baseDirectoryURL() throws -> URL {

@@ -20,9 +20,19 @@ actor MarianTranslationService: TranslationService {
         let environment: ORTEnv
         let encoderSession: ORTSession
         let decoderSession: ORTSession
+        let suppressedTokenIDs: Set<Int64>
+    }
+
+    private struct GenerationConfigOverrides: Decodable {
+        let badWordsIds: [[Int]]?
+
+        enum CodingKeys: String, CodingKey {
+            case badWordsIds = "bad_words_ids"
+        }
     }
 
     private let installer: TranslationModelInstaller
+    private var environment: ORTEnv?
     private var loadedState: LoadedState?
 
     init(
@@ -73,6 +83,10 @@ actor MarianTranslationService: TranslationService {
 
     func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
         let route = try await route(source: source, target: target)
+        debugLog(
+            "route \(source.displayName)->\(target.displayName): " +
+            route.steps.map { "\($0.source.displayName)->\($0.target.displayName)" }.joined(separator: ", ")
+        )
 
         guard !route.steps.isEmpty else {
             return text
@@ -80,11 +94,13 @@ actor MarianTranslationService: TranslationService {
 
         var translatedText = text
         for step in route.steps {
+            debugLog("step input \(step.source.displayName)->\(step.target.displayName): \"\(translatedText)\"")
             translatedText = try await translateDirect(
                 text: translatedText,
                 source: step.source,
                 target: step.target
             )
+            debugLog("step output \(step.source.displayName)->\(step.target.displayName): \"\(translatedText)\"")
         }
 
         return translatedText
@@ -127,31 +143,61 @@ actor MarianTranslationService: TranslationService {
 
         var decoderTokenIDs = [Int64(state.manifest.generation.decoderStartTokenId)]
         var generatedTokenIDs: [Int64] = []
+        let maxDecoderSteps = effectiveMaxOutputLength(
+            forInputTokenCount: inputTokenIDs.count,
+            manifest: state.manifest
+        )
 
-        for _ in 0 ..< state.manifest.generation.maxOutputLength {
-            let decoderInputs = try [
-                state.manifest.tensorNames.decoderInputIDs: makeInt64Tensor(
-                    decoderTokenIDs,
-                    shape: [1, decoderTokenIDs.count]
-                ),
-                state.manifest.tensorNames.decoderEncoderAttentionMask: makeInt64Tensor(
-                    attentionMask,
-                    shape: [1, attentionMask.count]
-                ),
-                state.manifest.tensorNames.decoderEncoderHiddenStates: encoderHiddenStates
-            ]
+        debugLog(
+            "translateDirect start package=\(state.packageID) " +
+            "\(source.displayName)->\(target.displayName) " +
+            "text=\"\(text)\" inputTokenIDs=\(formattedTokenIDs(inputTokenIDs)) " +
+            "maxDecoderSteps=\(maxDecoderSteps) " +
+            "suppressedTokenIDs=\(formattedTokenIDs(Array(state.suppressedTokenIDs).sorted()))"
+        )
 
-            let decoderOutputs = try state.decoderSession.run(
-                withInputs: decoderInputs,
-                outputNames: [state.manifest.tensorNames.decoderOutputLogits],
-                runOptions: nil
-            )
+        for _ in 0 ..< maxDecoderSteps {
+            let nextTokenID: Int64 = try autoreleasepool {
+                let decoderInputs = try [
+                    state.manifest.tensorNames.decoderInputIDs: makeInt64Tensor(
+                        decoderTokenIDs,
+                        shape: [1, decoderTokenIDs.count]
+                    ),
+                    state.manifest.tensorNames.decoderEncoderAttentionMask: makeInt64Tensor(
+                        attentionMask,
+                        shape: [1, attentionMask.count]
+                    ),
+                    state.manifest.tensorNames.decoderEncoderHiddenStates: encoderHiddenStates
+                ]
 
-            guard let logitsValue = decoderOutputs[state.manifest.tensorNames.decoderOutputLogits] else {
-                throw TranslationError.inferenceFailed("Decoder logits tensor is missing.")
+                let decoderOutputs = try state.decoderSession.run(
+                    withInputs: decoderInputs,
+                    outputNames: [state.manifest.tensorNames.decoderOutputLogits],
+                    runOptions: nil
+                )
+
+                guard let logitsValue = decoderOutputs[state.manifest.tensorNames.decoderOutputLogits] else {
+                    throw TranslationError.inferenceFailed("Decoder logits tensor is missing.")
+                }
+
+                return try argmaxForLastStep(
+                    logitsValue,
+                    suppressedTokenIDs: state.suppressedTokenIDs
+                )
             }
 
-            let nextTokenID = try argmaxForLastStep(logitsValue)
+            if generatedTokenIDs.isEmpty {
+                let firstTokenDescription = state.tokenizer.debugTokenDescription(
+                    nextTokenID,
+                    eosTokenID: state.manifest.generation.eosTokenId,
+                    padTokenID: state.manifest.generation.padTokenId
+                )
+                debugLog(
+                    "first nextTokenID package=\(state.packageID): \(nextTokenID), " +
+                    "token=\"\(firstTokenDescription)\", " +
+                    "isEOS=\(nextTokenID == Int64(state.manifest.generation.eosTokenId))"
+                )
+            }
 
             if nextTokenID == Int64(state.manifest.generation.eosTokenId) {
                 break
@@ -166,12 +212,35 @@ actor MarianTranslationService: TranslationService {
             eosTokenID: state.manifest.generation.eosTokenId,
             padTokenID: state.manifest.generation.padTokenId
         )
+        let generatedTokenDescriptions = formattedTokenDescriptions(
+            generatedTokenIDs,
+            tokenizer: state.tokenizer,
+            eosTokenID: state.manifest.generation.eosTokenId,
+            padTokenID: state.manifest.generation.padTokenId
+        )
+
+        debugLog(
+            "translateDirect result package=\(state.packageID) " +
+            "generatedTokenIDs=\(formattedTokenIDs(generatedTokenIDs)) " +
+            "generatedTokens=\(generatedTokenDescriptions) " +
+            "decoded=\"\(translatedText)\""
+        )
 
         guard !translatedText.isEmpty else {
+            debugLog("translateDirect empty output package=\(state.packageID)")
             throw TranslationError.emptyOutput
         }
 
         return translatedText
+    }
+
+    private func effectiveMaxOutputLength(
+        forInputTokenCount inputTokenCount: Int,
+        manifest: TranslationModelManifest
+    ) -> Int {
+        let manifestLimit = manifest.generation.maxOutputLength
+        let heuristicLimit = max(32, (inputTokenCount * 3) + 16)
+        return min(manifestLimit, heuristicLimit)
     }
 
     private func routeStep(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRouteStep? {
@@ -217,7 +286,7 @@ actor MarianTranslationService: TranslationService {
         )
 
         do {
-            let environment = try ORTEnv(loggingLevel: .warning)
+            let environment = try sharedEnvironment()
             let encoderSession = try ORTSession(
                 env: environment,
                 modelPath: installation.modelDirectoryURL
@@ -239,13 +308,103 @@ actor MarianTranslationService: TranslationService {
                 tokenizer: tokenizer,
                 environment: environment,
                 encoderSession: encoderSession,
-                decoderSession: decoderSession
+                decoderSession: decoderSession,
+                suppressedTokenIDs: loadSuppressedTokenIDs(
+                    manifest: manifest,
+                    modelDirectoryURL: installation.modelDirectoryURL
+                )
             )
             loadedState = state
             return state
         } catch {
             throw TranslationError.runtimeInitialization(error.localizedDescription)
         }
+    }
+
+    private func sharedEnvironment() throws -> ORTEnv {
+        if let environment {
+            return environment
+        }
+
+        let environment = try ORTEnv(loggingLevel: .warning)
+        self.environment = environment
+        return environment
+    }
+
+    private func loadSuppressedTokenIDs(
+        manifest: TranslationModelManifest,
+        modelDirectoryURL: URL
+    ) -> Set<Int64> {
+        if let suppressedTokenIds = manifest.generation.suppressedTokenIds,
+           !suppressedTokenIds.isEmpty {
+            return Set(suppressedTokenIds.map(Int64.init))
+        }
+
+        let generationConfigURL = modelDirectoryURL.appendingPathComponent(
+            "generation_config.json",
+            isDirectory: false
+        )
+
+        guard FileManager.default.fileExists(atPath: generationConfigURL.path) else {
+            return []
+        }
+
+        do {
+            let data = try Data(contentsOf: generationConfigURL)
+            let generationConfig = try JSONDecoder().decode(GenerationConfigOverrides.self, from: data)
+            return Set((generationConfig.badWordsIds ?? []).compactMap { tokenIDs in
+                guard tokenIDs.count == 1 else {
+                    return nil
+                }
+
+                return Int64(tokenIDs[0])
+            })
+        } catch {
+            debugLog("failed to load suppressed token ids from generation_config.json: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func formattedTokenIDs(_ tokenIDs: [Int64], limit: Int = 24) -> String {
+        if tokenIDs.isEmpty {
+            return "[]"
+        }
+
+        let prefix = tokenIDs.prefix(limit).map(String.init).joined(separator: ", ")
+        if tokenIDs.count <= limit {
+            return "[\(prefix)]"
+        }
+
+        return "[\(prefix), ...] (count=\(tokenIDs.count))"
+    }
+
+    private func formattedTokenDescriptions(
+        _ tokenIDs: [Int64],
+        tokenizer: TokenizerAdapter,
+        eosTokenID: Int,
+        padTokenID: Int,
+        limit: Int = 12
+    ) -> String {
+        if tokenIDs.isEmpty {
+            return "[]"
+        }
+
+        let descriptions = tokenIDs.prefix(limit).map {
+            "\"\(tokenizer.debugTokenDescription($0, eosTokenID: eosTokenID, padTokenID: padTokenID))\""
+        }
+        let prefix = descriptions.joined(separator: ", ")
+
+        if tokenIDs.count <= limit {
+            return "[\(prefix)]"
+        }
+
+        return "[\(prefix), ...] (count=\(tokenIDs.count))"
+    }
+
+    private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        print("[MarianTranslationService] \(message())")
+#endif
     }
 
     private func makeInt64Tensor(_ values: [Int64], shape: [Int]) throws -> ORTValue {
@@ -262,7 +421,10 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    private func argmaxForLastStep(_ logitsValue: ORTValue) throws -> Int64 {
+    private func argmaxForLastStep(
+        _ logitsValue: ORTValue,
+        suppressedTokenIDs: Set<Int64>
+    ) throws -> Int64 {
         do {
             let tensorData = try logitsValue.tensorData()
             let tensorInfo = try logitsValue.tensorTypeAndShapeInfo()
@@ -290,11 +452,20 @@ actor MarianTranslationService: TranslationService {
                 var bestValue = -Float.infinity
 
                 for offset in 0 ..< vocabSize {
+                    let tokenID = Int64(offset)
+                    if suppressedTokenIDs.contains(tokenID) {
+                        continue
+                    }
+
                     let candidate = floatBuffer[startIndex + offset]
                     if candidate > bestValue {
                         bestValue = candidate
                         bestIndex = offset
                     }
+                }
+
+                guard bestValue.isFinite else {
+                    throw TranslationError.inferenceFailed("Decoder logits only contained suppressed tokens.")
                 }
 
                 return Int64(bestIndex)

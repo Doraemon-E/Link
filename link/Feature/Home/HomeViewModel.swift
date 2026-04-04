@@ -325,8 +325,13 @@ final class HomeViewModel {
         }
     }
 
-    func installSpeechModelAndResumeIfNeeded(using modelContext: ModelContext, sessions: [ChatSession]) async {
-        guard !isInstallingSpeechModel, let prompt = activeSpeechDownloadPrompt else { return }
+    func installSpeechModelAndResumeIfNeeded(
+        packageId: String,
+        shouldResumeRecording: Bool,
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
+    ) async {
+        guard !isInstallingSpeechModel else { return }
 
         isInstallingSpeechModel = true
         speechErrorMessage = nil
@@ -337,8 +342,7 @@ final class HomeViewModel {
         }
 
         do {
-            _ = try await speechModelInstaller.install(packageId: prompt.packageId)
-            let shouldResumeRecording = pendingVoiceStartAfterInstall
+            _ = try await speechModelInstaller.install(packageId: packageId)
             pendingVoiceStartAfterInstall = false
 
             if shouldResumeRecording {

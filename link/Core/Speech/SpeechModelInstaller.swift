@@ -52,6 +52,8 @@ actor SpeechModelInstaller {
         }
 
         do {
+            log("Starting install for packageId=\(package.packageId), archiveURL=\(package.archiveURL.absoluteString)")
+
             try removeStaleInstallationIfNeeded(packageId: package.packageId)
             try ensureDirectoryExists(at: try packagesDirectoryURL())
             try ensureDirectoryExists(at: try temporaryDirectoryURL())
@@ -69,13 +71,16 @@ actor SpeechModelInstaller {
 
             do {
                 try FileManager.default.unzipItem(at: archiveURL, to: extractedDirectoryURL)
+                log("Unzipped packageId=\(package.packageId) into \(extractedDirectoryURL.path)")
+                logExtractedContents(at: extractedDirectoryURL)
             } catch {
+                log("Unzip failed for packageId=\(package.packageId): \(error.localizedDescription)")
                 throw SpeechRecognitionError.extractionFailed(error.localizedDescription)
             }
 
             let payloadRootURL = try resolvePayloadRoot(
-                extractedDirectoryURL: extractedDirectoryURL,
-                modelRelativePath: package.modelRelativePath
+                for: package,
+                extractedDirectoryURL: extractedDirectoryURL
             )
             let destinationURL = try packageDirectoryURL(for: package.packageId)
 
@@ -86,24 +91,32 @@ actor SpeechModelInstaller {
             do {
                 try FileManager.default.moveItem(at: payloadRootURL, to: destinationURL)
             } catch {
+                log("Failed to move packageId=\(package.packageId) into destination: \(error.localizedDescription)")
                 throw SpeechRecognitionError.installationFailed(error.localizedDescription)
             }
 
-            let installation = try installedPackage(for: package)
-            guard let installation else {
-                throw SpeechRecognitionError.installationFailed("Installed speech model is missing the expected model file.")
-            }
+            let resolvedModelRelativePath = try resolveInstalledModelRelativePath(
+                for: package,
+                packageDirectoryURL: destinationURL
+            )
+            let installation = SpeechModelInstallation(
+                package: package,
+                modelURL: destinationURL.appendingPathComponent(
+                    resolvedModelRelativePath,
+                    isDirectory: false
+                )
+            )
 
             try upsertInstalledRecord(
                 SpeechInstalledPackageRecord(
                     packageId: package.packageId,
                     version: package.version,
-                    modelRelativePath: package.modelRelativePath,
+                    modelRelativePath: resolvedModelRelativePath,
                     installedAt: .now
                 )
             )
 
-            log("Install completed for packageId=\(package.packageId)")
+            log("Install completed for packageId=\(package.packageId), destination=\(destinationURL.path), modelPath=\(resolvedModelRelativePath)")
             return installation
         } catch {
             log("Install failed for packageId=\(package.packageId): \(error.localizedDescription)")
@@ -114,16 +127,22 @@ actor SpeechModelInstaller {
     private func installedPackage(for package: SpeechModelPackage) throws -> SpeechModelInstallation? {
         let index = try loadInstalledIndex()
 
-        guard let record = index.packages.first(where: { $0.packageId == package.packageId }) else {
+        guard let record = index.packages.first(where: {
+            SpeechModelPackage.normalizePackageId($0.packageId) == package.packageId
+        }) else {
             return nil
         }
 
-        let packageDirectoryURL = try packageDirectoryURL(for: package.packageId)
-        let modelURL = packageDirectoryURL.appendingPathComponent(record.modelRelativePath, isDirectory: false)
-
-        guard FileManager.default.fileExists(atPath: modelURL.path) else {
-            return nil
-        }
+        let packageDirectoryURL = try packageDirectoryURL(for: record.packageId)
+        let resolvedModelRelativePath = try resolveInstalledModelRelativePath(
+            for: package,
+            packageDirectoryURL: packageDirectoryURL,
+            preferredRelativePath: record.modelRelativePath
+        )
+        let modelURL = packageDirectoryURL.appendingPathComponent(
+            resolvedModelRelativePath,
+            isDirectory: false
+        )
 
         return SpeechModelInstallation(package: package, modelURL: modelURL)
     }
@@ -149,10 +168,12 @@ actor SpeechModelInstaller {
         configuration.waitsForConnectivity = true
 
         let session = URLSession(configuration: configuration)
+        log("Downloading packageId=\(package.packageId) from \(package.archiveURL.absoluteString)")
         let (temporaryFileURL, response) = try await session.download(from: package.archiveURL)
 
         guard let httpResponse = response as? HTTPURLResponse,
               200 ..< 300 ~= httpResponse.statusCode else {
+            log("Download failed for packageId=\(package.packageId): unexpected response")
             throw SpeechRecognitionError.downloadFailed("The server did not return a successful response.")
         }
 
@@ -161,9 +182,11 @@ actor SpeechModelInstaller {
         do {
             try FileManager.default.moveItem(at: temporaryFileURL, to: archiveURL)
         } catch {
+            log("Failed to move downloaded archive for packageId=\(package.packageId): \(error.localizedDescription)")
             throw SpeechRecognitionError.downloadFailed(error.localizedDescription)
         }
 
+        log("Downloaded packageId=\(package.packageId) to \(archiveURL.path)")
         return archiveURL
     }
 
@@ -178,6 +201,7 @@ actor SpeechModelInstaller {
 
         let actualHash = try sha256(for: archiveURL)
         guard actualHash == expectedHash else {
+            log("Checksum mismatch for archive=\(archiveURL.lastPathComponent), expected=\(expectedHash), actual=\(actualHash)")
             throw SpeechRecognitionError.integrityCheckFailed
         }
     }
@@ -213,9 +237,10 @@ actor SpeechModelInstaller {
     }
 
     private func resolvePayloadRoot(
-        extractedDirectoryURL: URL,
-        modelRelativePath: String
+        for package: SpeechModelPackage,
+        extractedDirectoryURL: URL
     ) throws -> URL {
+        let modelRelativePath = package.modelRelativePath
         let directModelURL = extractedDirectoryURL.appendingPathComponent(modelRelativePath, isDirectory: false)
         if FileManager.default.fileExists(atPath: directModelURL.path) {
             return extractedDirectoryURL
@@ -250,15 +275,111 @@ actor SpeechModelInstaller {
             .sorted()
             .map(URL.init(fileURLWithPath:))
 
+        if let rootURL = uniqueRoots.first, uniqueRoots.count == 1 {
+            log("Resolved payload root for modelPath=\(modelRelativePath): \(rootURL.path)")
+            return rootURL
+        }
+
+        if package.family == .whisper,
+           let fallback = try detectWhisperModel(in: extractedDirectoryURL) {
+            log("Detected Whisper model file after extraction: \(fallback.relativePath)")
+            log("Resolved payload root for modelPath=\(modelRelativePath) via Whisper fallback: \(fallback.rootURL.path)")
+            return fallback.rootURL
+        }
+
         guard let rootURL = uniqueRoots.first else {
+            log("Model not found after extraction. expectedPath=\(modelRelativePath), extractedDirectory=\(extractedDirectoryURL.path)")
+            logExtractedContents(at: extractedDirectoryURL)
             throw SpeechRecognitionError.extractionFailed("解压后没有找到 \(modelRelativePath)。")
         }
 
         if uniqueRoots.count > 1 {
+            let rootPaths = uniqueRoots.map(\.path).joined(separator: ", ")
+            log("Multiple model roots found after extraction for path=\(modelRelativePath): \(rootPaths)")
             throw SpeechRecognitionError.extractionFailed("解压后找到了多个候选模型目录，请检查压缩包结构。")
         }
 
+        log("Resolved payload root for modelPath=\(modelRelativePath): \(rootURL.path)")
         return rootURL
+    }
+
+    private func resolveInstalledModelRelativePath(
+        for package: SpeechModelPackage,
+        packageDirectoryURL: URL,
+        preferredRelativePath: String? = nil
+    ) throws -> String {
+        let fileManager = FileManager.default
+
+        for relativePath in [preferredRelativePath, package.modelRelativePath].compactMap({ $0 }) {
+            let modelURL = packageDirectoryURL.appendingPathComponent(relativePath, isDirectory: false)
+            if fileManager.fileExists(atPath: modelURL.path) {
+                return relativePath
+            }
+        }
+
+        if package.family == .whisper,
+           let fallback = try detectWhisperModel(in: packageDirectoryURL) {
+            log("Falling back to detected Whisper model path for packageId=\(package.packageId): \(fallback.relativePath)")
+            return fallback.relativePath
+        }
+
+        throw SpeechRecognitionError.installationFailed("Installed speech model is missing the expected model file.")
+    }
+
+    private func detectWhisperModel(
+        in directoryURL: URL
+    ) throws -> (rootURL: URL, relativePath: String)? {
+        let fileManager = FileManager.default
+
+        guard let enumerator = fileManager.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        var candidates: [(rootURL: URL, relativePath: String)] = []
+
+        for case let fileURL as URL in enumerator {
+            guard !fileURL.hasDirectoryPath else { continue }
+
+            guard let relativePath = relativePath(from: directoryURL, to: fileURL) else {
+                continue
+            }
+
+            guard !relativePath.contains("__MACOSX") else { continue }
+
+            let lowercasedName = fileURL.lastPathComponent.lowercased()
+            guard lowercasedName.hasSuffix(".gguf") || lowercasedName.hasSuffix(".bin") else {
+                continue
+            }
+
+            guard lowercasedName.contains("ggml") || lowercasedName.contains("whisper") else {
+                continue
+            }
+
+            candidates.append((fileURL.deletingLastPathComponent(), relativePath))
+        }
+
+        let uniqueCandidates = Array(
+            Dictionary(
+                candidates.map { ($0.relativePath, $0) },
+                uniquingKeysWith: { first, _ in first }
+            ).values
+        ).sorted { $0.relativePath < $1.relativePath }
+
+        guard let candidate = uniqueCandidates.first else {
+            return nil
+        }
+
+        if uniqueCandidates.count > 1 {
+            let paths = uniqueCandidates.map(\.relativePath).joined(separator: ", ")
+            log("Multiple Whisper model candidates found: \(paths)")
+            throw SpeechRecognitionError.extractionFailed("解压后找到了多个语音模型文件，请检查压缩包结构。")
+        }
+
+        return candidate
     }
 
     private func isValidModelCandidate(
@@ -274,8 +395,14 @@ actor SpeechModelInstaller {
             return false
         }
 
-        let extractedPathComponents = extractedDirectoryURL.standardizedFileURL.pathComponents
-        let filePathComponents = fileURL.standardizedFileURL.pathComponents
+        let extractedPathComponents = extractedDirectoryURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .pathComponents
+        let filePathComponents = fileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .pathComponents
 
         guard filePathComponents.count >= extractedPathComponents.count else {
             return false
@@ -307,6 +434,28 @@ actor SpeechModelInstaller {
         return rootURL
     }
 
+    private func relativePath(from rootURL: URL, to fileURL: URL) -> String? {
+        let normalizedRootComponents = rootURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .pathComponents
+        let normalizedFileComponents = fileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .pathComponents
+
+        guard normalizedFileComponents.starts(with: normalizedRootComponents) else {
+            return nil
+        }
+
+        let relativeComponents = normalizedFileComponents.dropFirst(normalizedRootComponents.count)
+        guard !relativeComponents.isEmpty else {
+            return fileURL.lastPathComponent
+        }
+
+        return relativeComponents.joined(separator: "/")
+    }
+
     private func loadInstalledIndex() throws -> SpeechInstalledPackagesIndex {
         let installedIndexURL = try installedIndexURL()
 
@@ -326,7 +475,10 @@ actor SpeechModelInstaller {
 
     private func upsertInstalledRecord(_ record: SpeechInstalledPackageRecord) throws {
         var index = try loadInstalledIndex()
-        index.packages.removeAll { $0.packageId == record.packageId }
+        let normalizedPackageId = SpeechModelPackage.normalizePackageId(record.packageId)
+        index.packages.removeAll {
+            SpeechModelPackage.normalizePackageId($0.packageId) == normalizedPackageId
+        }
         index.packages.append(record)
         try saveInstalledIndex(index)
     }
@@ -358,18 +510,32 @@ actor SpeechModelInstaller {
     }
 
     private func removeStaleInstallationIfNeeded(packageId: String) throws {
-        let packageURL = try packageDirectoryURL(for: packageId)
-        if FileManager.default.fileExists(atPath: packageURL.path) {
-            try? FileManager.default.removeItem(at: packageURL)
+        for candidatePackageId in candidatePackageIDs(for: packageId) {
+            let packageURL = try packageDirectoryURL(for: candidatePackageId)
+            if FileManager.default.fileExists(atPath: packageURL.path) {
+                try? FileManager.default.removeItem(at: packageURL)
+            }
         }
 
         var index = try loadInstalledIndex()
         let originalCount = index.packages.count
-        index.packages.removeAll { $0.packageId == packageId }
+        let normalizedPackageId = SpeechModelPackage.normalizePackageId(packageId)
+        index.packages.removeAll {
+            SpeechModelPackage.normalizePackageId($0.packageId) == normalizedPackageId
+        }
 
         if index.packages.count != originalCount {
             try saveInstalledIndex(index)
         }
+    }
+
+    private func candidatePackageIDs(for packageId: String) -> [String] {
+        let normalizedPackageId = SpeechModelPackage.normalizePackageId(packageId)
+        if normalizedPackageId == packageId {
+            return [normalizedPackageId, normalizedPackageId + ".zip"]
+        }
+
+        return [normalizedPackageId, packageId]
     }
 
     private func temporaryDirectoryURL() throws -> URL {
@@ -407,5 +573,39 @@ actor SpeechModelInstaller {
 
     private func log(_ message: String) {
         print("[SpeechModelInstaller] \(message)")
+    }
+
+    private func logExtractedContents(at directoryURL: URL) {
+        let fileManager = FileManager.default
+
+        guard let enumerator = fileManager.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            log("Failed to enumerate extracted contents at \(directoryURL.path)")
+            return
+        }
+
+        var entries: [String] = []
+
+        for case let fileURL as URL in enumerator {
+            guard let relativePath = relativePath(from: directoryURL, to: fileURL) else {
+                continue
+            }
+            let suffix = fileURL.hasDirectoryPath ? "/" : ""
+            entries.append(relativePath + suffix)
+
+            if entries.count >= 60 {
+                break
+            }
+        }
+
+        if entries.isEmpty {
+            log("Extracted directory is empty: \(directoryURL.path)")
+            return
+        }
+
+        log("Extracted contents sample (\(entries.count) entries): \(entries.joined(separator: ", "))")
     }
 }

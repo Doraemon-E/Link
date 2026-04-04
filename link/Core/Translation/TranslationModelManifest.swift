@@ -41,6 +41,7 @@ struct TranslationModelManifest: Codable {
         let eosTokenId: Int
         let padTokenId: Int
         let decoderStartTokenId: Int
+        let suppressedTokenIds: [Int]?
     }
 
     struct TensorNames: Codable {
