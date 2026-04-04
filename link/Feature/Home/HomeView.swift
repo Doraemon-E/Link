@@ -136,8 +136,7 @@ struct HomeView: View {
                     viewModel.isLanguageSheetPresented = true
                 } label: {
                     HomeHeroLanguageChip(
-                        sourceTitle: nil,
-                        targetTitle: viewModel.selectedLanguage.displayName
+                        title: viewModel.selectedLanguage.displayName
                     )
                 }
                 .buttonStyle(.plain)
