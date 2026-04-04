@@ -8,25 +8,36 @@
 import Foundation
 
 struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
-    let packageId: String
+    let packageIds: [String]
     let sourceLanguage: HomeLanguage
     let targetLanguage: HomeLanguage
     let archiveSize: Int64
     let installedSize: Int64
 
-    var id: String { packageId }
+    init(route: TranslationRoute) {
+        let missingSteps = route.missingSteps
+        self.packageIds = missingSteps.map(\.packageId)
+        self.sourceLanguage = route.source
+        self.targetLanguage = route.target
+        self.archiveSize = missingSteps.reduce(0) { $0 + $1.archiveSize }
+        self.installedSize = missingSteps.reduce(0) { $0 + $1.installedSize }
+    }
+
+    var id: String {
+        "\(sourceLanguage.rawValue)-\(targetLanguage.rawValue)-\(packageIds.joined(separator: "|"))"
+    }
 
     var title: String {
-        "下载\(sourceLanguage.displayName)到\(targetLanguage.displayName)模型"
+        "需要下载语言包"
     }
 
     var message: String {
         var parts: [String] = []
 
         if archiveSize > 0 {
-            parts.append("需要下载\(archiveSize.formattedModelSize)")
+            parts.append("\(sourceLanguage.displayName)到\(targetLanguage.displayName)需要先下载语言包，共\(archiveSize.formattedModelSize)")
         } else {
-            parts.append("需要下载对应的离线翻译模型")
+            parts.append("\(sourceLanguage.displayName)到\(targetLanguage.displayName)需要先下载语言包")
         }
 
         if installedSize > 0 {

@@ -123,7 +123,7 @@ struct HomeView: View {
         ) { prompt in
             Button("下载并安装") {
                 Task {
-                    await viewModel.installTranslationModel(packageId: prompt.packageId)
+                    await viewModel.installTranslationModel(packageIds: prompt.packageIds)
                 }
             }
 

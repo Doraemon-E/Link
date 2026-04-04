@@ -162,32 +162,14 @@ final class HomeViewModel {
         source: HomeLanguage,
         target: HomeLanguage
     ) async -> HomeLanguageSelectionResolution {
-        guard source != target else {
-            return .ready
-        }
-
         do {
-            if try await translationModelInstaller.isInstalled(source: source, target: target) {
+            let route = try await translationService.route(source: source, target: target)
+
+            if !route.requiresModelDownload {
                 return .ready
             }
 
-            guard let package = try await translationModelInstaller.packageMetadata(source: source, target: target) else {
-                return .failure(
-                    TranslationError
-                        .modelPackageUnavailable(source: source, target: target)
-                        .userFacingMessage
-                )
-            }
-
-            return .requiresDownload(
-                HomeLanguageDownloadPrompt(
-                    packageId: package.packageId,
-                    sourceLanguage: source,
-                    targetLanguage: target,
-                    archiveSize: package.archiveSize,
-                    installedSize: package.installedSize
-                )
-            )
+            return .requiresDownload(HomeLanguageDownloadPrompt(route: route))
         } catch let error as TranslationError {
             return .failure(error.userFacingMessage)
         } catch {
@@ -248,8 +230,9 @@ final class HomeViewModel {
         }
     }
 
-    func installTranslationModel(packageId: String) async {
+    func installTranslationModel(packageIds: [String]) async {
         guard !isInstallingTranslationModel else { return }
+        guard !packageIds.isEmpty else { return }
 
         isInstallingTranslationModel = true
         downloadErrorMessage = nil
@@ -260,18 +243,19 @@ final class HomeViewModel {
         }
 
         do {
-            _ = try await translationModelInstaller.install(packageId: packageId)
-
-            if downloadableLanguagePrompt?.packageId == packageId {
-                downloadableLanguagePrompt = nil
-                deferredDownloadPrompt = nil
+            for packageId in packageIds {
+                _ = try await translationModelInstaller.install(packageId: packageId)
             }
+
+            await refreshDownloadAvailabilityForCurrentSelection()
         } catch let error as TranslationError {
-            print("[HomeViewModel] installTranslationModel failed for packageId=\(packageId): \(error.localizedDescription)")
+            print("[HomeViewModel] installTranslationModel failed for packageIds=\(packageIds.joined(separator: ",")): \(error.localizedDescription)")
             downloadErrorMessage = error.userFacingMessage
+            await refreshDownloadAvailabilityForCurrentSelection()
         } catch {
-            print("[HomeViewModel] installTranslationModel failed for packageId=\(packageId): \(error.localizedDescription)")
+            print("[HomeViewModel] installTranslationModel failed for packageIds=\(packageIds.joined(separator: ",")): \(error.localizedDescription)")
             downloadErrorMessage = "模型下载失败，请稍后重试。"
+            await refreshDownloadAvailabilityForCurrentSelection()
         }
     }
 
@@ -397,26 +381,14 @@ final class HomeViewModel {
         source: HomeLanguage,
         target: HomeLanguage
     ) async -> HomeLanguageDownloadPrompt? {
-        guard source != target else {
-            return nil
-        }
-
         do {
-            if try await translationModelInstaller.isInstalled(source: source, target: target) {
+            let route = try await translationService.route(source: source, target: target)
+
+            if !route.requiresModelDownload {
                 return nil
             }
 
-            guard let package = try await translationModelInstaller.packageMetadata(source: source, target: target) else {
-                return nil
-            }
-
-            return HomeLanguageDownloadPrompt(
-                packageId: package.packageId,
-                sourceLanguage: source,
-                targetLanguage: target,
-                archiveSize: package.archiveSize,
-                installedSize: package.installedSize
-            )
+            return HomeLanguageDownloadPrompt(route: route)
         } catch {
             return nil
         }

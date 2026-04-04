@@ -10,6 +10,19 @@
 		5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1380EDAF98A2156D5449D8E5 /* Pods_link.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		55D5476A2F80E772002A3BC9 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		1380EDAF98A2156D5449D8E5 /* Pods_link.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_link.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.release.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.release.xcconfig"; sourceTree = "<group>"; };
@@ -17,9 +30,25 @@
 		6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.debug.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		55D5476B2F80E773002A3BC9 /* Exceptions for "link" folder in "Embed Frameworks" phase from "link" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			attributesByRelativePath = {
+				Resource/whisper.xcframework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
+			};
+			buildPhase = 55D5476A2F80E772002A3BC9 /* Embed Frameworks */;
+			membershipExceptions = (
+				Resource/whisper.xcframework,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		55D53EC42F8016B3002A3BC9 /* link */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				55D5476B2F80E773002A3BC9 /* Exceptions for "link" folder in "Embed Frameworks" phase from "link" target */,
+			);
 			path = link;
 			sourceTree = "<group>";
 		};
@@ -84,6 +113,7 @@
 				55D53EBF2F8016B3002A3BC9 /* Frameworks */,
 				55D53EC02F8016B3002A3BC9 /* Resources */,
 				999229E722B9F5CF0C68E719 /* [CP] Embed Pods Frameworks */,
+				55D5476A2F80E772002A3BC9 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);

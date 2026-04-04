@@ -9,5 +9,6 @@ import Foundation
 
 protocol TranslationService {
     func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool
+    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute
     func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String
 }

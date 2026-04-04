@@ -34,18 +34,63 @@ actor MarianTranslationService: TranslationService {
     }
 
     func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
-        if source == target {
+        do {
+            _ = try await route(source: source, target: target)
             return true
+        } catch let error as TranslationError {
+            if case .unsupportedLanguagePair = error {
+                return false
+            }
+
+            throw error
+        } catch {
+            throw error
+        }
+    }
+
+    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
+        if source == target {
+            return TranslationRoute(source: source, target: target, steps: [])
         }
 
-        return try await installer.packageMetadata(source: source, target: target) != nil
+        if let directStep = try await routeStep(source: source, target: target) {
+            return TranslationRoute(source: source, target: target, steps: [directStep])
+        }
+
+        if source != .english,
+           target != .english,
+           let toEnglishStep = try await routeStep(source: source, target: .english),
+           let fromEnglishStep = try await routeStep(source: .english, target: target) {
+            return TranslationRoute(
+                source: source,
+                target: target,
+                steps: [toEnglishStep, fromEnglishStep]
+            )
+        }
+
+        throw TranslationError.unsupportedLanguagePair(source: source, target: target)
     }
 
     func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
-        if source == target {
+        let route = try await route(source: source, target: target)
+
+        guard !route.steps.isEmpty else {
             return text
         }
 
+        var translatedText = text
+        for step in route.steps {
+            translatedText = try await translateDirect(
+                text: translatedText,
+                source: step.source,
+                target: step.target
+            )
+        }
+
+        return translatedText
+    }
+
+    private func translateDirect(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
         let state = try await loadState(source: source, target: target)
 
         guard state.manifest.supports(source: source, target: target) else {
@@ -127,6 +172,22 @@ actor MarianTranslationService: TranslationService {
         }
 
         return translatedText
+    }
+
+    private func routeStep(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRouteStep? {
+        guard let package = try await installer.packageMetadata(source: source, target: target) else {
+            return nil
+        }
+
+        let isInstalled = try await installer.isInstalled(source: source, target: target)
+        return TranslationRouteStep(
+            source: source,
+            target: target,
+            packageId: package.packageId,
+            archiveSize: package.archiveSize,
+            installedSize: package.installedSize,
+            isInstalled: isInstalled
+        )
     }
 
     private func loadState(source: HomeLanguage, target: HomeLanguage) async throws -> LoadedState {
