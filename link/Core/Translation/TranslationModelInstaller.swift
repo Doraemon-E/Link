@@ -54,11 +54,13 @@ actor TranslationModelInstaller {
         let modelMaxLength: Int?
         let sourceLang: String?
         let targetLang: String?
+        let extraIds: Int?
 
         enum CodingKeys: String, CodingKey {
             case modelMaxLength = "model_max_length"
             case sourceLang = "source_lang"
             case targetLang = "target_lang"
+            case extraIds = "extra_ids"
         }
     }
 
@@ -366,7 +368,7 @@ actor TranslationModelInstaller {
             )
         } catch let error as TranslationError {
             guard case .extractionFailed = error,
-                  let fallbackRootURL = try inferRawMarianPayloadRoot(
+                  let fallbackRootURL = try inferRawModelPayloadRoot(
                     extractedDirectoryURL: extractedDirectoryURL,
                     package: package
                   ) else {
@@ -446,11 +448,11 @@ actor TranslationModelInstaller {
         return rootURL
     }
 
-    private func inferRawMarianPayloadRoot(
+    private func inferRawModelPayloadRoot(
         extractedDirectoryURL: URL,
         package: TranslationModelPackage
     ) throws -> URL? {
-        guard let requiredFileNames = rawMarianRequiredFileNames(for: package) else {
+        guard let requiredFileNames = rawRequiredFileNames(for: package) else {
             return nil
         }
 
@@ -484,29 +486,37 @@ actor TranslationModelInstaller {
             }
 
         if candidates.count > 1 {
-            log("Multiple raw Marian roots found for packageId=\(package.packageId): \(candidates.map(\.path).joined(separator: ", "))")
+            log("Multiple raw model roots found for packageId=\(package.packageId): \(candidates.map(\.path).joined(separator: ", "))")
         }
 
         if let candidate = candidates.first {
-            log("Detected raw Marian export root for packageId=\(package.packageId): \(candidate.path)")
+            log("Detected raw model export root for packageId=\(package.packageId): \(candidate.path)")
         }
 
         return candidates.first
     }
 
-    private func rawMarianRequiredFileNames(for package: TranslationModelPackage) -> [String]? {
-        guard package.family == .marian else {
-            return nil
+    private func rawRequiredFileNames(for package: TranslationModelPackage) -> [String]? {
+        switch package.family {
+        case .marian:
+            return [
+                "config.json",
+                "generation_config.json",
+                "tokenizer_config.json",
+                "vocab.json",
+                "encoder_model.onnx",
+                "decoder_model.onnx"
+            ]
+        case .mt5:
+            return [
+                "config.json",
+                "generation_config.json",
+                "tokenizer_config.json",
+                "spiece.model",
+                "encoder_model.onnx",
+                "decoder_model.onnx"
+            ]
         }
-
-        return [
-            "config.json",
-            "generation_config.json",
-            "tokenizer_config.json",
-            "vocab.json",
-            "encoder_model.onnx",
-            "decoder_model.onnx"
-        ]
     }
 
     private func isValidManifestCandidate(
@@ -582,7 +592,7 @@ actor TranslationModelInstaller {
         modelDirectoryURL: URL,
         manifestURL: URL
     ) throws -> TranslationModelManifest? {
-        guard let requiredFileNames = rawMarianRequiredFileNames(for: package) else {
+        guard let requiredFileNames = rawRequiredFileNames(for: package) else {
             return nil
         }
 
@@ -621,6 +631,18 @@ actor TranslationModelInstaller {
         for package: TranslationModelPackage,
         modelDirectoryURL: URL
     ) throws -> TranslationModelManifest {
+        switch package.family {
+        case .marian:
+            return try synthesizeMarianManifest(for: package, modelDirectoryURL: modelDirectoryURL)
+        case .mt5:
+            return try synthesizeMT5Manifest(for: package, modelDirectoryURL: modelDirectoryURL)
+        }
+    }
+
+    private func synthesizeMarianManifest(
+        for package: TranslationModelPackage,
+        modelDirectoryURL: URL
+    ) throws -> TranslationModelManifest {
         let config = try loadJSON(
             RawMarianConfig.self,
             from: modelDirectoryURL.appendingPathComponent("config.json", isDirectory: false)
@@ -644,61 +666,154 @@ actor TranslationModelInstaller {
             isDirectory: false
         )
 
+        let tokenizer = TranslationModelManifest.Tokenizer(
+            kind: .marianSentencePieceVocabulary,
+            vocabularyFile: "vocab.json",
+            sourceSentencePieceFile: "source.spm",
+            targetSentencePieceFile: "target.spm",
+            sentencePieceFile: nil,
+            extraIds: nil
+        )
+        let onnxFiles = TranslationModelManifest.ONNXFiles(
+            encoder: "encoder_model.onnx",
+            decoder: "decoder_model.onnx",
+            decoderWithPast: FileManager.default.fileExists(atPath: decoderWithPastURL.path)
+                ? "decoder_with_past_model.onnx"
+                : nil
+        )
+        let suppressedTokenIds: [Int]? = generationConfig.badWordsIds?.compactMap { tokenIDs -> Int? in
+            guard tokenIDs.count == 1 else {
+                return nil
+            }
+
+            return tokenIDs[0]
+        }
+        let generation = TranslationModelManifest.Generation(
+            maxInputLength: maxLength,
+            maxOutputLength: maxLength,
+            bosTokenId: generationConfig.bosTokenId ?? config.bosTokenId ?? 0,
+            eosTokenId: generationConfig.eosTokenId ?? config.eosTokenId ?? 0,
+            padTokenId: generationConfig.padTokenId ?? config.padTokenId ?? 65000,
+            decoderStartTokenId: generationConfig.decoderStartTokenId
+                ?? config.decoderStartTokenId
+                ?? generationConfig.padTokenId
+                ?? config.padTokenId
+                ?? 65000,
+            suppressedTokenIds: suppressedTokenIds
+        )
+        let tensorNames = TranslationModelManifest.TensorNames(
+            encoderInputIDs: "input_ids",
+            encoderAttentionMask: "attention_mask",
+            encoderOutput: "last_hidden_state",
+            decoderInputIDs: "input_ids",
+            decoderEncoderAttentionMask: "encoder_attention_mask",
+            decoderEncoderHiddenStates: "encoder_hidden_states",
+            decoderOutputLogits: "logits"
+        )
+        let supportedLanguagePair = TranslationModelManifest.LanguagePair(
+            source: normalizedLanguageCode(
+                tokenizerConfig.sourceLang,
+                fallback: package.source
+            ),
+            target: normalizedLanguageCode(
+                tokenizerConfig.targetLang,
+                fallback: package.target
+            )
+        )
+
         return TranslationModelManifest(
             family: package.family,
-            tokenizer: .init(
-                kind: .marianSentencePieceVocabulary,
-                vocabularyFile: "vocab.json",
-                sourceSentencePieceFile: "source.spm",
-                targetSentencePieceFile: "target.spm"
-            ),
-            onnxFiles: .init(
-                encoder: "encoder_model.onnx",
-                decoder: "decoder_model.onnx",
-                decoderWithPast: FileManager.default.fileExists(atPath: decoderWithPastURL.path)
-                    ? "decoder_with_past_model.onnx"
-                    : nil
-            ),
-            generation: .init(
-                maxInputLength: maxLength,
-                maxOutputLength: maxLength,
-                bosTokenId: generationConfig.bosTokenId ?? config.bosTokenId ?? 0,
-                eosTokenId: generationConfig.eosTokenId ?? config.eosTokenId ?? 0,
-                padTokenId: generationConfig.padTokenId ?? config.padTokenId ?? 65000,
-                decoderStartTokenId: generationConfig.decoderStartTokenId
-                    ?? config.decoderStartTokenId
-                    ?? generationConfig.padTokenId
-                    ?? config.padTokenId
-                    ?? 65000,
-                suppressedTokenIds: generationConfig.badWordsIds?.compactMap { tokenIDs in
-                    guard tokenIDs.count == 1 else {
-                        return nil
-                    }
+            tokenizer: tokenizer,
+            onnxFiles: onnxFiles,
+            generation: generation,
+            tensorNames: tensorNames,
+            supportedLanguagePairs: [supportedLanguagePair]
+        )
+    }
 
-                    return tokenIDs[0]
-                }
+    private func synthesizeMT5Manifest(
+        for package: TranslationModelPackage,
+        modelDirectoryURL: URL
+    ) throws -> TranslationModelManifest {
+        let config = try loadJSON(
+            RawMarianConfig.self,
+            from: modelDirectoryURL.appendingPathComponent("config.json", isDirectory: false)
+        )
+        let generationConfig = try loadJSON(
+            RawGenerationConfig.self,
+            from: modelDirectoryURL.appendingPathComponent("generation_config.json", isDirectory: false)
+        )
+        let tokenizerConfig = try loadJSON(
+            RawTokenizerConfig.self,
+            from: modelDirectoryURL.appendingPathComponent("tokenizer_config.json", isDirectory: false)
+        )
+
+        let maxLength = generationConfig.maxLength
+            ?? tokenizerConfig.modelMaxLength
+            ?? config.maxPositionEmbeddings
+            ?? 512
+        let extraIds = max(tokenizerConfig.extraIds ?? 0, 0)
+        let suppressedTokenIds: [Int] = generationConfig.badWordsIds?.compactMap { tokenIDs -> Int? in
+            guard tokenIDs.count == 1 else {
+                return nil
+            }
+
+            return tokenIDs[0]
+        } ?? []
+
+        let tokenizer = TranslationModelManifest.Tokenizer(
+            kind: .sentencePiece,
+            vocabularyFile: nil,
+            sourceSentencePieceFile: nil,
+            targetSentencePieceFile: nil,
+            sentencePieceFile: "spiece.model",
+            extraIds: extraIds
+        )
+        let onnxFiles = TranslationModelManifest.ONNXFiles(
+            encoder: "encoder_model.onnx",
+            decoder: "decoder_model.onnx",
+            decoderWithPast: nil
+        )
+        let generation = TranslationModelManifest.Generation(
+            maxInputLength: maxLength,
+            maxOutputLength: maxLength,
+            bosTokenId: generationConfig.bosTokenId ?? config.bosTokenId ?? 0,
+            eosTokenId: generationConfig.eosTokenId ?? config.eosTokenId ?? 1,
+            padTokenId: generationConfig.padTokenId ?? config.padTokenId ?? 0,
+            decoderStartTokenId: generationConfig.decoderStartTokenId
+                ?? config.decoderStartTokenId
+                ?? generationConfig.padTokenId
+                ?? config.padTokenId
+                ?? 0,
+            suppressedTokenIds: suppressedTokenIds
+        )
+        let tensorNames = TranslationModelManifest.TensorNames(
+            encoderInputIDs: "input_ids",
+            encoderAttentionMask: "attention_mask",
+            encoderOutput: "last_hidden_state",
+            decoderInputIDs: "input_ids",
+            decoderEncoderAttentionMask: "encoder_attention_mask",
+            decoderEncoderHiddenStates: "encoder_hidden_states",
+            decoderOutputLogits: "logits"
+        )
+        let supportedLanguagePair = TranslationModelManifest.LanguagePair(
+            source: normalizedLanguageCode(
+                tokenizerConfig.sourceLang,
+                fallback: package.source
             ),
-            tensorNames: .init(
-                encoderInputIDs: "input_ids",
-                encoderAttentionMask: "attention_mask",
-                encoderOutput: "last_hidden_state",
-                decoderInputIDs: "input_ids",
-                decoderEncoderAttentionMask: "encoder_attention_mask",
-                decoderEncoderHiddenStates: "encoder_hidden_states",
-                decoderOutputLogits: "logits"
-            ),
-            supportedLanguagePairs: [
-                .init(
-                    source: normalizedLanguageCode(
-                        tokenizerConfig.sourceLang,
-                        fallback: package.source
-                    ),
-                    target: normalizedLanguageCode(
-                        tokenizerConfig.targetLang,
-                        fallback: package.target
-                    )
-                )
-            ]
+            target: normalizedLanguageCode(
+                tokenizerConfig.targetLang,
+                fallback: package.target
+            )
+        )
+
+        return TranslationModelManifest(
+            family: package.family,
+            tokenizer: tokenizer,
+            onnxFiles: onnxFiles,
+            generation: generation,
+            tensorNames: tensorNames,
+            supportedLanguagePairs: [supportedLanguagePair]
         )
     }
 

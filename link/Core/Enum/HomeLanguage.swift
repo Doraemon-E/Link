@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum HomeLanguage: String, CaseIterable, Identifiable, Sendable {
+enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     case chinese
     case english
     case japanese
@@ -109,6 +109,29 @@ enum HomeLanguage: String, CaseIterable, Identifiable, Sendable {
             return "es"
         case .italian:
             return "it"
+        }
+    }
+
+    var mt5PromptName: String {
+        switch self {
+        case .chinese:
+            return "Chinese"
+        case .english:
+            return "English"
+        case .japanese:
+            return "Japanese"
+        case .korean:
+            return "Korean"
+        case .french:
+            return "French"
+        case .german:
+            return "German"
+        case .russian:
+            return "Russian"
+        case .spanish:
+            return "Spanish"
+        case .italian:
+            return "Italian"
         }
     }
 

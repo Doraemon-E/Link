@@ -28,6 +28,9 @@
 		32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.release.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.release.xcconfig"; sourceTree = "<group>"; };
 		55D53EC22F8016B3002A3BC9 /* link.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = link.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.debug.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.debug.xcconfig"; sourceTree = "<group>"; };
+		8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.debug.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.debug.xcconfig"; sourceTree = "<group>"; };
+		8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.release.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.release.xcconfig"; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000001 /* linkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = linkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
@@ -52,6 +55,16 @@
 			path = link;
 			sourceTree = "<group>";
 		};
+		A1B2C3D4E5F6000000000010 /* linkTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = linkTests;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6000000000013 /* Resource */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = link/Resource;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +76,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F6000000000022 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -70,6 +90,8 @@
 			isa = PBXGroup;
 			children = (
 				55D53EC42F8016B3002A3BC9 /* link */,
+				A1B2C3D4E5F6000000000010 /* linkTests */,
+				A1B2C3D4E5F6000000000013 /* Resource */,
 				55D53EC32F8016B3002A3BC9 /* Products */,
 				947C3C8CEAABE6A6EE64D87F /* Pods */,
 				CB7C70F44E136232AFD5BF0F /* Frameworks */,
@@ -80,6 +102,7 @@
 			isa = PBXGroup;
 			children = (
 				55D53EC22F8016B3002A3BC9 /* link.app */,
+				A1B2C3D4E5F6000000000001 /* linkTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,6 +112,8 @@
 			children = (
 				6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */,
 				32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */,
+				8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */,
+				8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -102,6 +127,16 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 55D53EBA2F8016B3002A3BC9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 55D53EC12F8016B3002A3BC9;
+			remoteInfo = link;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		55D53EC12F8016B3002A3BC9 /* link */ = {
@@ -127,6 +162,28 @@
 			productReference = 55D53EC22F8016B3002A3BC9 /* link.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D4E5F6000000000020 /* linkTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F6000000000032 /* Build configuration list for PBXNativeTarget "linkTests" */;
+			buildPhases = (
+				A1B2C3D4E5F6000000000021 /* Sources */,
+				A1B2C3D4E5F6000000000022 /* Frameworks */,
+				A1B2C3D4E5F6000000000023 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8A8B8C8D8E8F000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F6000000000010 /* linkTests */,
+				A1B2C3D4E5F6000000000013 /* Resource */,
+			);
+			name = linkTests;
+			productName = linkTests;
+			productReference = A1B2C3D4E5F6000000000001 /* linkTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -139,6 +196,10 @@
 				TargetAttributes = {
 					55D53EC12F8016B3002A3BC9 = {
 						CreatedOnToolsVersion = 26.4;
+					};
+					A1B2C3D4E5F6000000000020 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = 55D53EC12F8016B3002A3BC9;
 					};
 				};
 			};
@@ -157,12 +218,28 @@
 			projectRoot = "";
 			targets = (
 				55D53EC12F8016B3002A3BC9 /* link */,
+				A1B2C3D4E5F6000000000020 /* linkTests */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXTargetDependency section */
+		8A8B8C8D8E8F000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 55D53EC12F8016B3002A3BC9 /* link */;
+			targetProxy = 8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin PBXResourcesBuildPhase section */
 		55D53EC02F8016B3002A3BC9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000023 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -219,6 +296,13 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		55D53EBE2F8016B3002A3BC9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000021 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -446,6 +530,62 @@
 			};
 			name = Release;
 		};
+		A1B2C3D4E5F6000000000030 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V35C9MV5UG;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hackerapp.link.linkTests;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = BNDL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/link.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/link";
+				TEST_TARGET_NAME = link;
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F6000000000031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V35C9MV5UG;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hackerapp.link.linkTests;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = BNDL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/link.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/link";
+				TEST_TARGET_NAME = link;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -463,6 +603,15 @@
 			buildConfigurations = (
 				55D53ECE2F8016B5002A3BC9 /* Debug */,
 				55D53ECF2F8016B5002A3BC9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6000000000032 /* Build configuration list for PBXNativeTarget "linkTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6000000000030 /* Debug */,
+				A1B2C3D4E5F6000000000031 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -5,6 +5,7 @@
 //  Created by Codex on 2026/4/4.
 //
 
+import AVFoundation
 import Foundation
 import Observation
 import SwiftData
@@ -36,6 +37,8 @@ final class HomeViewModel {
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
     var speechErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
+    var lastSpeechRecordingURL: URL?
+    var isPlayingLastSpeechRecording = false
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
@@ -43,6 +46,8 @@ final class HomeViewModel {
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private var autoStopSpeechTask: Task<Void, Never>?
+    @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
+    @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
 
     init(
         translationService: TranslationService,
@@ -267,6 +272,7 @@ final class HomeViewModel {
             return
         }
 
+        stopLastSpeechRecordingPlayback()
         speechErrorMessage = nil
         pendingVoiceStartAfterInstall = false
 
@@ -296,8 +302,9 @@ final class HomeViewModel {
         }
 
         do {
-            let samples = try await microphoneRecordingService.stopRecording()
-            let recognitionResult = try await speechRecognitionService.transcribe(samples: samples)
+            let recordingResult = try await microphoneRecordingService.stopRecording()
+            lastSpeechRecordingURL = recordingResult.preservedRecordingURL
+            let recognitionResult = try await speechRecognitionService.transcribe(samples: recordingResult.samples)
             let transcribedText = recognitionResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !transcribedText.isEmpty else {
@@ -323,6 +330,54 @@ final class HomeViewModel {
             microphoneRecordingService.cancelRecording()
             speechErrorMessage = "语音识别失败了，请稍后再试。"
         }
+    }
+
+    func toggleLastSpeechRecordingPlayback() {
+        guard let lastSpeechRecordingURL else { return }
+
+        if isPlayingLastSpeechRecording {
+            stopLastSpeechRecordingPlayback()
+            return
+        }
+
+        do {
+            let player = try AVAudioPlayer(contentsOf: lastSpeechRecordingURL)
+            player.prepareToPlay()
+            player.play()
+
+            speechPreviewPlayer = player
+            isPlayingLastSpeechRecording = true
+
+            speechPreviewTask?.cancel()
+            let durationNanoseconds = UInt64(max(player.duration, 0) * 1_000_000_000)
+            speechPreviewTask = Task { @MainActor [weak self] in
+                guard durationNanoseconds > 0 else {
+                    self?.isPlayingLastSpeechRecording = false
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: durationNanoseconds + 200_000_000)
+                guard let self else { return }
+                self.isPlayingLastSpeechRecording = self.speechPreviewPlayer?.isPlaying == true
+                if !self.isPlayingLastSpeechRecording {
+                    self.speechPreviewPlayer = nil
+                }
+            }
+        } catch {
+            speechErrorMessage = "无法播放刚才的录音，请稍后再试。"
+        }
+    }
+
+    func stopLastSpeechRecordingPlayback() {
+        speechPreviewTask?.cancel()
+        speechPreviewTask = nil
+        speechPreviewPlayer?.stop()
+        speechPreviewPlayer = nil
+        isPlayingLastSpeechRecording = false
+    }
+
+    var hasLastSpeechRecording: Bool {
+        lastSpeechRecordingURL != nil
     }
 
     func installSpeechModelAndResumeIfNeeded(

@@ -10,6 +10,7 @@ import Foundation
 struct TranslationModelManifest: Codable {
     enum Family: String, Codable {
         case marian
+        case mt5
     }
 
     struct LanguagePair: Codable {
@@ -20,12 +21,15 @@ struct TranslationModelManifest: Codable {
     struct Tokenizer: Codable {
         enum Kind: String, Codable {
             case marianSentencePieceVocabulary = "marian_sentencepiece_vocabulary"
+            case sentencePiece = "sentencepiece"
         }
 
         let kind: Kind
-        let vocabularyFile: String
+        let vocabularyFile: String?
         let sourceSentencePieceFile: String?
         let targetSentencePieceFile: String?
+        let sentencePieceFile: String?
+        let extraIds: Int?
     }
 
     struct ONNXFiles: Codable {
@@ -69,10 +73,13 @@ struct TranslationModelManifest: Codable {
 
     var requiredFileNames: [String] {
         var fileNames = [
-            tokenizer.vocabularyFile,
             onnxFiles.encoder,
             onnxFiles.decoder
         ]
+
+        if let vocabularyFile = tokenizer.vocabularyFile {
+            fileNames.append(vocabularyFile)
+        }
 
         if let sourceSentencePieceFile = tokenizer.sourceSentencePieceFile {
             fileNames.append(sourceSentencePieceFile)
@@ -80,6 +87,10 @@ struct TranslationModelManifest: Codable {
 
         if let targetSentencePieceFile = tokenizer.targetSentencePieceFile {
             fileNames.append(targetSentencePieceFile)
+        }
+
+        if let sentencePieceFile = tokenizer.sentencePieceFile {
+            fileNames.append(sentencePieceFile)
         }
 
         if let decoderWithPast = onnxFiles.decoderWithPast {

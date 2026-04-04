@@ -13,7 +13,7 @@ protocol TokenizerAdapter {
     func debugTokenDescription(_ tokenID: Int64, eosTokenID: Int, padTokenID: Int) -> String
 }
 
-final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
+final class SentencePieceTokenizerAdapter: TokenizerAdapter {
     private struct SentencePieceEntry {
         enum Kind: Int {
             case normal = 1
@@ -67,11 +67,15 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
         }
     }
 
+    private struct ParsedSentencePieceSpec {
+        let entries: [SentencePieceEntry]
+        let addDummyPrefix: Bool
+        let removeExtraWhitespaces: Bool
+        let escapeWhitespaces: Bool
+    }
+
     private enum SentencePieceParser {
-        static func parseModel(
-            data: Data,
-            vocabulary: [String: Int]
-        ) throws -> SentencePieceModel {
+        static func parseSpec(data: Data) throws -> ParsedSentencePieceSpec {
             var reader = ProtobufReader(data: data)
             var entries: [SentencePieceEntry] = []
             var addDummyPrefix = true
@@ -95,11 +99,23 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
                 }
             }
 
-            var pieces: [String: SentencePieceModel.Piece] = [:]
-            pieces.reserveCapacity(entries.count)
+            return ParsedSentencePieceSpec(
+                entries: entries,
+                addDummyPrefix: addDummyPrefix,
+                removeExtraWhitespaces: removeExtraWhitespaces,
+                escapeWhitespaces: escapeWhitespaces
+            )
+        }
 
-            for entry in entries where shouldEncode(entry.kind) {
-                guard let tokenID = vocabulary[entry.piece] else {
+        static func parseModel(
+            spec: ParsedSentencePieceSpec,
+            tokenIDResolver: (String) -> Int?
+        ) throws -> SentencePieceModel {
+            var pieces: [String: SentencePieceModel.Piece] = [:]
+            pieces.reserveCapacity(spec.entries.count)
+
+            for entry in spec.entries where shouldEncode(entry.kind) {
+                guard let tokenID = tokenIDResolver(entry.piece) else {
                     continue
                 }
 
@@ -114,9 +130,9 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
             return SentencePieceModel(
                 pieces: pieces,
                 maxPieceLength: maxPieceLength,
-                addDummyPrefix: addDummyPrefix,
-                removeExtraWhitespaces: removeExtraWhitespaces,
-                escapeWhitespaces: escapeWhitespaces
+                addDummyPrefix: spec.addDummyPrefix,
+                removeExtraWhitespaces: spec.removeExtraWhitespaces,
+                escapeWhitespaces: spec.escapeWhitespaces
             )
         }
 
@@ -311,47 +327,86 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
     private let sourceModel: SentencePieceModel
 
     init(modelDirectoryURL: URL, manifest: TranslationModelManifest) throws {
-        guard manifest.tokenizer.kind == .marianSentencePieceVocabulary else {
-            throw TranslationError.incompatibleTokenizer("Unsupported tokenizer kind.")
-        }
-
-        let sourceURL: URL
-        if let sourceSentencePieceFile = manifest.tokenizer.sourceSentencePieceFile {
-            sourceURL = modelDirectoryURL.appendingPathComponent(sourceSentencePieceFile, isDirectory: false)
-            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                throw TranslationError.incompatibleTokenizer("Missing source sentencepiece file.")
-            }
-        } else {
-            throw TranslationError.incompatibleTokenizer("Missing source sentencepiece configuration.")
-        }
-
-        if let targetSentencePieceFile = manifest.tokenizer.targetSentencePieceFile {
-            let targetURL = modelDirectoryURL.appendingPathComponent(targetSentencePieceFile, isDirectory: false)
-            guard FileManager.default.fileExists(atPath: targetURL.path) else {
-                throw TranslationError.incompatibleTokenizer("Missing target sentencepiece file.")
-            }
-        }
-
-        let vocabularyURL = modelDirectoryURL.appendingPathComponent(
-            manifest.tokenizer.vocabularyFile,
-            isDirectory: false
-        )
-
         do {
-            let data = try Data(contentsOf: vocabularyURL)
-            let decodedVocabulary = try JSONDecoder().decode([String: Int].self, from: data)
+            switch manifest.tokenizer.kind {
+            case .marianSentencePieceVocabulary:
+                guard let sourceSentencePieceFile = manifest.tokenizer.sourceSentencePieceFile else {
+                    throw TranslationError.incompatibleTokenizer("Missing source sentencepiece configuration.")
+                }
 
-            guard let unkTokenID = decodedVocabulary["<unk>"] else {
-                throw TranslationError.incompatibleTokenizer("Vocabulary does not contain <unk>.")
+                guard let vocabularyFile = manifest.tokenizer.vocabularyFile else {
+                    throw TranslationError.incompatibleTokenizer("Missing tokenizer vocabulary file.")
+                }
+
+                let sourceURL = modelDirectoryURL.appendingPathComponent(sourceSentencePieceFile, isDirectory: false)
+                guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                    throw TranslationError.incompatibleTokenizer("Missing source sentencepiece file.")
+                }
+
+                if let targetSentencePieceFile = manifest.tokenizer.targetSentencePieceFile {
+                    let targetURL = modelDirectoryURL.appendingPathComponent(targetSentencePieceFile, isDirectory: false)
+                    guard FileManager.default.fileExists(atPath: targetURL.path) else {
+                        throw TranslationError.incompatibleTokenizer("Missing target sentencepiece file.")
+                    }
+                }
+
+                let vocabularyURL = modelDirectoryURL.appendingPathComponent(vocabularyFile, isDirectory: false)
+                let data = try Data(contentsOf: vocabularyURL)
+                let decodedVocabulary = try JSONDecoder().decode([String: Int].self, from: data)
+
+                guard let unkTokenID = decodedVocabulary["<unk>"] else {
+                    throw TranslationError.incompatibleTokenizer("Vocabulary does not contain <unk>.")
+                }
+
+                let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sourceURL))
+                self.vocabulary = decodedVocabulary
+                self.reverseVocabulary = Dictionary(uniqueKeysWithValues: decodedVocabulary.map { ($1, $0) })
+                self.unkTokenID = unkTokenID
+                self.sourceModel = try SentencePieceParser.parseModel(
+                    spec: spec,
+                    tokenIDResolver: { decodedVocabulary[$0] }
+                )
+
+            case .sentencePiece:
+                guard let sentencePieceFile = manifest.tokenizer.sentencePieceFile else {
+                    throw TranslationError.incompatibleTokenizer("Missing sentencepiece model file.")
+                }
+
+                let sentencePieceURL = modelDirectoryURL.appendingPathComponent(sentencePieceFile, isDirectory: false)
+                guard FileManager.default.fileExists(atPath: sentencePieceURL.path) else {
+                    throw TranslationError.incompatibleTokenizer("Missing sentencepiece model file.")
+                }
+
+                let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sentencePieceURL))
+                let baseVocabulary = Dictionary(
+                    uniqueKeysWithValues: spec.entries.enumerated().map { (offset, entry) in
+                        (entry.piece, offset)
+                    }
+                )
+                let extraIds = max(manifest.tokenizer.extraIds ?? 0, 0)
+                var reverseVocabulary = Dictionary(
+                    uniqueKeysWithValues: spec.entries.enumerated().map { (offset, entry) in
+                        (offset, entry.piece)
+                    }
+                )
+
+                if extraIds > 0 {
+                    let baseTokenCount = spec.entries.count
+                    for index in 0 ..< extraIds {
+                        let tokenID = (baseTokenCount - 1) + extraIds - index
+                        reverseVocabulary[tokenID] = "<extra_id_\(index)>"
+                    }
+                }
+
+                let unkTokenID = baseVocabulary["<unk>"] ?? 0
+                self.vocabulary = baseVocabulary
+                self.reverseVocabulary = reverseVocabulary
+                self.unkTokenID = unkTokenID
+                self.sourceModel = try SentencePieceParser.parseModel(
+                    spec: spec,
+                    tokenIDResolver: { baseVocabulary[$0] }
+                )
             }
-
-            self.vocabulary = decodedVocabulary
-            self.reverseVocabulary = Dictionary(uniqueKeysWithValues: decodedVocabulary.map { ($1, $0) })
-            self.unkTokenID = unkTokenID
-            self.sourceModel = try SentencePieceParser.parseModel(
-                data: Data(contentsOf: sourceURL),
-                vocabulary: decodedVocabulary
-            )
         } catch let error as TranslationError {
             throw error
         } catch {
@@ -390,6 +445,9 @@ final class MarianSentencePieceTokenizerAdapter: TokenizerAdapter {
             case "</s>", "<pad>":
                 return nil
             default:
+                if token.hasPrefix("<extra_id_") {
+                    return nil
+                }
                 return token
             }
         }

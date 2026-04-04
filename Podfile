@@ -4,6 +4,10 @@ use_frameworks!
 target 'link' do
   pod 'onnxruntime-objc'
   pod 'ZIPFoundation'
+
+  target 'linkTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|

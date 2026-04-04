@@ -113,8 +113,15 @@ actor MarianTranslationService: TranslationService {
             throw TranslationError.unsupportedLanguagePair(source: source, target: target)
         }
 
-        let inputTokenIDs = try state.tokenizer.encode(
+        let modelInputText = preparedInputText(
             text,
+            family: state.manifest.family,
+            source: source,
+            target: target
+        )
+
+        let inputTokenIDs = try state.tokenizer.encode(
+            modelInputText,
             maxLength: state.manifest.generation.maxInputLength,
             eosTokenID: state.manifest.generation.eosTokenId
         )
@@ -151,7 +158,8 @@ actor MarianTranslationService: TranslationService {
         debugLog(
             "translateDirect start package=\(state.packageID) " +
             "\(source.displayName)->\(target.displayName) " +
-            "text=\"\(text)\" inputTokenIDs=\(formattedTokenIDs(inputTokenIDs)) " +
+            "text=\"\(text)\" modelInput=\"\(modelInputText)\" " +
+            "inputTokenIDs=\(formattedTokenIDs(inputTokenIDs)) " +
             "maxDecoderSteps=\(maxDecoderSteps) " +
             "suppressedTokenIDs=\(formattedTokenIDs(Array(state.suppressedTokenIDs).sorted()))"
         )
@@ -275,15 +283,20 @@ actor MarianTranslationService: TranslationService {
         loadedState = nil
 
         let manifest = installation.manifest
+        let tokenizer: TokenizerAdapter
 
-        guard manifest.family == .marian else {
-            throw TranslationError.manifestInvalid("Unsupported model family: \(manifest.family.rawValue)")
+        switch manifest.tokenizer.kind {
+        case .marianSentencePieceVocabulary:
+            tokenizer = try SentencePieceTokenizerAdapter(
+                modelDirectoryURL: installation.modelDirectoryURL,
+                manifest: manifest
+            )
+        case .sentencePiece:
+            tokenizer = try SentencePieceTokenizerAdapter(
+                modelDirectoryURL: installation.modelDirectoryURL,
+                manifest: manifest
+            )
         }
-
-        let tokenizer = try MarianSentencePieceTokenizerAdapter(
-            modelDirectoryURL: installation.modelDirectoryURL,
-            manifest: manifest
-        )
 
         do {
             let environment = try sharedEnvironment()
@@ -318,6 +331,20 @@ actor MarianTranslationService: TranslationService {
             return state
         } catch {
             throw TranslationError.runtimeInitialization(error.localizedDescription)
+        }
+    }
+
+    private func preparedInputText(
+        _ text: String,
+        family: TranslationModelManifest.Family,
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) -> String {
+        switch family {
+        case .marian:
+            return text
+        case .mt5:
+            return "translate \(source.mt5PromptName) to \(target.mt5PromptName): \(text)"
         }
     }
 
@@ -403,7 +430,7 @@ actor MarianTranslationService: TranslationService {
 
     private func debugLog(_ message: @autoclosure () -> String) {
 #if DEBUG
-        print("[MarianTranslationService] \(message())")
+        print("[TranslationService] \(message())")
 #endif
     }
 

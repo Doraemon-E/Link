@@ -8,6 +8,11 @@
 import AVFoundation
 import Foundation
 
+struct MicrophoneRecordingResult {
+    let samples: [Float]
+    let preservedRecordingURL: URL?
+}
+
 @MainActor
 final class MicrophoneRecordingService {
     private let engine = AVAudioEngine()
@@ -81,7 +86,7 @@ final class MicrophoneRecordingService {
         recordingFile = outputFile
     }
 
-    func stopRecording() async throws -> [Float] {
+    func stopRecording() async throws -> MicrophoneRecordingResult {
         guard let recordingFileURL else {
             throw SpeechRecognitionError.recordingNotActive
         }
@@ -91,12 +96,16 @@ final class MicrophoneRecordingService {
             try? FileManager.default.removeItem(at: recordingFileURL)
         }
 
+        let preservedRecordingURL = try preserveRecording(at: recordingFileURL)
         let samples = try loadWhisperSamples(from: recordingFileURL)
         guard samples.count >= 1600 else {
             throw SpeechRecognitionError.recordingTooShort
         }
 
-        return samples
+        return MicrophoneRecordingResult(
+            samples: samples,
+            preservedRecordingURL: preservedRecordingURL
+        )
     }
 
     func cancelRecording() {
@@ -122,6 +131,24 @@ final class MicrophoneRecordingService {
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
                 continuation.resume(returning: granted)
             }
+        }
+    }
+
+    private func preserveRecording(at url: URL) throws -> URL {
+        let preservedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("last-speech-recording", isDirectory: false)
+            .appendingPathExtension(url.pathExtension.isEmpty ? "caf" : url.pathExtension)
+
+        if FileManager.default.fileExists(atPath: preservedURL.path) {
+            try? FileManager.default.removeItem(at: preservedURL)
+        }
+
+        do {
+            try FileManager.default.copyItem(at: url, to: preservedURL)
+            print("[MicrophoneRecordingService] Preserved recording at \(preservedURL.path)")
+            return preservedURL
+        } catch {
+            throw SpeechRecognitionError.audioProcessingFailed("Unable to preserve recorded audio: \(error.localizedDescription)")
         }
     }
 

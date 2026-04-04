@@ -215,6 +215,8 @@ struct HomeView: View {
                 isFocused: $viewModel.isChatInputFocused,
                 isRecordingSpeech: viewModel.isRecordingSpeech,
                 isSpeechBusy: viewModel.isTranscribingSpeech || viewModel.isInstallingSpeechModel,
+                hasLastSpeechRecording: viewModel.hasLastSpeechRecording,
+                isPlayingLastSpeechRecording: viewModel.isPlayingLastSpeechRecording,
                 onFocusActivated: viewModel.handleInputFocusActivated,
                 onSend: {
                     viewModel.sendCurrentMessage(using: modelContext, sessions: sessions)
@@ -226,6 +228,9 @@ struct HomeView: View {
                             sessions: sessions
                         )
                     }
+                },
+                onPlayLastSpeechRecording: {
+                    viewModel.toggleLastSpeechRecordingPlayback()
                 }
             )
         }
