@@ -47,6 +47,11 @@ nonisolated enum ResumableAssetArchiveServiceError: LocalizedError {
     }
 }
 
+private nonisolated enum AssetArchiveDownloadDirective: Error {
+    case restartFromBeginning
+    case fallbackToFullDownload
+}
+
 actor ResumableAssetArchiveService {
     private let chunkSize: Int64
     private let retryDelays: [UInt64]
@@ -141,10 +146,46 @@ actor ResumableAssetArchiveService {
         allowAutomaticRestart: Bool,
         progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
     ) async throws -> URL {
+        do {
+            return try await downloadOnce(
+                asset: asset,
+                allowAutomaticRestart: allowAutomaticRestart,
+                progressHandler: progressHandler
+            )
+        } catch AssetArchiveDownloadDirective.restartFromBeginning {
+            guard allowAutomaticRestart else {
+                throw ResumableAssetArchiveServiceError.metadataMismatch(
+                    "The remote archive changed while downloading. Please retry."
+                )
+            }
+
+            return try await downloadOnce(
+                asset: asset,
+                allowAutomaticRestart: false,
+                progressHandler: progressHandler
+            )
+        }
+    }
+
+    private func downloadOnce(
+        asset: ModelAsset,
+        allowAutomaticRestart: Bool,
+        progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
+    ) async throws -> URL {
         let metadata = try await fetchRemoteMetadata(for: asset)
         let downloadDirectoryURL = try ModelAssetStoragePaths.transferDirectoryURL(for: asset)
         let partialArchiveURL = try ModelAssetStoragePaths.partialArchiveURL(for: asset)
         let stateURL = try ModelAssetStoragePaths.persistedTransferStateURL(for: asset)
+
+        if !metadata.acceptsByteRanges {
+            return try await downloadWholeArchive(
+                asset: asset,
+                metadata: metadata,
+                downloadDirectoryURL: downloadDirectoryURL,
+                partialArchiveURL: partialArchiveURL,
+                progressHandler: progressHandler
+            )
+        }
 
         try ensureDirectoryExists(at: downloadDirectoryURL)
         try ensureFileExists(at: partialArchiveURL)
@@ -206,14 +247,25 @@ actor ResumableAssetArchiveService {
         while downloadedBytes < metadata.contentLength {
             /// 计算请求的块的结束位置
             let rangeEnd = min(downloadedBytes + chunkSize - 1, metadata.contentLength - 1)
-            let chunkData = try await fetchChunk(
-                asset: asset,
-                metadata: metadata,
-                start: downloadedBytes,
-                end: rangeEnd,
-                allowAutomaticRestart: allowAutomaticRestart,
-                progressReporter: progressReporter
-            )
+            let chunkData: Data
+            do {
+                chunkData = try await fetchChunk(
+                    asset: asset,
+                    metadata: metadata,
+                    start: downloadedBytes,
+                    end: rangeEnd,
+                    allowAutomaticRestart: allowAutomaticRestart,
+                    progressReporter: progressReporter
+                )
+            } catch AssetArchiveDownloadDirective.fallbackToFullDownload {
+                return try await downloadWholeArchive(
+                    asset: asset,
+                    metadata: metadata,
+                    downloadDirectoryURL: downloadDirectoryURL,
+                    partialArchiveURL: partialArchiveURL,
+                    progressHandler: progressHandler
+                )
+            }
 
             try append(chunkData, to: partialArchiveURL)
             downloadedBytes += Int64(chunkData.count)
@@ -250,13 +302,89 @@ actor ResumableAssetArchiveService {
 
         var fallbackRequest = URLRequest(url: asset.archiveURL)
         fallbackRequest.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        let (_, response) = try await session.data(for: fallbackRequest)
+        let (_, response) = try await session.bytes(for: fallbackRequest)
 
         guard let metadata = try metadata(from: response, asset: asset) else {
             throw ResumableAssetArchiveServiceError.missingContentLength
         }
 
         return metadata
+    }
+
+    private func downloadWholeArchive(
+        asset: ModelAsset,
+        metadata: RemoteAssetArchiveMetadata,
+        downloadDirectoryURL: URL,
+        partialArchiveURL: URL,
+        progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
+    ) async throws -> URL {
+        try resetPersistedDownload(for: asset)
+        try ensureDirectoryExists(at: downloadDirectoryURL)
+        try ensureFileExists(at: partialArchiveURL)
+
+        let progressReporter = DownloadProgressReporter(
+            initialDownloadedBytes: 0,
+            totalBytes: metadata.contentLength,
+            minimumEmissionInterval: Double(progressPollIntervalNanoseconds) / 1_000_000_000,
+            progressHandler: progressHandler
+        )
+
+        await progressHandler(
+            ModelAssetTransferStatus(
+                state: .preparing,
+                downloadedBytes: 0,
+                totalBytes: metadata.contentLength,
+                isResumable: false
+            )
+        )
+
+        do {
+            let (bytes, response) = try await session.bytes(for: URLRequest(url: asset.archiveURL))
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ResumableAssetArchiveServiceError.invalidResponse(
+                    "The server returned an invalid archive response."
+                )
+            }
+
+            switch httpResponse.statusCode {
+            case 200:
+                let resolvedLength = resolvedContentLength(from: httpResponse)
+                if resolvedLength > 0, resolvedLength != metadata.contentLength {
+                    throw ResumableAssetArchiveServiceError.metadataMismatch(
+                        "The remote archive changed while downloading. Please retry."
+                    )
+                }
+
+                let receivedBytes = try await writeResponseBody(
+                    from: bytes,
+                    expectedByteCount: metadata.contentLength,
+                    to: partialArchiveURL,
+                    progressHandler: { receivedBytes in
+                        await progressReporter.report(totalDownloadedBytes: receivedBytes)
+                    }
+                )
+
+                guard receivedBytes == metadata.contentLength else {
+                    throw ResumableAssetArchiveServiceError.invalidResponse(
+                        "The server returned an incomplete archive."
+                    )
+                }
+
+                return partialArchiveURL
+            case 429, 500 ..< 600:
+                throw ResumableAssetArchiveServiceError.downloadFailed(
+                    "The server is temporarily unavailable."
+                )
+            default:
+                throw ResumableAssetArchiveServiceError.invalidResponse(
+                    "The server returned HTTP \(httpResponse.statusCode)."
+                )
+            }
+        } catch {
+            try? resetPersistedDownload(for: asset)
+            throw error
+        }
     }
 
     private func metadata(
@@ -301,6 +429,8 @@ actor ResumableAssetArchiveService {
         progressReporter: DownloadProgressReporter
     ) async throws -> Data {
         for (index, delaySeconds) in retryDelays.enumerated() {
+            try Task.checkCancellation()
+
             do {
                 return try await fetchChunkOnce(
                     asset: asset,
@@ -313,12 +443,16 @@ actor ResumableAssetArchiveService {
                     }
                 )
             } catch {
+                guard shouldRetryChunkFetch(after: error) else {
+                    throw error
+                }
+
                 guard index < retryDelays.count - 1 else {
                     throw error
                 }
 
                 await progressReporter.resetToCommittedBaseline(totalDownloadedBytes: start)
-                try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
             }
         }
 
@@ -338,6 +472,8 @@ actor ResumableAssetArchiveService {
 
         if let etag = metadata.etag {
             request.setValue(etag, forHTTPHeaderField: "If-Range")
+        } else if let lastModified = metadata.lastModified {
+            request.setValue(lastModified, forHTTPHeaderField: "If-Range")
         }
 
         let (bytes, response) = try await session.bytes(for: request)
@@ -368,32 +504,24 @@ actor ResumableAssetArchiveService {
             }
             return data
         case 200:
-            let data = try await collectChunkData(
-                from: bytes,
-                expectedByteCount: metadata.contentLength,
-                progressHandler: progressHandler
-            )
-            if start == 0 && Int64(data.count) == metadata.contentLength {
-                return data
+            if start == 0 {
+                throw AssetArchiveDownloadDirective.fallbackToFullDownload
             }
 
             if allowAutomaticRestart {
                 try resetPersistedDownload(for: asset)
-                throw ResumableAssetArchiveServiceError.metadataMismatch(
-                    "The remote archive changed while downloading. Please retry."
-                )
+                throw AssetArchiveDownloadDirective.restartFromBeginning
             }
 
-            throw ResumableAssetArchiveServiceError.invalidResponse(
-                "The server returned an unexpected full archive response."
-            )
-        case 416 where allowAutomaticRestart:
-            try resetPersistedDownload(for: asset)
             throw ResumableAssetArchiveServiceError.metadataMismatch(
                 "The remote archive changed while downloading. Please retry."
             )
-        case 200 where allowAutomaticRestart:
-            try resetPersistedDownload(for: asset)
+        case 416:
+            if allowAutomaticRestart {
+                try resetPersistedDownload(for: asset)
+                throw AssetArchiveDownloadDirective.restartFromBeginning
+            }
+
             throw ResumableAssetArchiveServiceError.metadataMismatch(
                 "The remote archive changed while downloading. Please retry."
             )
@@ -453,16 +581,20 @@ actor ResumableAssetArchiveService {
             return false
         }
 
-        if let currentETag = metadata.etag, currentETag != state.etag {
+        if state.downloadedBytes > 0,
+           metadata.etag == nil,
+           metadata.lastModified == nil {
             return false
         }
 
-        if let currentLastModified = metadata.lastModified, currentLastModified != state.lastModified {
+        guard state.etag == metadata.etag,
+              state.lastModified == metadata.lastModified else {
             return false
         }
 
         let actualBytes = (try? fileSize(at: partialArchiveURL)) ?? nil
-        if let actualBytes, actualBytes < state.downloadedBytes {
+        if let actualBytes,
+           (actualBytes < state.downloadedBytes || actualBytes > metadata.contentLength) {
             return false
         }
 
@@ -544,6 +676,71 @@ actor ResumableAssetArchiveService {
         }
     }
 
+    private func writeResponseBody(
+        from bytes: URLSession.AsyncBytes,
+        expectedByteCount: Int64,
+        to fileURL: URL,
+        progressHandler: @escaping @Sendable (Int64) async -> Void
+    ) async throws -> Int64 {
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forWritingTo: fileURL)
+            try handle.truncate(atOffset: 0)
+            try handle.seek(toOffset: 0)
+        } catch {
+            throw ResumableAssetArchiveServiceError.filesystemFailure(error.localizedDescription)
+        }
+        defer {
+            try? handle.close()
+        }
+
+        var bufferedData = Data()
+        bufferedData.reserveCapacity(64 * 1_024)
+
+        let flushThreshold = 64 * 1_024
+        let reportThreshold: Int64 = 64 * 1_024
+        var receivedBytes: Int64 = 0
+        var lastReportedBytes: Int64 = 0
+
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            bufferedData.append(byte)
+            receivedBytes += 1
+
+            if bufferedData.count >= flushThreshold {
+                do {
+                    try handle.write(contentsOf: bufferedData)
+                } catch {
+                    throw ResumableAssetArchiveServiceError.filesystemFailure(error.localizedDescription)
+                }
+                bufferedData.removeAll(keepingCapacity: true)
+            }
+
+            if receivedBytes - lastReportedBytes >= reportThreshold {
+                lastReportedBytes = receivedBytes
+                await progressHandler(receivedBytes)
+            }
+        }
+
+        if !bufferedData.isEmpty {
+            do {
+                try handle.write(contentsOf: bufferedData)
+            } catch {
+                throw ResumableAssetArchiveServiceError.filesystemFailure(error.localizedDescription)
+            }
+        }
+
+        if receivedBytes != lastReportedBytes {
+            await progressHandler(receivedBytes)
+        }
+
+        if expectedByteCount > 0, receivedBytes != expectedByteCount {
+            return receivedBytes
+        }
+
+        return receivedBytes
+    }
+
     private func fileSize(at url: URL) throws -> Int64? {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
@@ -563,6 +760,23 @@ actor ResumableAssetArchiveService {
         }
 
         return value
+    }
+
+    private func shouldRetryChunkFetch(after error: Error) -> Bool {
+        if error is CancellationError || error is AssetArchiveDownloadDirective {
+            return false
+        }
+
+        guard let serviceError = error as? ResumableAssetArchiveServiceError else {
+            return true
+        }
+
+        switch serviceError {
+        case .downloadFailed:
+            return true
+        case .invalidResponse, .missingContentLength, .metadataMismatch, .filesystemFailure:
+            return false
+        }
     }
 }
 
