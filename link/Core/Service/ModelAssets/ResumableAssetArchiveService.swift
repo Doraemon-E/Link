@@ -1,5 +1,5 @@
 //
-//  ResumableArchiveDownloader.swift
+//  ResumableAssetArchiveService.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -7,7 +7,7 @@
 
 import Foundation
 
-nonisolated struct PersistedModelDownloadState: Codable, Equatable, Sendable {
+nonisolated struct PersistedAssetTransferState: Codable, Equatable, Sendable {
     let packageId: String
     let archiveURL: URL
     let archiveSize: Int64
@@ -17,14 +17,14 @@ nonisolated struct PersistedModelDownloadState: Codable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-nonisolated struct RemoteArchiveMetadata: Equatable, Sendable {
+nonisolated struct RemoteAssetArchiveMetadata: Equatable, Sendable {
     let contentLength: Int64
     let etag: String?
     let lastModified: String?
     let acceptsByteRanges: Bool
 }
 
-nonisolated enum ResumableArchiveDownloaderError: LocalizedError {
+nonisolated enum ResumableAssetArchiveServiceError: LocalizedError {
     case invalidResponse(String)
     case missingContentLength
     case metadataMismatch(String)
@@ -47,7 +47,7 @@ nonisolated enum ResumableArchiveDownloaderError: LocalizedError {
     }
 }
 
-actor ResumableArchiveDownloader {
+actor ResumableAssetArchiveService {
     private let chunkSize: Int64
     private let retryDelays: [UInt64]
     private let progressPollIntervalNanoseconds: UInt64
@@ -73,18 +73,18 @@ actor ResumableArchiveDownloader {
     }
 
     func download(
-        descriptor: ModelDownloadDescriptor,
-        progressHandler: @escaping @Sendable (ModelDownloadProgress) async -> Void
+        asset: ModelAsset,
+        progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
     ) async throws -> URL {
         try await download(
-            descriptor: descriptor,
+            asset: asset,
             allowAutomaticRestart: true,
             progressHandler: progressHandler
         )
     }
 
-    func persistedStates(for kind: ModelAssetKind) throws -> [PersistedModelDownloadState] {
-        let downloadsDirectoryURL = try ModelStoragePaths.downloadsDirectoryURL(for: kind)
+    func persistedStates(for kind: ModelAssetKind) throws -> [PersistedAssetTransferState] {
+        let downloadsDirectoryURL = try ModelAssetStoragePaths.downloadsDirectoryURL(for: kind)
         guard FileManager.default.fileExists(atPath: downloadsDirectoryURL.path) else {
             return []
         }
@@ -106,64 +106,64 @@ actor ResumableArchiveDownloader {
 
             do {
                 let data = try Data(contentsOf: stateURL)
-                return try decoder.decode(PersistedModelDownloadState.self, from: data)
+                return try decoder.decode(PersistedAssetTransferState.self, from: data)
             } catch {
                 return nil
             }
         }
     }
 
-    func persistedProgress(for descriptor: ModelDownloadDescriptor) throws -> ModelDownloadProgress? {
-        guard let state = try loadPersistedState(for: descriptor) else {
+    func persistedStatus(for asset: ModelAsset) throws -> ModelAssetTransferStatus? {
+        guard let state = try loadPersistedState(for: asset) else {
             return nil
         }
 
-        let partialArchiveURL = try ModelStoragePaths.partialArchiveURL(for: descriptor)
+        let partialArchiveURL = try ModelAssetStoragePaths.partialArchiveURL(for: asset)
         let actualBytes = try fileSize(at: partialArchiveURL) ?? state.downloadedBytes
 
-        return ModelDownloadProgress(
-            phase: .pausedResumable,
+        return ModelAssetTransferStatus(
+            state: .pausedResumable,
             downloadedBytes: actualBytes,
-            totalBytes: max(state.archiveSize, descriptor.archiveSize),
+            totalBytes: max(state.archiveSize, asset.archiveSize),
             isResumable: actualBytes > 0
         )
     }
 
-    func removePersistedDownload(for descriptor: ModelDownloadDescriptor) throws {
-        let downloadDirectoryURL = try ModelStoragePaths.downloadDirectoryURL(for: descriptor)
+    func removePersistedTransfer(for asset: ModelAsset) throws {
+        let downloadDirectoryURL = try ModelAssetStoragePaths.transferDirectoryURL(for: asset)
         if FileManager.default.fileExists(atPath: downloadDirectoryURL.path) {
             try FileManager.default.removeItem(at: downloadDirectoryURL)
         }
     }
 
     private func download(
-        descriptor: ModelDownloadDescriptor,
+        asset: ModelAsset,
         allowAutomaticRestart: Bool,
-        progressHandler: @escaping @Sendable (ModelDownloadProgress) async -> Void
+        progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
     ) async throws -> URL {
-        let metadata = try await fetchRemoteMetadata(for: descriptor)
-        let downloadDirectoryURL = try ModelStoragePaths.downloadDirectoryURL(for: descriptor)
-        let partialArchiveURL = try ModelStoragePaths.partialArchiveURL(for: descriptor)
-        let stateURL = try ModelStoragePaths.persistedStateURL(for: descriptor)
+        let metadata = try await fetchRemoteMetadata(for: asset)
+        let downloadDirectoryURL = try ModelAssetStoragePaths.transferDirectoryURL(for: asset)
+        let partialArchiveURL = try ModelAssetStoragePaths.partialArchiveURL(for: asset)
+        let stateURL = try ModelAssetStoragePaths.persistedTransferStateURL(for: asset)
 
         try ensureDirectoryExists(at: downloadDirectoryURL)
         try ensureFileExists(at: partialArchiveURL)
 
-        if let persistedState = try loadPersistedState(for: descriptor),
+        if let persistedState = try loadPersistedState(for: asset),
            !isPersistedStateValid(
                 persistedState,
-                descriptor: descriptor,
+                asset: asset,
                 metadata: metadata,
                 partialArchiveURL: partialArchiveURL
            ) {
-            try resetPersistedDownload(for: descriptor)
+            try resetPersistedDownload(for: asset)
             try ensureDirectoryExists(at: downloadDirectoryURL)
             try ensureFileExists(at: partialArchiveURL)
         }
 
         let existingBytes = min(
             try fileSize(at: partialArchiveURL) ?? 0,
-            max(metadata.contentLength, descriptor.archiveSize)
+            max(metadata.contentLength, asset.archiveSize)
         )
         var downloadedBytes = existingBytes
         let progressReporter = DownloadProgressReporter(
@@ -173,12 +173,12 @@ actor ResumableArchiveDownloader {
             progressHandler: progressHandler
         )
 
-        if let state = try loadPersistedState(for: descriptor),
+        if let state = try loadPersistedState(for: asset),
            state.downloadedBytes != downloadedBytes {
             try saveState(
-                PersistedModelDownloadState(
-                    packageId: descriptor.packageId,
-                    archiveURL: descriptor.archiveURL,
+                PersistedAssetTransferState(
+                    packageId: asset.packageId,
+                    archiveURL: asset.archiveURL,
                     archiveSize: metadata.contentLength,
                     etag: metadata.etag,
                     lastModified: metadata.lastModified,
@@ -190,8 +190,8 @@ actor ResumableArchiveDownloader {
         }
 
         await progressHandler(
-            ModelDownloadProgress(
-                phase: .preparing,
+            ModelAssetTransferStatus(
+                state: .preparing,
                 downloadedBytes: downloadedBytes,
                 totalBytes: metadata.contentLength,
                 isResumable: downloadedBytes > 0
@@ -205,7 +205,7 @@ actor ResumableArchiveDownloader {
         while downloadedBytes < metadata.contentLength {
             let rangeEnd = min(downloadedBytes + chunkSize - 1, metadata.contentLength - 1)
             let chunkData = try await fetchChunk(
-                descriptor: descriptor,
+                asset: asset,
                 metadata: metadata,
                 start: downloadedBytes,
                 end: rangeEnd,
@@ -217,9 +217,9 @@ actor ResumableArchiveDownloader {
             downloadedBytes += Int64(chunkData.count)
 
             try saveState(
-                PersistedModelDownloadState(
-                    packageId: descriptor.packageId,
-                    archiveURL: descriptor.archiveURL,
+                PersistedAssetTransferState(
+                    packageId: asset.packageId,
+                    archiveURL: asset.archiveURL,
                     archiveSize: metadata.contentLength,
                     etag: metadata.etag,
                     lastModified: metadata.lastModified,
@@ -233,25 +233,25 @@ actor ResumableArchiveDownloader {
         return partialArchiveURL
     }
 
-    private func fetchRemoteMetadata(for descriptor: ModelDownloadDescriptor) async throws -> RemoteArchiveMetadata {
-        var request = URLRequest(url: descriptor.archiveURL)
+    private func fetchRemoteMetadata(for asset: ModelAsset) async throws -> RemoteAssetArchiveMetadata {
+        var request = URLRequest(url: asset.archiveURL)
         request.httpMethod = "HEAD"
 
         do {
             let (_, response) = try await session.data(for: request)
-            if let metadata = try metadata(from: response, descriptor: descriptor) {
+            if let metadata = try metadata(from: response, asset: asset) {
                 return metadata
             }
         } catch {
             // Fall back to a byte-range GET for origins that reject HEAD.
         }
 
-        var fallbackRequest = URLRequest(url: descriptor.archiveURL)
+        var fallbackRequest = URLRequest(url: asset.archiveURL)
         fallbackRequest.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         let (_, response) = try await session.data(for: fallbackRequest)
 
-        guard let metadata = try metadata(from: response, descriptor: descriptor) else {
-            throw ResumableArchiveDownloaderError.missingContentLength
+        guard let metadata = try metadata(from: response, asset: asset) else {
+            throw ResumableAssetArchiveServiceError.missingContentLength
         }
 
         return metadata
@@ -259,14 +259,14 @@ actor ResumableArchiveDownloader {
 
     private func metadata(
         from response: URLResponse,
-        descriptor: ModelDownloadDescriptor
-    ) throws -> RemoteArchiveMetadata? {
+        asset: ModelAsset
+    ) throws -> RemoteAssetArchiveMetadata? {
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw ResumableArchiveDownloaderError.invalidResponse("The server returned an invalid response.")
+            throw ResumableAssetArchiveServiceError.invalidResponse("The server returned an invalid response.")
         }
 
         guard [200, 206].contains(httpResponse.statusCode) else {
-            throw ResumableArchiveDownloaderError.invalidResponse("The server returned HTTP \(httpResponse.statusCode).")
+            throw ResumableAssetArchiveServiceError.invalidResponse("The server returned HTTP \(httpResponse.statusCode).")
         }
 
         let contentLength = resolvedContentLength(from: httpResponse)
@@ -274,15 +274,15 @@ actor ResumableArchiveDownloader {
             return nil
         }
 
-        if descriptor.archiveSize > 0, descriptor.archiveSize != contentLength {
-            throw ResumableArchiveDownloaderError.metadataMismatch(
+        if asset.archiveSize > 0, asset.archiveSize != contentLength {
+            throw ResumableAssetArchiveServiceError.metadataMismatch(
                 "The archive size changed unexpectedly. Please retry the download."
             )
         }
 
         let acceptRangesHeader = headerValue("Accept-Ranges", in: httpResponse)?.lowercased()
 
-        return RemoteArchiveMetadata(
+        return RemoteAssetArchiveMetadata(
             contentLength: contentLength,
             etag: normalizedHeaderValue("ETag", in: httpResponse),
             lastModified: normalizedHeaderValue("Last-Modified", in: httpResponse),
@@ -291,8 +291,8 @@ actor ResumableArchiveDownloader {
     }
 
     private func fetchChunk(
-        descriptor: ModelDownloadDescriptor,
-        metadata: RemoteArchiveMetadata,
+        asset: ModelAsset,
+        metadata: RemoteAssetArchiveMetadata,
         start: Int64,
         end: Int64,
         allowAutomaticRestart: Bool,
@@ -301,7 +301,7 @@ actor ResumableArchiveDownloader {
         for (index, delaySeconds) in retryDelays.enumerated() {
             do {
                 return try await fetchChunkOnce(
-                    descriptor: descriptor,
+                    asset: asset,
                     metadata: metadata,
                     start: start,
                     end: end,
@@ -320,18 +320,18 @@ actor ResumableArchiveDownloader {
             }
         }
 
-        throw ResumableArchiveDownloaderError.downloadFailed("The download failed unexpectedly.")
+        throw ResumableAssetArchiveServiceError.downloadFailed("The download failed unexpectedly.")
     }
 
     private func fetchChunkOnce(
-        descriptor: ModelDownloadDescriptor,
-        metadata: RemoteArchiveMetadata,
+        asset: ModelAsset,
+        metadata: RemoteAssetArchiveMetadata,
         start: Int64,
         end: Int64,
         allowAutomaticRestart: Bool,
         progressHandler: @escaping @Sendable (Int64) async -> Void
     ) async throws -> Data {
-        var request = URLRequest(url: descriptor.archiveURL)
+        var request = URLRequest(url: asset.archiveURL)
         request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
 
         if let etag = metadata.etag {
@@ -341,14 +341,14 @@ actor ResumableArchiveDownloader {
         let (bytes, response) = try await session.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw ResumableArchiveDownloaderError.invalidResponse("The server returned an invalid chunk response.")
+            throw ResumableAssetArchiveServiceError.invalidResponse("The server returned an invalid chunk response.")
         }
 
         switch httpResponse.statusCode {
         case 206:
             guard let contentRange = headerValue("Content-Range", in: httpResponse),
                   contentRange.contains("bytes \(start)-\(end)/") else {
-                throw ResumableArchiveDownloaderError.invalidResponse(
+                throw ResumableAssetArchiveServiceError.invalidResponse(
                     "The server returned an unexpected byte range."
                 )
             }
@@ -360,7 +360,7 @@ actor ResumableArchiveDownloader {
                 progressHandler: progressHandler
             )
             guard Int64(data.count) == expectedLength else {
-                throw ResumableArchiveDownloaderError.invalidResponse(
+                throw ResumableAssetArchiveServiceError.invalidResponse(
                     "The server returned an incomplete byte range."
                 )
             }
@@ -376,29 +376,29 @@ actor ResumableArchiveDownloader {
             }
 
             if allowAutomaticRestart {
-                try resetPersistedDownload(for: descriptor)
-                throw ResumableArchiveDownloaderError.metadataMismatch(
+                try resetPersistedDownload(for: asset)
+                throw ResumableAssetArchiveServiceError.metadataMismatch(
                     "The remote archive changed while downloading. Please retry."
                 )
             }
 
-            throw ResumableArchiveDownloaderError.invalidResponse(
+            throw ResumableAssetArchiveServiceError.invalidResponse(
                 "The server returned an unexpected full archive response."
             )
         case 416 where allowAutomaticRestart:
-            try resetPersistedDownload(for: descriptor)
-            throw ResumableArchiveDownloaderError.metadataMismatch(
+            try resetPersistedDownload(for: asset)
+            throw ResumableAssetArchiveServiceError.metadataMismatch(
                 "The remote archive changed while downloading. Please retry."
             )
         case 200 where allowAutomaticRestart:
-            try resetPersistedDownload(for: descriptor)
-            throw ResumableArchiveDownloaderError.metadataMismatch(
+            try resetPersistedDownload(for: asset)
+            throw ResumableAssetArchiveServiceError.metadataMismatch(
                 "The remote archive changed while downloading. Please retry."
             )
         case 429, 500 ..< 600:
-            throw ResumableArchiveDownloaderError.downloadFailed("The server is temporarily unavailable.")
+            throw ResumableAssetArchiveServiceError.downloadFailed("The server is temporarily unavailable.")
         default:
-            throw ResumableArchiveDownloaderError.invalidResponse(
+            throw ResumableAssetArchiveServiceError.invalidResponse(
                 "The server returned HTTP \(httpResponse.statusCode)."
             )
         }
@@ -437,13 +437,13 @@ actor ResumableArchiveDownloader {
     }
 
     private func isPersistedStateValid(
-        _ state: PersistedModelDownloadState,
-        descriptor: ModelDownloadDescriptor,
-        metadata: RemoteArchiveMetadata,
+        _ state: PersistedAssetTransferState,
+        asset: ModelAsset,
+        metadata: RemoteAssetArchiveMetadata,
         partialArchiveURL: URL
     ) -> Bool {
-        guard state.packageId == descriptor.packageId,
-              state.archiveURL == descriptor.archiveURL else {
+        guard state.packageId == asset.packageId,
+              state.archiveURL == asset.archiveURL else {
             return false
         }
 
@@ -486,26 +486,26 @@ actor ResumableArchiveDownloader {
         return 0
     }
 
-    private func loadPersistedState(for descriptor: ModelDownloadDescriptor) throws -> PersistedModelDownloadState? {
-        let stateURL = try ModelStoragePaths.persistedStateURL(for: descriptor)
+    private func loadPersistedState(for asset: ModelAsset) throws -> PersistedAssetTransferState? {
+        let stateURL = try ModelAssetStoragePaths.persistedTransferStateURL(for: asset)
         guard FileManager.default.fileExists(atPath: stateURL.path) else {
             return nil
         }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(PersistedModelDownloadState.self, from: Data(contentsOf: stateURL))
+        return try decoder.decode(PersistedAssetTransferState.self, from: Data(contentsOf: stateURL))
     }
 
-    private func saveState(_ state: PersistedModelDownloadState, to url: URL) throws {
+    private func saveState(_ state: PersistedAssetTransferState, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(state).write(to: url, options: .atomic)
     }
 
-    private func resetPersistedDownload(for descriptor: ModelDownloadDescriptor) throws {
-        let downloadDirectoryURL = try ModelStoragePaths.downloadDirectoryURL(for: descriptor)
+    private func resetPersistedDownload(for asset: ModelAsset) throws {
+        let downloadDirectoryURL = try ModelAssetStoragePaths.transferDirectoryURL(for: asset)
         if FileManager.default.fileExists(atPath: downloadDirectoryURL.path) {
             try FileManager.default.removeItem(at: downloadDirectoryURL)
         }
@@ -535,7 +535,7 @@ actor ResumableArchiveDownloader {
             try handle.seekToEnd()
             try handle.write(contentsOf: data)
         } catch {
-            throw ResumableArchiveDownloaderError.filesystemFailure(error.localizedDescription)
+            throw ResumableAssetArchiveServiceError.filesystemFailure(error.localizedDescription)
         }
     }
 
@@ -606,7 +606,7 @@ private nonisolated struct TransferSpeedTracker {
 private actor DownloadProgressReporter {
     private let totalBytes: Int64
     private let minimumEmissionInterval: TimeInterval
-    private let progressHandler: @Sendable (ModelDownloadProgress) async -> Void
+    private let progressHandler: @Sendable (ModelAssetTransferStatus) async -> Void
     private var speedTracker: TransferSpeedTracker
     private var lastEmittedAt: Date?
 
@@ -614,7 +614,7 @@ private actor DownloadProgressReporter {
         initialDownloadedBytes: Int64,
         totalBytes: Int64,
         minimumEmissionInterval: TimeInterval,
-        progressHandler: @escaping @Sendable (ModelDownloadProgress) async -> Void
+        progressHandler: @escaping @Sendable (ModelAssetTransferStatus) async -> Void
     ) {
         self.totalBytes = totalBytes
         self.minimumEmissionInterval = minimumEmissionInterval
@@ -635,8 +635,8 @@ private actor DownloadProgressReporter {
         }
 
         await progressHandler(
-            ModelDownloadProgress(
-                phase: .downloading,
+            ModelAssetTransferStatus(
+                state: .downloading,
                 downloadedBytes: totalDownloadedBytes,
                 totalBytes: totalBytes,
                 bytesPerSecond: bytesPerSecond ?? speedTracker.smoothedBytesPerSecond,

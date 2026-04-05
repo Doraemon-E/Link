@@ -12,7 +12,7 @@ nonisolated struct TranslationModelCatalog: Codable, Equatable, Sendable {
     let generatedAt: Date?
     let packages: [TranslationModelPackage]
 
-    func package(source: HomeLanguage, target: HomeLanguage) -> TranslationModelPackage? {
+    func package(source: SupportedLanguage, target: SupportedLanguage) -> TranslationModelPackage? {
         packages.first {
             $0.source == source.translationModelCode &&
             $0.target == target.translationModelCode
@@ -50,5 +50,15 @@ nonisolated struct TranslationInstalledPackageRecord: Codable, Equatable, Sendab
     let packageId: String
     let version: String
     let manifestRelativePath: String
+    let installedAt: Date
+}
+
+nonisolated struct TranslationInstalledPackageSummary: Equatable, Sendable {
+    let packageId: String
+    let version: String
+    let sourceLanguage: SupportedLanguage?
+    let targetLanguage: SupportedLanguage?
+    let archiveSize: Int64
+    let installedSize: Int64
     let installedAt: Date
 }

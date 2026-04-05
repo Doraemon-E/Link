@@ -12,33 +12,33 @@ import SwiftData
 struct linkApp: App {
     private let appSettings: AppSettings
     private let translationService: TranslationService
-    private let speechModelInstaller: SpeechModelInstaller
+    private let speechPackageManager: SpeechModelPackageManager
     private let speechRecognitionService: SpeechRecognitionService
     private let textToSpeechService: TextToSpeechService
-    private let modelDownloadCenter: ModelDownloadCenter
+    private let modelAssetService: ModelAssetService
     private let microphoneRecordingService: MicrophoneRecordingService
 
     init() {
-        let catalogService = TranslationModelCatalogService()
-        let installer = TranslationModelInstaller(catalogService: catalogService)
-        let speechCatalogService = SpeechModelCatalogService()
-        let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
-        let downloadCenter = ModelDownloadCenter(
-            translationInstaller: installer,
-            speechInstaller: speechInstaller
+        let catalogRepository = TranslationModelCatalogRepository()
+        let translationPackageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
+        let speechCatalogRepository = SpeechModelCatalogRepository()
+        let speechPackageManager = SpeechModelPackageManager(catalogRepository: speechCatalogRepository)
+        let assetService = ModelAssetService(
+            translationPackageManager: translationPackageManager,
+            speechPackageManager: speechPackageManager
         )
         self.appSettings = AppSettings()
-        self.translationService = MarianTranslationService(modelAccess: installer)
-        self.speechModelInstaller = speechInstaller
-        self.speechRecognitionService = WhisperSpeechRecognitionService(installer: speechInstaller)
+        self.translationService = MarianTranslationService(modelProvider: translationPackageManager)
+        self.speechPackageManager = speechPackageManager
+        self.speechRecognitionService = WhisperSpeechRecognitionService(packageManager: speechPackageManager)
         self.textToSpeechService = SystemTextToSpeechService()
-        self.modelDownloadCenter = downloadCenter
+        self.modelAssetService = assetService
         self.microphoneRecordingService = MicrophoneRecordingService()
 
         Task.detached(priority: .utility) {
-            await catalogService.warmUpCatalog()
-            await speechCatalogService.warmUpCatalog()
-            await downloadCenter.warmUp()
+            await catalogRepository.warmUpCatalog()
+            await speechCatalogRepository.warmUpCatalog()
+            await assetService.warmUp()
         }
     }
 
@@ -49,8 +49,8 @@ struct linkApp: App {
                 translationService: translationService,
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
-                speechModelInstaller: speechModelInstaller,
-                modelDownloadCenter: modelDownloadCenter,
+                speechPackageManager: speechPackageManager,
+                modelAssetService: modelAssetService,
                 microphoneRecordingService: microphoneRecordingService
             )
         }

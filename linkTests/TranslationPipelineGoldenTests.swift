@@ -12,27 +12,27 @@ final class TranslationPipelineGoldenTests: XCTestCase {
     private static let autoInstallModels = ProcessInfo.processInfo.environment["LINK_TEST_AUTO_INSTALL_MODELS"] == "1"
 
     private var testCases: [TranslationGoldenCase] = []
-    private var installer: TranslationModelInstaller!
+    private var packageManager: TranslationModelPackageManager!
     private var translationService: TranslationService!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = true
 
-        let catalogService = TranslationModelCatalogService(
+        let catalogRepository = TranslationModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: testBundle
         )
-        let installer = TranslationModelInstaller(catalogService: catalogService)
-        self.installer = installer
-        self.translationService = MarianTranslationService(modelAccess: installer)
+        let packageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
+        self.packageManager = packageManager
+        self.translationService = MarianTranslationService(modelProvider: packageManager)
         self.testCases = try TranslationGoldenCaseStore.load()
     }
 
     override func tearDownWithError() throws {
         testCases = []
         translationService = nil
-        installer = nil
+        packageManager = nil
         try super.tearDownWithError()
     }
 
@@ -91,14 +91,14 @@ final class TranslationPipelineGoldenTests: XCTestCase {
             target: testCase.targetLanguage
         )
 
-        let initialRequirement = try await installer.downloadRequirement(for: initialRoute)
+        let initialRequirement = try await packageManager.assetRequirement(for: initialRoute)
 
         if !initialRequirement.isReady {
             let missingPackageIDs = initialRequirement.packageIds
 
             if Self.autoInstallModels {
                 for packageID in missingPackageIDs {
-                    _ = try await installer.install(packageId: packageID)
+                    _ = try await packageManager.install(packageId: packageID)
                 }
             } else {
                 let summary = summaryText(

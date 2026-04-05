@@ -1,5 +1,5 @@
 //
-//  TranslationModelInstallerTests.swift
+//  TranslationModelPackageManagerTests.swift
 //  linkTests
 //
 //  Created by Codex on 2026/4/5.
@@ -9,8 +9,8 @@ import Foundation
 import XCTest
 @testable import link
 
-final class TranslationModelInstallerTests: XCTestCase {
-    func testDownloadRequirementIncludesAllMissingPackagesForRoute() async throws {
+final class TranslationModelPackageManagerTests: XCTestCase {
+    func testAssetRequirementIncludesAllMissingPackagesForRoute() async throws {
         let package = makePackage(
             packageId: "opus-mt-zh-en-onnx",
             source: .chinese,
@@ -20,7 +20,7 @@ final class TranslationModelInstallerTests: XCTestCase {
         )
         let harness = try makeHarness(packages: [package])
 
-        let requirement = try await harness.installer.downloadRequirement(
+        let requirement = try await harness.packageManager.assetRequirement(
             for: TranslationRoute(
                 source: .chinese,
                 target: .english,
@@ -34,7 +34,7 @@ final class TranslationModelInstallerTests: XCTestCase {
         XCTAssertEqual(requirement.installedSize, 34)
     }
 
-    func testDownloadRequirementExcludesInstalledPackagesForMultiHopRoute() async throws {
+    func testAssetRequirementExcludesInstalledPackagesForMultiHopRoute() async throws {
         let firstPackage = makePackage(
             packageId: "opus-mt-zh-en-onnx",
             source: .chinese,
@@ -54,7 +54,7 @@ final class TranslationModelInstallerTests: XCTestCase {
             installedPackageIDs: [firstPackage.packageId]
         )
 
-        let requirement = try await harness.installer.downloadRequirement(
+        let requirement = try await harness.packageManager.assetRequirement(
             for: TranslationRoute(
                 source: .chinese,
                 target: .french,
@@ -70,7 +70,7 @@ final class TranslationModelInstallerTests: XCTestCase {
         XCTAssertEqual(requirement.installedSize, 78)
     }
 
-    func testDownloadRequirementIsReadyWhenAllRoutePackagesAreInstalled() async throws {
+    func testAssetRequirementIsReadyWhenAllRoutePackagesAreInstalled() async throws {
         let firstPackage = makePackage(
             packageId: "opus-mt-zh-en-onnx",
             source: .chinese,
@@ -90,7 +90,7 @@ final class TranslationModelInstallerTests: XCTestCase {
             installedPackageIDs: [firstPackage.packageId, secondPackage.packageId]
         )
 
-        let requirement = try await harness.installer.downloadRequirement(
+        let requirement = try await harness.packageManager.assetRequirement(
             for: TranslationRoute(
                 source: .chinese,
                 target: .french,
@@ -108,7 +108,7 @@ final class TranslationModelInstallerTests: XCTestCase {
     private func makeHarness(
         packages: [TranslationModelPackage],
         installedPackageIDs: [String] = []
-    ) throws -> TranslationInstallerHarness {
+    ) throws -> TranslationPackageManagerHarness {
         let baseDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -129,14 +129,14 @@ final class TranslationModelInstallerTests: XCTestCase {
             to: bundledCatalogURL
         )
 
-        let catalogService = TranslationModelCatalogService(
+        let catalogRepository = TranslationModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: .main,
             bundledCatalogURLOverride: bundledCatalogURL,
             baseDirectoryURLOverride: baseDirectoryURL
         )
-        let installer = TranslationModelInstaller(
-            catalogService: catalogService,
+        let packageManager = TranslationModelPackageManager(
+            catalogRepository: catalogRepository,
             baseDirectoryURLOverride: baseDirectoryURL
         )
 
@@ -147,9 +147,9 @@ final class TranslationModelInstallerTests: XCTestCase {
             try installFakePackage(package, into: baseDirectoryURL)
         }
 
-        return TranslationInstallerHarness(
+        return TranslationPackageManagerHarness(
             baseDirectoryURL: baseDirectoryURL,
-            installer: installer
+            packageManager: packageManager
         )
     }
 
@@ -299,13 +299,13 @@ final class TranslationModelInstallerTests: XCTestCase {
     }
 }
 
-private final class TranslationInstallerHarness {
+private final class TranslationPackageManagerHarness {
     let baseDirectoryURL: URL
-    let installer: TranslationModelInstaller
+    let packageManager: TranslationModelPackageManager
 
-    init(baseDirectoryURL: URL, installer: TranslationModelInstaller) {
+    init(baseDirectoryURL: URL, packageManager: TranslationModelPackageManager) {
         self.baseDirectoryURL = baseDirectoryURL
-        self.installer = installer
+        self.packageManager = packageManager
     }
 
     deinit {

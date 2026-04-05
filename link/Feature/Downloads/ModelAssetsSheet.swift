@@ -1,5 +1,5 @@
 //
-//  ModelDownloadsSheet.swift
+//  ModelAssetsSheet.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -7,25 +7,25 @@
 
 import SwiftUI
 
-struct ModelDownloadsSheet: View {
+struct ModelAssetsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let processingItems: [ModelDownloadItem]
-    let resumableItems: [ModelDownloadItem]
-    let failedItems: [ModelDownloadItem]
-    let installedItems: [ModelDownloadItem]
-    let availableItems: [ModelDownloadItem]
-    let onDownload: (ModelDownloadItem) -> Void
+    let processingRecords: [ModelAssetRecord]
+    let resumableRecords: [ModelAssetRecord]
+    let failedRecords: [ModelAssetRecord]
+    let installedRecords: [ModelAssetRecord]
+    let availableRecords: [ModelAssetRecord]
+    let onDownload: (ModelAssetRecord) -> Void
     let onResume: (String) -> Void
     let onRetry: (String) -> Void
     let onDelete: (String) -> Void
 
     private var allItemsAreEmpty: Bool {
-        processingItems.isEmpty &&
-        resumableItems.isEmpty &&
-        failedItems.isEmpty &&
-        installedItems.isEmpty &&
-        availableItems.isEmpty
+        processingRecords.isEmpty &&
+        resumableRecords.isEmpty &&
+        failedRecords.isEmpty &&
+        installedRecords.isEmpty &&
+        availableRecords.isEmpty
     }
 
     var body: some View {
@@ -35,24 +35,24 @@ struct ModelDownloadsSheet: View {
                     emptyState
                 } else {
                     List {
-                        if !processingItems.isEmpty {
-                            section(title: "正在处理", items: processingItems)
+                        if !processingRecords.isEmpty {
+                            section(title: "正在处理", items: processingRecords)
                         }
 
-                        if !resumableItems.isEmpty {
-                            section(title: "可继续下载", items: resumableItems)
+                        if !resumableRecords.isEmpty {
+                            section(title: "可继续下载", items: resumableRecords)
                         }
 
-                        if !failedItems.isEmpty {
-                            section(title: "下载失败", items: failedItems)
+                        if !failedRecords.isEmpty {
+                            section(title: "下载失败", items: failedRecords)
                         }
 
-                        if !availableItems.isEmpty {
-                            section(title: "可下载", items: availableItems)
+                        if !availableRecords.isEmpty {
+                            section(title: "可下载", items: availableRecords)
                         }
 
-                        if !installedItems.isEmpty {
-                            section(title: "已安装", items: installedItems)
+                        if !installedRecords.isEmpty {
+                            section(title: "已安装", items: installedRecords)
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -71,10 +71,10 @@ struct ModelDownloadsSheet: View {
     }
 
     @ViewBuilder
-    private func section(title: String, items: [ModelDownloadItem]) -> some View {
+    private func section(title: String, items: [ModelAssetRecord]) -> some View {
         Section(title) {
             ForEach(items) { item in
-                ModelDownloadRow(
+                ModelAssetRow(
                     item: item,
                     onDownload: { onDownload(item) },
                     onResume: { onResume(item.id) },
@@ -105,29 +105,29 @@ struct ModelDownloadsSheet: View {
     }
 }
 
-private struct ModelDownloadRow: View {
-    let item: ModelDownloadItem
+private struct ModelAssetRow: View {
+    let item: ModelAssetRecord
     let onDownload: () -> Void
     let onResume: () -> Void
     let onRetry: () -> Void
     let onDelete: () -> Void
 
     private var showsProgressBar: Bool {
-        !item.isInstalled && item.progress.phase != .failed && item.progress.phase != .idle
+        !item.isInstalled && item.status.state != .failed && item.status.state != .idle
     }
 
     private var shouldShowTransferDetails: Bool {
-        item.progress.totalBytes > 0 && item.progress.phase != .idle
+        item.status.totalBytes > 0 && item.status.state != .idle
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.descriptor.title)
+                    Text(item.asset.title)
                         .font(.body.weight(.semibold))
 
-                    Text(item.descriptor.subtitle)
+                    Text(item.asset.subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -147,7 +147,7 @@ private struct ModelDownloadRow: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text(item.progress.phase.displayName)
+                    Text(item.status.state.displayName)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(statusColor)
                         .padding(.horizontal, 10)
@@ -158,7 +158,7 @@ private struct ModelDownloadRow: View {
                         )
 
                     if shouldShowTransferDetails {
-                        Text("\(item.progress.downloadedBytes.formattedModelSize) / \(item.progress.totalBytes.formattedModelSize)")
+                        Text("\(item.status.downloadedBytes.formattedModelSize) / \(item.status.totalBytes.formattedModelSize)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -166,13 +166,13 @@ private struct ModelDownloadRow: View {
 
                 if shouldShowTransferDetails {
                     HStack(spacing: 12) {
-                        metricLabel(item.progress.fractionCompleted.formattedPercent)
+                        metricLabel(item.status.fractionCompleted.formattedPercent)
 
-                        if let bytesPerSecond = item.progress.bytesPerSecond {
+                        if let bytesPerSecond = item.status.bytesPerSecond {
                             metricLabel(bytesPerSecond.formattedTransferSpeed)
                         }
 
-                        if let remaining = item.progress.estimatedRemainingTime?.formattedRemainingTime {
+                        if let remaining = item.status.estimatedRemainingTime?.formattedRemainingTime {
                             metricLabel("约剩\(remaining)")
                         }
                     }
@@ -180,7 +180,7 @@ private struct ModelDownloadRow: View {
             }
 
             if showsProgressBar {
-                ProgressView(value: item.progress.fractionCompleted)
+                ProgressView(value: item.status.fractionCompleted)
                     .tint(statusColor)
             }
 
@@ -193,7 +193,7 @@ private struct ModelDownloadRow: View {
             HStack {
                 Spacer()
 
-                switch item.progress.phase {
+                switch item.status.state {
                 case .idle:
                     Button("下载", action: onDownload)
                         .buttonStyle(.borderedProminent)
@@ -224,7 +224,7 @@ private struct ModelDownloadRow: View {
     }
 
     private var statusColor: Color {
-        switch item.progress.phase {
+        switch item.status.state {
         case .failed:
             return .red
         case .pausedResumable:

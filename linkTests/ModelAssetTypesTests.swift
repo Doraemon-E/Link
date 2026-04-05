@@ -1,5 +1,5 @@
 //
-//  ModelDownloadTypesTests.swift
+//  ModelAssetTypesTests.swift
 //  linkTests
 //
 //  Created by Codex on 2026/4/4.
@@ -8,10 +8,10 @@
 import XCTest
 @testable import link
 
-final class ModelDownloadTypesTests: XCTestCase {
-    func testDownloadProgressDerivesFractionFromBytes() throws {
-        let progress = ModelDownloadProgress(
-            phase: .downloading,
+final class ModelAssetTypesTests: XCTestCase {
+    func testTransferStatusDerivesFractionFromBytes() throws {
+        let progress = ModelAssetTransferStatus(
+            state: .downloading,
             downloadedBytes: 512,
             totalBytes: 1024,
             bytesPerSecond: 256
@@ -25,9 +25,9 @@ final class ModelDownloadTypesTests: XCTestCase {
         XCTAssertFalse(progress.isResumable)
     }
 
-    func testDownloadProgressClearsInvalidTransferSpeed() {
-        let progress = ModelDownloadProgress(
-            phase: .downloading,
+    func testTransferStatusClearsInvalidTransferSpeed() {
+        let progress = ModelAssetTransferStatus(
+            state: .downloading,
             downloadedBytes: 512,
             totalBytes: 1024,
             bytesPerSecond: 0
@@ -37,8 +37,8 @@ final class ModelDownloadTypesTests: XCTestCase {
         XCTAssertNil(progress.estimatedRemainingTime)
     }
 
-    func testDescriptorBuildsStableItemID() {
-        let descriptor = ModelDownloadDescriptor(
+    func testAssetBuildsStableItemID() {
+        let descriptor = ModelAsset(
             kind: .translation,
             packageId: "opus-mt-en-zh-onnx",
             version: "1.0.0",

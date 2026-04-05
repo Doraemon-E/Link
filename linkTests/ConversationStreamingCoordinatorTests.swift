@@ -8,6 +8,7 @@
 import XCTest
 @testable import link
 
+@MainActor
 final class ConversationStreamingCoordinatorTests: XCTestCase {
     func testManualTranslationStreamsStateThenCompletion() async throws {
         let service = StubTranslationService(
@@ -269,7 +270,7 @@ final class ConversationStreamingCoordinatorTests: XCTestCase {
         )
         let coordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
-            translationModelAvailabilityProvider: readinessProvider,
+            translationAssetReadinessProvider: readinessProvider,
             speechStreamingService: speechService
         )
 
@@ -307,7 +308,7 @@ final class ConversationStreamingCoordinatorTests: XCTestCase {
         )
         let coordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
-            translationModelAvailabilityProvider: readinessProvider,
+            translationAssetReadinessProvider: readinessProvider,
             speechStreamingService: speechService
         )
 
@@ -582,7 +583,7 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
     }
 }
 
-private final class StubTranslationModelAvailabilityProvider: TranslationModelAvailabilityProviding, @unchecked Sendable {
+private final class StubTranslationModelAvailabilityProvider: TranslationAssetReadinessProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var readinessByPair: [String: Bool] = [:]
 
@@ -592,18 +593,18 @@ private final class StubTranslationModelAvailabilityProvider: TranslationModelAv
         lock.unlock()
     }
 
-    func translationModelDownloadRequirement(
+    func translationAssetRequirement(
         for route: TranslationRoute
-    ) async throws -> TranslationModelDownloadRequirement {
+    ) async throws -> TranslationAssetRequirement {
         guard !route.steps.isEmpty else {
             return .ready
         }
 
-        if try await areTranslationModelsReady(for: route) {
+        if try await areTranslationAssetsReady(for: route) {
             return .ready
         }
 
-        return TranslationModelDownloadRequirement(
+        return TranslationAssetRequirement(
             missingPackages: route.steps.map { step in
                 TranslationModelPackage(
                     packageId: "\(step.source.rawValue)-\(step.target.rawValue)",
@@ -622,7 +623,7 @@ private final class StubTranslationModelAvailabilityProvider: TranslationModelAv
         )
     }
 
-    func areTranslationModelsReady(
+    func areTranslationAssetsReady(
         for route: TranslationRoute
     ) async throws -> Bool {
         guard !route.steps.isEmpty else {

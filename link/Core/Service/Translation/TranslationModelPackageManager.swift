@@ -1,5 +1,5 @@
 //
-//  TranslationModelInstaller.swift
+//  TranslationModelPackageManager.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -15,7 +15,7 @@ nonisolated struct TranslationModelInstallation {
     let modelDirectoryURL: URL
 }
 
-actor TranslationModelInstaller: TranslationModelAccessing {
+actor TranslationModelPackageManager: TranslationModelProviding {
     private struct RawMarianConfig: Decodable {
         let bosTokenId: Int?
         let eosTokenId: Int?
@@ -71,30 +71,30 @@ actor TranslationModelInstaller: TranslationModelAccessing {
         }
     }
 
-    private let catalogService: TranslationModelCatalogService
+    private let catalogRepository: TranslationModelCatalogRepository
     private let baseDirectoryURLOverride: URL?
 
     init(
-        catalogService: TranslationModelCatalogService,
+        catalogRepository: TranslationModelCatalogRepository,
         baseDirectoryURLOverride: URL? = nil
     ) {
-        self.catalogService = catalogService
+        self.catalogRepository = catalogRepository
         self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
     func warmUpCatalog() async {
-        await catalogService.warmUpCatalog()
+        await catalogRepository.warmUpCatalog()
     }
 
-    func packageMetadata(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationModelPackage? {
+    func packageMetadata(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelPackage? {
         guard source != target else {
             return nil
         }
 
-        return try await catalogService.package(source: source, target: target)
+        return try await catalogRepository.package(source: source, target: target)
     }
 
-    func isInstalled(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
+    func isInstalled(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
         guard source != target else {
             return true
         }
@@ -102,7 +102,7 @@ actor TranslationModelInstaller: TranslationModelAccessing {
         return try await installedPackage(for: source, target: target) != nil
     }
 
-    func ensureInstalled(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationModelInstallation {
+    func ensureInstalled(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelInstallation {
         if source == target {
             throw TranslationError.modelPackageUnavailable(source: source, target: target)
         }
@@ -111,15 +111,15 @@ actor TranslationModelInstaller: TranslationModelAccessing {
             return installation
         }
 
-        guard let package = try await catalogService.package(source: source, target: target) else {
+        guard let package = try await catalogRepository.package(source: source, target: target) else {
             throw TranslationError.modelPackageUnavailable(source: source, target: target)
         }
 
         return try await install(packageId: package.packageId)
     }
 
-    func installedPackage(for source: HomeLanguage, target: HomeLanguage) async throws -> TranslationModelInstallation? {
-        guard let package = try await catalogService.package(source: source, target: target) else {
+    func installedPackage(for source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelInstallation? {
+        guard let package = try await catalogRepository.package(source: source, target: target) else {
             return nil
         }
 
@@ -127,11 +127,11 @@ actor TranslationModelInstaller: TranslationModelAccessing {
     }
 
     func package(packageId: String) async throws -> TranslationModelPackage? {
-        try await catalogService.package(packageId: packageId)
+        try await catalogRepository.package(packageId: packageId)
     }
 
     func packages() async throws -> [TranslationModelPackage] {
-        try await catalogService.packages()
+        try await catalogRepository.packages()
     }
 
     func installedPackages() async throws -> [TranslationInstalledPackageSummary] {
@@ -139,7 +139,7 @@ actor TranslationModelInstaller: TranslationModelAccessing {
         var summaries: [TranslationInstalledPackageSummary] = []
 
         for record in index.packages.sorted(by: { $0.installedAt > $1.installedAt }) {
-            guard let package = try await catalogService.package(packageId: record.packageId) else {
+            guard let package = try await catalogRepository.package(packageId: record.packageId) else {
                 continue
             }
 
@@ -151,8 +151,8 @@ actor TranslationModelInstaller: TranslationModelAccessing {
                 TranslationInstalledPackageSummary(
                     packageId: package.packageId,
                     version: package.version,
-                    sourceLanguage: HomeLanguage.fromTranslationModelCode(package.source),
-                    targetLanguage: HomeLanguage.fromTranslationModelCode(package.target),
+                    sourceLanguage: SupportedLanguage.fromTranslationModelCode(package.source),
+                    targetLanguage: SupportedLanguage.fromTranslationModelCode(package.target),
                     archiveSize: package.archiveSize,
                     installedSize: package.installedSize,
                     installedAt: record.installedAt
@@ -163,9 +163,9 @@ actor TranslationModelInstaller: TranslationModelAccessing {
         return summaries
     }
 
-    func downloadRequirement(
+    func assetRequirement(
         for route: TranslationRoute
-    ) async throws -> TranslationModelDownloadRequirement {
+    ) async throws -> TranslationAssetRequirement {
         guard !route.steps.isEmpty else {
             return .ready
         }
@@ -188,15 +188,15 @@ actor TranslationModelInstaller: TranslationModelAccessing {
             }
         }
 
-        return TranslationModelDownloadRequirement(missingPackages: missingPackages)
+        return TranslationAssetRequirement(missingPackages: missingPackages)
     }
 
-    func areModelsReady(for route: TranslationRoute) async throws -> Bool {
-        try await downloadRequirement(for: route).isReady
+    func areAssetsReady(for route: TranslationRoute) async throws -> Bool {
+        try await assetRequirement(for: route).isReady
     }
 
     func install(packageId: String) async throws -> TranslationModelInstallation {
-        guard let package = try await catalogService.package(packageId: packageId) else {
+        guard let package = try await catalogRepository.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw TranslationError.packageMissing(packageId: packageId)
         }
@@ -205,7 +205,7 @@ actor TranslationModelInstaller: TranslationModelAccessing {
     }
 
     func install(packageId: String, archiveURL: URL) async throws -> TranslationModelInstallation {
-        guard let package = try await catalogService.package(packageId: packageId) else {
+        guard let package = try await catalogRepository.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw TranslationError.packageMissing(packageId: packageId)
         }
@@ -1022,15 +1022,27 @@ actor TranslationModelInstaller: TranslationModelAccessing {
     }
 
     private func installedIndexURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("installed.json", isDirectory: false)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("installed.json", isDirectory: false)
+        }
+
+        return try ModelAssetStoragePaths.installedIndexURL(for: .translation)
     }
 
     private func packagesDirectoryURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("packages", isDirectory: true)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("packages", isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.packagesDirectoryURL(for: .translation)
     }
 
     private func packageDirectoryURL(for packageId: String) throws -> URL {
-        try packagesDirectoryURL().appendingPathComponent(packageId, isDirectory: true)
+        if baseDirectoryURLOverride != nil {
+            return try packagesDirectoryURL().appendingPathComponent(packageId, isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.packageDirectoryURL(for: .translation, packageId: packageId)
     }
 
     private func removeStaleInstallationIfNeeded(packageId: String) throws {
@@ -1049,7 +1061,11 @@ actor TranslationModelInstaller: TranslationModelAccessing {
     }
 
     private func temporaryDirectoryURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("tmp", isDirectory: true)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("tmp", isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.temporaryDirectoryURL(for: .translation)
     }
 
     private func baseDirectoryURL() throws -> URL {
@@ -1057,7 +1073,7 @@ actor TranslationModelInstaller: TranslationModelAccessing {
             return baseDirectoryURLOverride
         }
 
-        return try ModelStoragePaths.baseDirectoryURL(for: .translation)
+        return try ModelAssetStoragePaths.baseDirectoryURL(for: .translation)
     }
 
     private func makeWorkingDirectory() throws -> URL {
@@ -1079,7 +1095,7 @@ actor TranslationModelInstaller: TranslationModelAccessing {
     }
 
     private func log(_ message: String) {
-        print("[TranslationModelInstaller] \(message)")
+        print("[TranslationModelPackageManager] \(message)")
     }
 
     private func logExtractedContents(at directoryURL: URL) {

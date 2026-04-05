@@ -63,7 +63,7 @@ final class HomeViewModel {
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let textToSpeechService: TextToSpeechService
-    @ObservationIgnored private let speechModelInstaller: SpeechModelPackageManager
+    @ObservationIgnored private let speechPackageManager: SpeechModelPackageManager
     @ObservationIgnored private let modelAssetService: ModelAssetService
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
@@ -89,7 +89,7 @@ final class HomeViewModel {
         translationService: TranslationService,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
-        speechModelInstaller: SpeechModelPackageManager,
+        speechPackageManager: SpeechModelPackageManager,
         modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
@@ -97,12 +97,12 @@ final class HomeViewModel {
         self.translationService = translationService
         self.speechRecognitionService = speechRecognitionService
         self.textToSpeechService = textToSpeechService
-        self.speechModelInstaller = speechModelInstaller
+        self.speechPackageManager = speechPackageManager
         self.modelAssetService = modelAssetService
         self.microphoneRecordingService = microphoneRecordingService
         self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
-            translationModelAvailabilityProvider: modelAssetService,
+            translationAssetReadinessProvider: modelAssetService,
             speechStreamingService: speechRecognitionService as? any SpeechRecognitionStreamingService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
@@ -627,46 +627,46 @@ final class HomeViewModel {
     }
 
     var isInstallingTranslationModel: Bool {
-        activeDownloadItems.contains { $0.kind == .translation }
+        activeAssetRecords.contains { $0.kind == .translation }
     }
 
     var isInstallingSpeechModel: Bool {
-        activeDownloadItems.contains { $0.kind == .speech }
+        activeAssetRecords.contains { $0.kind == .speech }
     }
 
-    var downloadManagerHasAttention: Bool {
+    var assetManagerHasAttention: Bool {
         assetSummary.hasAttention
     }
 
-    var downloadManagerIsBusy: Bool {
+    var assetManagerIsBusy: Bool {
         assetSummary.hasActiveTasks
     }
 
-    var activeDownloadItems: [ModelAssetRecord] {
+    var activeAssetRecords: [ModelAssetRecord] {
         assetRecords.filter {
             [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
         }
     }
 
-    var processingDownloadItems: [ModelAssetRecord] {
+    var processingAssetRecords: [ModelAssetRecord] {
         assetRecords.filter {
             [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
         }
     }
 
-    var resumableDownloadItems: [ModelAssetRecord] {
+    var resumableAssetRecords: [ModelAssetRecord] {
         assetRecords.filter { $0.status.state == .pausedResumable }
     }
 
-    var failedDownloadItems: [ModelAssetRecord] {
+    var failedAssetRecords: [ModelAssetRecord] {
         assetRecords.filter { $0.status.state == .failed }
     }
 
-    var installedDownloadItems: [ModelAssetRecord] {
+    var installedAssetRecords: [ModelAssetRecord] {
         assetRecords.filter(\.isInstalled)
     }
 
-    var availableDownloadItems: [ModelAssetRecord] {
+    var availableAssetRecords: [ModelAssetRecord] {
         assetRecords.filter {
             !$0.isInstalled && $0.status.state == .idle
         }
@@ -691,7 +691,7 @@ final class HomeViewModel {
 
     func deleteInstalledDownload(itemID: String) async {
         do {
-            try await modelAssetService.removeInstalledAsset(id:  itemID)
+            try await modelAssetService.removeInstalledAsset(id: itemID)
             await refreshDownloadAvailabilityForCurrentSelection()
         } catch let error as TranslationError {
             downloadErrorMessage = error.userFacingMessage
@@ -781,7 +781,7 @@ final class HomeViewModel {
             for await snapshot in stream {
                 self.assetRecords = snapshot.records
                 self.assetSummary = snapshot.summary
-                self.handleDownloadMilestones(for: snapshot)
+                self.handleAssetMilestones(for: snapshot)
             }
         }
     }
@@ -800,7 +800,7 @@ final class HomeViewModel {
         }
     }
 
-    private func handleDownloadMilestones(for snapshot: ModelAssetSnapshot) {
+    private func handleAssetMilestones(for snapshot: ModelAssetSnapshot) {
         let milestoneSignature = snapshot.records
             .map { "\($0.id):\($0.status.state.rawValue):\($0.isInstalled)" }
             .sorted()
@@ -1448,11 +1448,11 @@ final class HomeViewModel {
     }
 
     private func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt? {
-        guard let package = try await speechModelInstaller.defaultPackageMetadata() else {
+        guard let package = try await speechPackageManager.defaultPackageMetadata() else {
             throw SpeechRecognitionError.modelPackageUnavailable
         }
 
-        if try await speechModelInstaller.isDefaultPackageInstalled() {
+        if try await speechPackageManager.isDefaultPackageInstalled() {
             return nil
         }
 

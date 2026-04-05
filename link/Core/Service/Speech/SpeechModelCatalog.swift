@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct SpeechModelCatalog: Codable {
+struct SpeechModelCatalog: Codable, Equatable, Sendable {
     let version: Int
     let generatedAt: Date?
     let packages: [SpeechModelPackage]
@@ -85,13 +85,13 @@ struct SpeechModelPackage: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-struct SpeechInstalledPackagesIndex: Codable {
+struct SpeechInstalledPackagesIndex: Codable, Sendable {
     var packages: [SpeechInstalledPackageRecord]
 
     static let empty = SpeechInstalledPackagesIndex(packages: [])
 }
 
-struct SpeechInstalledPackageRecord: Codable, Equatable {
+struct SpeechInstalledPackageRecord: Codable, Equatable, Sendable {
     let packageId: String
     let version: String
     let modelRelativePath: String
@@ -101,4 +101,12 @@ struct SpeechInstalledPackageRecord: Codable, Equatable {
 struct SpeechModelInstallation: Sendable {
     let package: SpeechModelPackage
     let modelURL: URL
+}
+
+struct SpeechInstalledPackageSummary: Equatable, Sendable {
+    let packageId: String
+    let version: String
+    let archiveSize: Int64
+    let installedSize: Int64
+    let installedAt: Date
 }

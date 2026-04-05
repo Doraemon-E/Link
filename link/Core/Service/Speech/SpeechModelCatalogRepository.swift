@@ -1,5 +1,5 @@
 //
-//  SpeechModelCatalogService.swift
+//  SpeechModelCatalogRepository.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -11,20 +11,23 @@ nonisolated enum SpeechModelHostingConfiguration {
     static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/speech/speech-catalog.json")
 }
 
-actor SpeechModelCatalogService {
+actor SpeechModelCatalogRepository {
     private let remoteCatalogURL: URL?
     private let bootstrapCatalogFileName: String
     private let bundle: Bundle
+    private let baseDirectoryURLOverride: URL?
     private var inMemoryCatalog: SpeechModelCatalog?
 
     init(
         remoteCatalogURL: URL? = SpeechModelHostingConfiguration.remoteCatalogURL,
         bootstrapCatalogFileName: String = "speech-catalog.json",
-        bundle: Bundle = .main
+        bundle: Bundle = .main,
+        baseDirectoryURLOverride: URL? = nil
     ) {
         self.remoteCatalogURL = remoteCatalogURL
         self.bootstrapCatalogFileName = bootstrapCatalogFileName
         self.bundle = bundle
+        self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
     func warmUpCatalog() async {
@@ -136,18 +139,19 @@ actor SpeechModelCatalogService {
     }
 
     private func cachedCatalogURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("speech-catalog.json", isDirectory: false)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("catalog.json", isDirectory: false)
+        }
+
+        return try ModelAssetStoragePaths.catalogCacheURL(for: .speech)
     }
 
     private func baseDirectoryURL() throws -> URL {
-        guard let applicationSupportURL = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw SpeechRecognitionError.installationFailed("Unable to locate Application Support directory.")
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride
         }
 
-        return applicationSupportURL.appendingPathComponent("SpeechModels", isDirectory: true)
+        return try ModelAssetStoragePaths.baseDirectoryURL(for: .speech)
     }
 
     private func ensureBaseDirectoryExists() throws {

@@ -24,11 +24,11 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         let detectedLanguage: SupportedLanguage?
     }
 
-    private let installer: SpeechModelPackageManager
+    private let packageManager: SpeechModelPackageManager
     private var loadedState: LoadedState?
 
-    init(installer: SpeechModelPackageManager) {
-        self.installer = installer
+    init(packageManager: SpeechModelPackageManager) {
+        self.packageManager = packageManager
     }
 
     deinit {
@@ -150,12 +150,12 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
     }
 
     private func loadInstallation() async throws -> SpeechModelInstallation {
-        if let installation = try await installer.installedDefaultPackage() {
+        if let installation = try await packageManager.installedDefaultPackage() {
             log("Using installed packageId=\(installation.package.packageId), modelPath=\(installation.modelURL.lastPathComponent)")
             return installation
         }
 
-        if try await installer.defaultPackageMetadata() != nil {
+        if try await packageManager.defaultPackageMetadata() != nil {
             throw SpeechRecognitionError.modelNotInstalled
         }
 

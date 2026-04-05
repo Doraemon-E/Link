@@ -19,7 +19,7 @@ struct HomeView: View {
         translationService: TranslationService,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
-        speechModelInstaller: SpeechModelPackageManager,
+        speechPackageManager: SpeechModelPackageManager,
         modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
@@ -29,7 +29,7 @@ struct HomeView: View {
                 translationService: translationService,
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
-                speechModelInstaller: speechModelInstaller,
+                speechPackageManager: speechPackageManager,
                 modelAssetService: modelAssetService,
                 microphoneRecordingService: microphoneRecordingService
             )
@@ -121,11 +121,11 @@ struct HomeView: View {
         }
         .sheet(isPresented: $viewModel.isDownloadManagerPresented) {
             ModelAssetsSheet(
-                processingItems: viewModel.processingDownloadItems,
-                resumableItems: viewModel.resumableDownloadItems,
-                failedItems: viewModel.failedDownloadItems,
-                installedItems: viewModel.installedDownloadItems,
-                availableItems: viewModel.availableDownloadItems,
+                processingRecords: viewModel.processingAssetRecords,
+                resumableRecords: viewModel.resumableAssetRecords,
+                failedRecords: viewModel.failedAssetRecords,
+                installedRecords: viewModel.installedAssetRecords,
+                availableRecords: viewModel.availableAssetRecords,
                 onDownload: { item in
                     Task {
                         await viewModel.startDownload(item: item)
@@ -402,8 +402,8 @@ struct HomeView: View {
             action: viewModel.openDownloadManager
         ) {
             HomeDownloadToolbarIcon(
-                isDownloading: viewModel.downloadManagerIsBusy,
-                hasAttention: viewModel.downloadManagerHasAttention
+                isDownloading: viewModel.assetManagerIsBusy,
+                hasAttention: viewModel.assetManagerHasAttention
             )
         }
     }
@@ -505,22 +505,22 @@ private struct HomeDownloadToolbarIcon: View {
 }
 
 #Preview {
-    let catalogService = TranslationModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
-    let installer = TranslationModelPackageManager(catalogRepository: catalogService)
-    let speechInstaller = SpeechModelPackageManager(
+    let catalogRepository = TranslationModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
+    let translationPackageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
+    let speechPackageManager = SpeechModelPackageManager(
         catalogRepository: SpeechModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
     )
     HomeView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
-        translationService: MarianTranslationService(modelAccess: installer),
+        translationService: MarianTranslationService(modelProvider: translationPackageManager),
         speechRecognitionService: WhisperSpeechRecognitionService(
-            installer: speechInstaller
+            packageManager: speechPackageManager
         ),
         textToSpeechService: SystemTextToSpeechService(),
-        speechModelInstaller: speechInstaller,
+        speechPackageManager: speechPackageManager,
         modelAssetService: ModelAssetService(
-            translationInstaller: installer,
-            speechInstaller: speechInstaller
+            translationPackageManager: translationPackageManager,
+            speechPackageManager: speechPackageManager
         ),
         microphoneRecordingService: MicrophoneRecordingService()
     )

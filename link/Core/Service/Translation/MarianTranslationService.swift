@@ -31,19 +31,19 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    private let modelAccess: any TranslationModelAccessing
+    private let modelProvider: any TranslationModelProviding
     private var environment: ORTEnv?
     private var loadedState: LoadedState?
 
     init(
-        modelAccess: any TranslationModelAccessing = TranslationModelInstaller(
-            catalogService: TranslationModelCatalogService(remoteCatalogURL: nil)
+        modelProvider: any TranslationModelProviding = TranslationModelPackageManager(
+            catalogRepository: TranslationModelCatalogRepository(remoteCatalogURL: nil)
         )
     ) {
-        self.modelAccess = modelAccess
+        self.modelProvider = modelProvider
     }
 
-    func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
+    func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
         do {
             _ = try await route(source: source, target: target)
             return true
@@ -58,7 +58,7 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
+    func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute {
         if source == target {
             return TranslationRoute(source: source, target: target, steps: [])
         }
@@ -81,7 +81,7 @@ actor MarianTranslationService: TranslationService {
         throw TranslationError.unsupportedLanguagePair(source: source, target: target)
     }
 
-    func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
+    func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         let route = try await route(source: source, target: target)
         debugLog(
             "route \(source.displayName)->\(target.displayName): " +
@@ -108,8 +108,8 @@ actor MarianTranslationService: TranslationService {
 
     func streamTranslation(
         text: String,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -152,7 +152,7 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    private func translateDirect(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
+    private func translateDirect(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         let state = try await loadState(source: source, target: target)
 
         guard state.manifest.supports(source: source, target: target) else {
@@ -297,8 +297,8 @@ actor MarianTranslationService: TranslationService {
         return min(manifestLimit, heuristicLimit)
     }
 
-    private func routeStep(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRouteStep? {
-        guard try await modelAccess.packageMetadata(source: source, target: target) != nil else {
+    private func routeStep(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRouteStep? {
+        guard try await modelProvider.packageMetadata(source: source, target: target) != nil else {
             return nil
         }
 
@@ -308,9 +308,9 @@ actor MarianTranslationService: TranslationService {
         )
     }
 
-    private func loadState(source: HomeLanguage, target: HomeLanguage) async throws -> LoadedState {
-        guard let installation = try await modelAccess.installedPackage(for: source, target: target) else {
-            if try await modelAccess.packageMetadata(source: source, target: target) != nil {
+    private func loadState(source: SupportedLanguage, target: SupportedLanguage) async throws -> LoadedState {
+        guard let installation = try await modelProvider.installedPackage(for: source, target: target) else {
+            if try await modelProvider.packageMetadata(source: source, target: target) != nil {
                 throw TranslationError.modelNotInstalled(source: source, target: target)
             }
 
@@ -378,8 +378,8 @@ actor MarianTranslationService: TranslationService {
     private func preparedInputText(
         _ text: String,
         family: TranslationModelManifest.Family,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> String {
         switch family {
         case .marian:

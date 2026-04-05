@@ -1,5 +1,5 @@
 //
-//  TranslationModelCatalogService.swift
+//  TranslationModelCatalogRepository.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -11,7 +11,7 @@ nonisolated enum TranslationModelHostingConfiguration {
     static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/translation/translation-catalog.json")
 }
 
-actor TranslationModelCatalogService {
+actor TranslationModelCatalogRepository {
     private let remoteCatalogURL: URL?
     private let bootstrapCatalogFileName: String
     private let bundle: Bundle
@@ -83,7 +83,7 @@ actor TranslationModelCatalogService {
         return resolvedCatalog
     }
 
-    func package(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationModelPackage? {
+    func package(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelPackage? {
         let currentCatalog = try await catalog()
         if let package = currentCatalog.package(source: source, target: target) {
             return package
@@ -205,7 +205,11 @@ actor TranslationModelCatalogService {
     }
 
     private func cachedCatalogURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("catalog.json", isDirectory: false)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("catalog.json", isDirectory: false)
+        }
+
+        return try ModelAssetStoragePaths.catalogCacheURL(for: .translation)
     }
 
     private func baseDirectoryURL() throws -> URL {
@@ -213,7 +217,7 @@ actor TranslationModelCatalogService {
             return baseDirectoryURLOverride
         }
 
-        return try ModelStoragePaths.baseDirectoryURL(for: .translation)
+        return try ModelAssetStoragePaths.baseDirectoryURL(for: .translation)
     }
 
     private func ensureBaseDirectoryExists() throws {

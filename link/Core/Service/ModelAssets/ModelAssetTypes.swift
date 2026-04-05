@@ -1,5 +1,5 @@
 //
-//  ModelDownloadTypes.swift
+//  ModelAssetTypes.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -21,7 +21,7 @@ nonisolated enum ModelAssetKind: String, Codable, Sendable {
     }
 }
 
-nonisolated enum ModelDownloadPhase: String, Codable, Sendable {
+nonisolated enum ModelAssetState: String, Codable, Sendable {
     case idle
     case preparing
     case downloading
@@ -53,7 +53,7 @@ nonisolated enum ModelDownloadPhase: String, Codable, Sendable {
     }
 }
 
-nonisolated struct ModelDownloadDescriptor: Identifiable, Equatable, Sendable {
+nonisolated struct ModelAsset: Identifiable, Equatable, Sendable {
     let kind: ModelAssetKind
     let packageId: String
     let version: String
@@ -65,16 +65,16 @@ nonisolated struct ModelDownloadDescriptor: Identifiable, Equatable, Sendable {
     let sha256: String
 
     var id: String {
-        Self.itemID(kind: kind, packageId: packageId)
+        Self.makeID(kind: kind, packageId: packageId)
     }
 
-    static func itemID(kind: ModelAssetKind, packageId: String) -> String {
+    static func makeID(kind: ModelAssetKind, packageId: String) -> String {
         "\(kind.rawValue):\(packageId)"
     }
 }
 
-nonisolated struct ModelDownloadProgress: Equatable, Sendable {
-    let phase: ModelDownloadPhase
+nonisolated struct ModelAssetTransferStatus: Equatable, Sendable {
+    let state: ModelAssetState
     let downloadedBytes: Int64
     let totalBytes: Int64
     let fractionCompleted: Double
@@ -82,14 +82,14 @@ nonisolated struct ModelDownloadProgress: Equatable, Sendable {
     let isResumable: Bool
 
     init(
-        phase: ModelDownloadPhase,
+        state: ModelAssetState,
         downloadedBytes: Int64,
         totalBytes: Int64,
         fractionCompleted: Double? = nil,
         bytesPerSecond: Double? = nil,
         isResumable: Bool = false
     ) {
-        self.phase = phase
+        self.state = state
         self.downloadedBytes = max(0, downloadedBytes)
         self.totalBytes = max(0, totalBytes)
 
@@ -111,7 +111,7 @@ nonisolated struct ModelDownloadProgress: Equatable, Sendable {
     }
 
     var estimatedRemainingTime: TimeInterval? {
-        guard phase == .downloading,
+        guard state == .downloading,
               let bytesPerSecond,
               bytesPerSecond > 0,
               totalBytes > downloadedBytes else {
@@ -121,26 +121,66 @@ nonisolated struct ModelDownloadProgress: Equatable, Sendable {
         return Double(totalBytes - downloadedBytes) / bytesPerSecond
     }
 
-    static let idle = ModelDownloadProgress(
-        phase: .idle,
+    static let idle = ModelAssetTransferStatus(
+        state: .idle,
         downloadedBytes: 0,
         totalBytes: 0,
         fractionCompleted: 0
     )
 }
 
-nonisolated struct ModelDownloadItem: Identifiable, Equatable, Sendable {
-    let descriptor: ModelDownloadDescriptor
-    let progress: ModelDownloadProgress
+nonisolated struct ModelAssetRecord: Identifiable, Equatable, Sendable {
+    let asset: ModelAsset
+    let status: ModelAssetTransferStatus
     let errorMessage: String?
     let installedAt: Date?
     let isInstalled: Bool
 
-    var id: String { descriptor.id }
-    var kind: ModelAssetKind { descriptor.kind }
+    var id: String { asset.id }
+    var kind: ModelAssetKind { asset.kind }
 }
 
-nonisolated struct ModelDownloadManagerSummary: Equatable, Sendable {
+extension ModelAssetRecord {
+    static func available(asset: ModelAsset) -> Self {
+        .init(
+            asset: asset,
+            status: .idle,
+            errorMessage: nil,
+            installedAt: nil,
+            isInstalled: false
+        )
+    }
+
+    static func installed(asset: ModelAsset, installedAt: Date) -> Self {
+        .init(
+            asset: asset,
+            status: ModelAssetTransferStatus(
+                state: .completed,
+                downloadedBytes: asset.archiveSize,
+                totalBytes: asset.archiveSize
+            ),
+            errorMessage: nil,
+            installedAt: installedAt,
+            isInstalled: true
+        )
+    }
+
+    static func transient(
+        asset: ModelAsset,
+        status: ModelAssetTransferStatus,
+        errorMessage: String? = nil
+    ) -> Self {
+        .init(
+            asset: asset,
+            status: status,
+            errorMessage: errorMessage,
+            installedAt: nil,
+            isInstalled: false
+        )
+    }
+}
+
+nonisolated struct ModelAssetSummary: Equatable, Sendable {
     let activeCount: Int
     let resumableCount: Int
     let failedCount: Int
@@ -155,7 +195,7 @@ nonisolated struct ModelDownloadManagerSummary: Equatable, Sendable {
         failedCount > 0 || resumableCount > 0
     }
 
-    static let empty = ModelDownloadManagerSummary(
+    static let empty = ModelAssetSummary(
         activeCount: 0,
         resumableCount: 0,
         failedCount: 0,
@@ -164,71 +204,9 @@ nonisolated struct ModelDownloadManagerSummary: Equatable, Sendable {
     )
 }
 
-nonisolated struct ModelDownloadsSnapshot: Equatable, Sendable {
-    let items: [ModelDownloadItem]
-    let summary: ModelDownloadManagerSummary
+nonisolated struct ModelAssetSnapshot: Equatable, Sendable {
+    let records: [ModelAssetRecord]
+    let summary: ModelAssetSummary
 
-    static let empty = ModelDownloadsSnapshot(items: [], summary: .empty)
-}
-
-nonisolated struct TranslationModelDownloadRequirement: Equatable, Sendable {
-    let missingPackages: [TranslationModelPackage]
-
-    var packageIds: [String] {
-        missingPackages.map(\.packageId)
-    }
-
-    var archiveSize: Int64 {
-        missingPackages.reduce(0) { $0 + $1.archiveSize }
-    }
-
-    var installedSize: Int64 {
-        missingPackages.reduce(0) { $0 + $1.installedSize }
-    }
-
-    var isReady: Bool {
-        missingPackages.isEmpty
-    }
-
-    static let ready = TranslationModelDownloadRequirement(missingPackages: [])
-}
-
-nonisolated protocol TranslationModelAccessing: Sendable {
-    func packageMetadata(
-        source: HomeLanguage,
-        target: HomeLanguage
-    ) async throws -> TranslationModelPackage?
-
-    func installedPackage(
-        for source: HomeLanguage,
-        target: HomeLanguage
-    ) async throws -> TranslationModelInstallation?
-}
-
-nonisolated protocol TranslationModelAvailabilityProviding: Sendable {
-    func translationModelDownloadRequirement(
-        for route: TranslationRoute
-    ) async throws -> TranslationModelDownloadRequirement
-
-    func areTranslationModelsReady(
-        for route: TranslationRoute
-    ) async throws -> Bool
-}
-
-nonisolated struct TranslationInstalledPackageSummary: Equatable, Sendable {
-    let packageId: String
-    let version: String
-    let sourceLanguage: HomeLanguage?
-    let targetLanguage: HomeLanguage?
-    let archiveSize: Int64
-    let installedSize: Int64
-    let installedAt: Date
-}
-
-nonisolated struct SpeechInstalledPackageSummary: Equatable, Sendable {
-    let packageId: String
-    let version: String
-    let archiveSize: Int64
-    let installedSize: Int64
-    let installedAt: Date
+    static let empty = ModelAssetSnapshot(records: [], summary: .empty)
 }

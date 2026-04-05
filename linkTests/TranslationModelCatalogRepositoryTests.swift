@@ -1,5 +1,5 @@
 //
-//  TranslationModelCatalogServiceTests.swift
+//  TranslationModelCatalogRepositoryTests.swift
 //  linkTests
 //
 //  Created by Codex on 2026/4/4.
@@ -8,7 +8,7 @@
 import XCTest
 @testable import link
 
-final class TranslationModelCatalogServiceTests: XCTestCase {
+final class TranslationModelCatalogRepositoryTests: XCTestCase {
     func testCatalogPrefersBundledCatalogWhenCachedCatalogIsStale() async throws {
         let baseDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -49,14 +49,14 @@ final class TranslationModelCatalogServiceTests: XCTestCase {
         try write(catalog: bundledCatalog, to: bundledCatalogURL)
         try write(catalog: cachedCatalog, to: cachedCatalogURL)
 
-        let service = TranslationModelCatalogService(
+        let repository = TranslationModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: .main,
             bundledCatalogURLOverride: bundledCatalogURL,
             baseDirectoryURLOverride: baseDirectoryURL
         )
 
-        let catalog = try await service.catalog()
+        let catalog = try await repository.catalog()
         let package = catalog.package(source: .english, target: .japanese)
 
         XCTAssertEqual(package?.packageId, "opus-mt-en-jap-onnx")
@@ -105,14 +105,14 @@ final class TranslationModelCatalogServiceTests: XCTestCase {
         try write(catalog: bundledCatalog, to: bundledCatalogURL)
         try write(catalog: cachedCatalog, to: cachedCatalogURL)
 
-        let service = TranslationModelCatalogService(
+        let repository = TranslationModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: .main,
             bundledCatalogURLOverride: bundledCatalogURL,
             baseDirectoryURLOverride: baseDirectoryURL
         )
 
-        let catalog = try await service.catalog()
+        let catalog = try await repository.catalog()
         let package = catalog.package(source: .english, target: .japanese)
 
         XCTAssertEqual(package?.packageId, "opus-mt-en-jap-onnx-v2")

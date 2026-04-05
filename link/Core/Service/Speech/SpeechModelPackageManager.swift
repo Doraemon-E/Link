@@ -1,5 +1,5 @@
 //
-//  SpeechModelInstaller.swift
+//  SpeechModelPackageManager.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -9,23 +9,28 @@ import CryptoKit
 import Foundation
 import ZIPFoundation
 
-actor SpeechModelInstaller {
-    private let catalogService: SpeechModelCatalogService
+actor SpeechModelPackageManager {
+    private let catalogRepository: SpeechModelCatalogRepository
+    private let baseDirectoryURLOverride: URL?
 
-    init(catalogService: SpeechModelCatalogService) {
-        self.catalogService = catalogService
+    init(
+        catalogRepository: SpeechModelCatalogRepository,
+        baseDirectoryURLOverride: URL? = nil
+    ) {
+        self.catalogRepository = catalogRepository
+        self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
     func warmUpCatalog() async {
-        await catalogService.warmUpCatalog()
+        await catalogRepository.warmUpCatalog()
     }
 
     func defaultPackageMetadata() async throws -> SpeechModelPackage? {
-        try await catalogService.defaultPackage()
+        try await catalogRepository.defaultPackage()
     }
 
     func isDefaultPackageInstalled() async throws -> Bool {
-        guard let package = try await catalogService.defaultPackage() else {
+        guard let package = try await catalogRepository.defaultPackage() else {
             return false
         }
 
@@ -33,7 +38,7 @@ actor SpeechModelInstaller {
     }
 
     func installedDefaultPackage() async throws -> SpeechModelInstallation? {
-        guard let package = try await catalogService.defaultPackage() else {
+        guard let package = try await catalogRepository.defaultPackage() else {
             return nil
         }
 
@@ -41,11 +46,11 @@ actor SpeechModelInstaller {
     }
 
     func package(packageId: String) async throws -> SpeechModelPackage? {
-        try await catalogService.package(packageId: packageId)
+        try await catalogRepository.package(packageId: packageId)
     }
 
     func packages() async throws -> [SpeechModelPackage] {
-        try await catalogService.packages()
+        try await catalogRepository.packages()
     }
 
     func installedPackages() async throws -> [SpeechInstalledPackageSummary] {
@@ -53,7 +58,7 @@ actor SpeechModelInstaller {
         var summaries: [SpeechInstalledPackageSummary] = []
 
         for record in index.packages.sorted(by: { $0.installedAt > $1.installedAt }) {
-            guard let package = try await catalogService.package(packageId: record.packageId) else {
+            guard let package = try await catalogRepository.package(packageId: record.packageId) else {
                 continue
             }
 
@@ -76,7 +81,7 @@ actor SpeechModelInstaller {
     }
 
     func install(packageId: String) async throws -> SpeechModelInstallation {
-        guard let package = try await catalogService.package(packageId: packageId) else {
+        guard let package = try await catalogRepository.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw SpeechRecognitionError.packageMissing(packageId)
         }
@@ -85,7 +90,7 @@ actor SpeechModelInstaller {
     }
 
     func install(packageId: String, archiveURL: URL) async throws -> SpeechModelInstallation {
-        guard let package = try await catalogService.package(packageId: packageId) else {
+        guard let package = try await catalogRepository.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
             throw SpeechRecognitionError.packageMissing(packageId)
         }
@@ -570,15 +575,27 @@ actor SpeechModelInstaller {
     }
 
     private func installedIndexURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("installed.json", isDirectory: false)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("installed.json", isDirectory: false)
+        }
+
+        return try ModelAssetStoragePaths.installedIndexURL(for: .speech)
     }
 
     private func packagesDirectoryURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("packages", isDirectory: true)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("packages", isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.packagesDirectoryURL(for: .speech)
     }
 
     private func packageDirectoryURL(for packageId: String) throws -> URL {
-        try packagesDirectoryURL().appendingPathComponent(packageId, isDirectory: true)
+        if baseDirectoryURLOverride != nil {
+            return try packagesDirectoryURL().appendingPathComponent(packageId, isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.packageDirectoryURL(for: .speech, packageId: packageId)
     }
 
     private func removeStaleInstallationIfNeeded(packageId: String) throws {
@@ -611,18 +628,19 @@ actor SpeechModelInstaller {
     }
 
     private func temporaryDirectoryURL() throws -> URL {
-        try baseDirectoryURL().appendingPathComponent("tmp", isDirectory: true)
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride.appendingPathComponent("tmp", isDirectory: true)
+        }
+
+        return try ModelAssetStoragePaths.temporaryDirectoryURL(for: .speech)
     }
 
     private func baseDirectoryURL() throws -> URL {
-        guard let applicationSupportURL = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw SpeechRecognitionError.installationFailed("Unable to locate Application Support directory.")
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride
         }
 
-        return applicationSupportURL.appendingPathComponent("SpeechModels", isDirectory: true)
+        return try ModelAssetStoragePaths.baseDirectoryURL(for: .speech)
     }
 
     private func makeWorkingDirectory() throws -> URL {
@@ -644,7 +662,7 @@ actor SpeechModelInstaller {
     }
 
     private func log(_ message: String) {
-        print("[SpeechModelInstaller] \(message)")
+        print("[SpeechModelPackageManager] \(message)")
     }
 
     private func logExtractedContents(at directoryURL: URL) {

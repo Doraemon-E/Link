@@ -73,7 +73,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     }
 
     private let translationService: TranslationService
-    private let translationModelAvailabilityProvider: (any TranslationAssetReadinessProviding)?
+    private let translationAssetReadinessProvider: (any TranslationAssetReadinessProviding)?
     private let speechStreamingService: (any SpeechRecognitionStreamingService)?
     private var tasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var liveStatesByMessageID: [UUID: LiveUtteranceState] = [:]
@@ -87,11 +87,11 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     init(
         translationService: TranslationService,
-        translationModelAvailabilityProvider: (any TranslationAssetReadinessProviding)? = nil,
+        translationAssetReadinessProvider: (any TranslationAssetReadinessProviding)? = nil,
         speechStreamingService: (any SpeechRecognitionStreamingService)? = nil
     ) {
         self.translationService = translationService
-        self.translationModelAvailabilityProvider = translationModelAvailabilityProvider
+        self.translationAssetReadinessProvider = translationAssetReadinessProvider
         self.speechStreamingService = speechStreamingService
     }
 
@@ -443,10 +443,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         source: SupportedLanguage,
         target: SupportedLanguage
     ) async throws -> Bool {
-        if let translationModelAvailabilityProvider {
+        if let translationAssetReadinessProvider {
             do {
                 let route = try await translationService.route(source: source, target: target)
-                return try await translationModelAvailabilityProvider.areTranslationAssetsReady(
+                return try await translationAssetReadinessProvider.areTranslationAssetsReady(
                     for: route
                 )
             } catch is TranslationError {

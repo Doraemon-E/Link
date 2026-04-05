@@ -48,16 +48,20 @@ final class HomeViewModelTranslationReadinessTests: XCTestCase {
     private func makeViewModel(
         translationService: TranslationRouteStubService
     ) -> HomeViewModel {
-        let translationCatalogService = TranslationModelCatalogService(
+        let translationCatalogRepository = TranslationModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: .main
         )
-        let translationInstaller = TranslationModelInstaller(catalogService: translationCatalogService)
-        let speechCatalogService = SpeechModelCatalogService(
+        let translationPackageManager = TranslationModelPackageManager(
+            catalogRepository: translationCatalogRepository
+        )
+        let speechCatalogRepository = SpeechModelCatalogRepository(
             remoteCatalogURL: nil,
             bundle: .main
         )
-        let speechInstaller = SpeechModelInstaller(catalogService: speechCatalogService)
+        let speechPackageManager = SpeechModelPackageManager(
+            catalogRepository: speechCatalogRepository
+        )
 
         return HomeViewModel(
             appSettings: AppSettings(
@@ -68,10 +72,10 @@ final class HomeViewModelTranslationReadinessTests: XCTestCase {
             translationService: translationService,
             speechRecognitionService: HomeViewModelSpeechRecognitionStub(),
             textToSpeechService: HomeViewModelTextToSpeechStub(),
-            speechModelInstaller: speechInstaller,
-            modelDownloadCenter: ModelDownloadCenter(
-                translationInstaller: translationInstaller,
-                speechInstaller: speechInstaller
+            speechPackageManager: speechPackageManager,
+            modelAssetService: ModelAssetService(
+                translationPackageManager: translationPackageManager,
+                speechPackageManager: speechPackageManager
             ),
             microphoneRecordingService: MicrophoneRecordingService()
         )
