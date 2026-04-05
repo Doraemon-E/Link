@@ -16,9 +16,9 @@ nonisolated enum TextToSpeechPlaybackEvent: Sendable, Equatable {
 
 @MainActor
 protocol TextToSpeechService: AnyObject {
+    var playbackEventHandler: ((TextToSpeechPlaybackEvent) -> Void)? { get set }
     func speak(text: String, language: SupportedLanguage, messageID: UUID) async throws
     func stop()
-    func playbackEvents() -> AsyncStream<TextToSpeechPlaybackEvent>
 }
 
 nonisolated enum TextToSpeechError: LocalizedError {

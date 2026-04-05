@@ -12,8 +12,7 @@ import Foundation
 final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     private let synthesizer: AVSpeechSynthesizer
     private var utteranceMessageIDs: [ObjectIdentifier: UUID] = [:]
-    private var eventContinuation: AsyncStream<TextToSpeechPlaybackEvent>.Continuation?
-    private var eventContinuationToken: UUID?
+    var playbackEventHandler: ((TextToSpeechPlaybackEvent) -> Void)?
 
     init(synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()) {
         self.synthesizer = synthesizer
@@ -46,6 +45,7 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
 
         let utterance = AVSpeechUtterance(string: normalizedText)
         utterance.voice = AVSpeechSynthesisVoice(language: language.ttsLocaleIdentifier)
+        // TODO: 后面可以根据需要调整语速和语调
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utteranceMessageIDs[ObjectIdentifier(utterance)] = messageID
         synthesizer.speak(utterance)
@@ -57,24 +57,6 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
         }
 
         synthesizer.stopSpeaking(at: .immediate)
-    }
-
-    func playbackEvents() -> AsyncStream<TextToSpeechPlaybackEvent> {
-        AsyncStream { continuation in
-            let token = UUID()
-            eventContinuation = continuation
-            eventContinuationToken = token
-            continuation.onTermination = { _ in
-                Task { @MainActor [weak self] in
-                    guard self?.eventContinuationToken == token else {
-                        return
-                    }
-
-                    self?.eventContinuation = nil
-                    self?.eventContinuationToken = nil
-                }
-            }
-        }
     }
 
     private func configureAudioSession() throws {
@@ -100,7 +82,7 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     }
 
     private func emit(_ event: TextToSpeechPlaybackEvent) {
-        eventContinuation?.yield(event)
+        playbackEventHandler?(event)
     }
 }
 

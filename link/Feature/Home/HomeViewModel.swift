@@ -73,7 +73,6 @@ final class HomeViewModel {
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
     @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadObservationTask: Task<Void, Never>?
-    @ObservationIgnored private var textToSpeechObservationTask: Task<Void, Never>?
     @ObservationIgnored private var downloadMilestoneSignature = ""
     @ObservationIgnored private var pendingSpeechResumePackageID: String?
     @ObservationIgnored private var liveSpeechSession: LiveSpeechSession?
@@ -108,8 +107,10 @@ final class HomeViewModel {
             speechStreamingService: speechRecognitionService as? any SpeechRecognitionStreamingService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
+        self.textToSpeechService.playbackEventHandler = { [weak self] event in
+            self?.handleTextToSpeechPlaybackEvent(event)
+        }
         startObservingDownloads()
-        startObservingTextToSpeech()
     }
 
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
@@ -776,20 +777,6 @@ final class HomeViewModel {
                 self.assetRecords = snapshot.records
                 self.assetSummary = snapshot.summary
                 self.handleAssetMilestones(for: snapshot)
-            }
-        }
-    }
-
-    private func startObservingTextToSpeech() {
-        guard textToSpeechObservationTask == nil else {
-            return
-        }
-
-        let stream = textToSpeechService.playbackEvents()
-        textToSpeechObservationTask = Task { @MainActor [weak self] in
-            for await event in stream {
-                guard let self else { return }
-                self.handleTextToSpeechPlaybackEvent(event)
             }
         }
     }
