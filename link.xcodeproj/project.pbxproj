@@ -10,18 +10,7 @@
 		5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1380EDAF98A2156D5449D8E5 /* Pods_link.framework */; };
 		8F3C9A10B6A14D21A4E7F901 /* whisper.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; };
 		8F3C9A10B6A14D21A4E7F902 /* whisper.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		B1359A25EC73FA4C1C8149F3 /* Pods_linkTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 55D53EBA2F8016B3002A3BC9 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 55D53EC12F8016B3002A3BC9;
-			remoteInfo = link;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		55D5476A2F80E772002A3BC9 /* Embed Frameworks */ = {
@@ -42,26 +31,21 @@
 		32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.release.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.release.xcconfig"; sourceTree = "<group>"; };
 		55D53EC22F8016B3002A3BC9 /* link.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = link.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.debug.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.debug.xcconfig"; sourceTree = "<group>"; };
-		8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.debug.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.debug.xcconfig"; sourceTree = "<group>"; };
-		8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-linkTests.release.xcconfig"; path = "Target Support Files/Pods-linkTests/Pods-linkTests.release.xcconfig"; sourceTree = "<group>"; };
 		8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = whisper.xcframework; path = link/Resource/whisper.xcframework; sourceTree = "<group>"; };
-		A1B2C3D4E5F6000000000001 /* linkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = linkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_linkTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		55D53EC42F8016B3002A3BC9 /* link */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = link;
-			sourceTree = "<group>";
-		};
-		A1B2C3D4E5F6000000000010 /* linkTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = linkTests;
 			sourceTree = "<group>";
 		};
 		A1B2C3D4E5F6000000000013 /* link/Resource */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = link/Resource;
 			sourceTree = "<group>";
 		};
@@ -77,14 +61,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A1B2C3D4E5F6000000000022 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				B1359A25EC73FA4C1C8149F3 /* Pods_linkTests.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -92,7 +68,6 @@
 			isa = PBXGroup;
 			children = (
 				55D53EC42F8016B3002A3BC9 /* link */,
-				A1B2C3D4E5F6000000000010 /* linkTests */,
 				A1B2C3D4E5F6000000000013 /* link/Resource */,
 				55D53EC32F8016B3002A3BC9 /* Products */,
 				947C3C8CEAABE6A6EE64D87F /* Pods */,
@@ -104,7 +79,6 @@
 			isa = PBXGroup;
 			children = (
 				55D53EC22F8016B3002A3BC9 /* link.app */,
-				A1B2C3D4E5F6000000000001 /* linkTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -114,8 +88,6 @@
 			children = (
 				6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */,
 				32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */,
-				8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */,
-				8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -125,7 +97,6 @@
 			children = (
 				1380EDAF98A2156D5449D8E5 /* Pods_link.framework */,
 				8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */,
-				CB4C44BB79054F2807701FFF /* Pods_linkTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -156,29 +127,6 @@
 			productReference = 55D53EC22F8016B3002A3BC9 /* link.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A1B2C3D4E5F6000000000020 /* linkTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A1B2C3D4E5F6000000000032 /* Build configuration list for PBXNativeTarget "linkTests" */;
-			buildPhases = (
-				AEB16A516AE7A31720EE737C /* [CP] Check Pods Manifest.lock */,
-				A1B2C3D4E5F6000000000021 /* Sources */,
-				A1B2C3D4E5F6000000000022 /* Frameworks */,
-				A1B2C3D4E5F6000000000023 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				8A8B8C8D8E8F000000000011 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				A1B2C3D4E5F6000000000010 /* linkTests */,
-				A1B2C3D4E5F6000000000013 /* link/Resource */,
-			);
-			name = linkTests;
-			productName = linkTests;
-			productReference = A1B2C3D4E5F6000000000001 /* linkTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,10 +139,6 @@
 				TargetAttributes = {
 					55D53EC12F8016B3002A3BC9 = {
 						CreatedOnToolsVersion = 26.4;
-					};
-					A1B2C3D4E5F6000000000020 = {
-						CreatedOnToolsVersion = 26.4;
-						TestTargetID = 55D53EC12F8016B3002A3BC9;
 					};
 				};
 			};
@@ -213,20 +157,12 @@
 			projectRoot = "";
 			targets = (
 				55D53EC12F8016B3002A3BC9 /* link */,
-				A1B2C3D4E5F6000000000020 /* linkTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		55D53EC02F8016B3002A3BC9 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A1B2C3D4E5F6000000000023 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -266,39 +202,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
-			outputPaths = (
-			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		AEB16A516AE7A31720EE737C /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-linkTests-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -311,22 +221,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A1B2C3D4E5F6000000000021 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		8A8B8C8D8E8F000000000011 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 55D53EC12F8016B3002A3BC9 /* link */;
-			targetProxy = 8A8B8C8D8E8F000000000010 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		55D53ECB2F8016B5002A3BC9 /* Debug */ = {
@@ -547,62 +442,6 @@
 			};
 			name = Release;
 		};
-		A1B2C3D4E5F6000000000030 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 8A8B8C8D8E8F000000000001 /* Pods-linkTests.debug.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V35C9MV5UG;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hackerapp.link.linkTests;
-				PRODUCT_BUNDLE_PACKAGE_TYPE = BNDL;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/link.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/link";
-				TEST_TARGET_NAME = link;
-			};
-			name = Debug;
-		};
-		A1B2C3D4E5F6000000000031 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 8A8B8C8D8E8F000000000002 /* Pods-linkTests.release.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V35C9MV5UG;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.hackerapp.link.linkTests;
-				PRODUCT_BUNDLE_PACKAGE_TYPE = BNDL;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/link.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/link";
-				TEST_TARGET_NAME = link;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -620,15 +459,6 @@
 			buildConfigurations = (
 				55D53ECE2F8016B5002A3BC9 /* Debug */,
 				55D53ECF2F8016B5002A3BC9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		A1B2C3D4E5F6000000000032 /* Build configuration list for PBXNativeTarget "linkTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1B2C3D4E5F6000000000030 /* Debug */,
-				A1B2C3D4E5F6000000000031 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
