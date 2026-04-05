@@ -24,7 +24,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
         let compactDisplayName: String
         let translationModelCode: String
         let whisperLanguageCode: String
-        let mt5PromptName: String
         let ttsLocaleIdentifier: String
         let nlLanguage: NLLanguage
         let naturalLanguageCodePrefixes: [String]
@@ -42,7 +41,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
     var compactDisplayName: String { definition.compactDisplayName }
     var translationModelCode: String { definition.translationModelCode }
     var whisperLanguageCode: String { definition.whisperLanguageCode }
-    var mt5PromptName: String { definition.mt5PromptName }
     var ttsLocaleIdentifier: String { definition.ttsLocaleIdentifier }
     var nlLanguage: NLLanguage { definition.nlLanguage }
 
@@ -96,7 +94,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "中",
             translationModelCode: "zho",
             whisperLanguageCode: "zh",
-            mt5PromptName: "Chinese",
             ttsLocaleIdentifier: "zh-CN",
             nlLanguage: .simplifiedChinese,
             naturalLanguageCodePrefixes: ["zh"]
@@ -106,7 +103,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "英",
             translationModelCode: "eng",
             whisperLanguageCode: "en",
-            mt5PromptName: "English",
             ttsLocaleIdentifier: "en-US",
             nlLanguage: .english,
             naturalLanguageCodePrefixes: ["en"]
@@ -116,7 +112,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "日",
             translationModelCode: "jpn",
             whisperLanguageCode: "ja",
-            mt5PromptName: "Japanese",
             ttsLocaleIdentifier: "ja-JP",
             nlLanguage: .japanese,
             naturalLanguageCodePrefixes: ["ja"]
@@ -126,7 +121,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "韩",
             translationModelCode: "kor",
             whisperLanguageCode: "ko",
-            mt5PromptName: "Korean",
             ttsLocaleIdentifier: "ko-KR",
             nlLanguage: .korean,
             naturalLanguageCodePrefixes: ["ko"]
@@ -136,7 +130,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "法",
             translationModelCode: "fra",
             whisperLanguageCode: "fr",
-            mt5PromptName: "French",
             ttsLocaleIdentifier: "fr-FR",
             nlLanguage: .french,
             naturalLanguageCodePrefixes: ["fr"]
@@ -146,7 +139,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "德",
             translationModelCode: "deu",
             whisperLanguageCode: "de",
-            mt5PromptName: "German",
             ttsLocaleIdentifier: "de-DE",
             nlLanguage: .german,
             naturalLanguageCodePrefixes: ["de"]
@@ -156,7 +148,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "俄",
             translationModelCode: "rus",
             whisperLanguageCode: "ru",
-            mt5PromptName: "Russian",
             ttsLocaleIdentifier: "ru-RU",
             nlLanguage: .russian,
             naturalLanguageCodePrefixes: ["ru"]
@@ -166,7 +157,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "西",
             translationModelCode: "spa",
             whisperLanguageCode: "es",
-            mt5PromptName: "Spanish",
             ttsLocaleIdentifier: "es-ES",
             nlLanguage: .spanish,
             naturalLanguageCodePrefixes: ["es"]
@@ -176,7 +166,6 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             compactDisplayName: "意",
             translationModelCode: "ita",
             whisperLanguageCode: "it",
-            mt5PromptName: "Italian",
             ttsLocaleIdentifier: "it-IT",
             nlLanguage: .italian,
             naturalLanguageCodePrefixes: ["it"]

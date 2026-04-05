@@ -328,77 +328,46 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
 
     init(modelDirectoryURL: URL, manifest: TranslationModelManifest) throws {
         do {
-            switch manifest.tokenizer.kind {
-            case .marianSentencePieceVocabulary:
-                guard let sourceSentencePieceFile = manifest.tokenizer.sourceSentencePieceFile else {
-                    throw TranslationError.incompatibleTokenizer("Missing source sentencepiece configuration.")
-                }
-
-                guard let vocabularyFile = manifest.tokenizer.vocabularyFile else {
-                    throw TranslationError.incompatibleTokenizer("Missing tokenizer vocabulary file.")
-                }
-
-                let sourceURL = modelDirectoryURL.appendingPathComponent(sourceSentencePieceFile, isDirectory: false)
-                guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                    throw TranslationError.incompatibleTokenizer("Missing source sentencepiece file.")
-                }
-
-                if let targetSentencePieceFile = manifest.tokenizer.targetSentencePieceFile {
-                    let targetURL = modelDirectoryURL.appendingPathComponent(targetSentencePieceFile, isDirectory: false)
-                    guard FileManager.default.fileExists(atPath: targetURL.path) else {
-                        throw TranslationError.incompatibleTokenizer("Missing target sentencepiece file.")
-                    }
-                }
-
-                let vocabularyURL = modelDirectoryURL.appendingPathComponent(vocabularyFile, isDirectory: false)
-                let data = try Data(contentsOf: vocabularyURL)
-                let decodedVocabulary = try JSONDecoder().decode([String: Int].self, from: data)
-
-                guard let unkTokenID = decodedVocabulary["<unk>"] else {
-                    throw TranslationError.incompatibleTokenizer("Vocabulary does not contain <unk>.")
-                }
-
-                let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sourceURL))
-                self.vocabulary = decodedVocabulary
-                self.reverseVocabulary = Self.makeReverseVocabularyPreservingFirstID(from: decodedVocabulary)
-                self.unkTokenID = unkTokenID
-                self.sourceModel = try SentencePieceParser.parseModel(
-                    spec: spec,
-                    tokenIDResolver: { decodedVocabulary[$0] }
-                )
-
-            case .sentencePiece:
-                guard let sentencePieceFile = manifest.tokenizer.sentencePieceFile else {
-                    throw TranslationError.incompatibleTokenizer("Missing sentencepiece model file.")
-                }
-
-                let sentencePieceURL = modelDirectoryURL.appendingPathComponent(sentencePieceFile, isDirectory: false)
-                guard FileManager.default.fileExists(atPath: sentencePieceURL.path) else {
-                    throw TranslationError.incompatibleTokenizer("Missing sentencepiece model file.")
-                }
-
-                let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sentencePieceURL))
-                let baseVocabulary = Self.makeVocabularyPreservingFirstPieceID(from: spec.entries)
-                let extraIds = max(manifest.tokenizer.extraIds ?? 0, 0)
-                var reverseVocabulary = Self.makeReverseVocabulary(from: spec.entries)
-
-                if extraIds > 0 {
-                    let baseTokenCount = spec.entries.count
-                    for index in 0 ..< extraIds {
-                        let tokenID = (baseTokenCount - 1) + extraIds - index
-                        reverseVocabulary[tokenID] = "<extra_id_\(index)>"
-                    }
-                }
-
-                let unkTokenID = baseVocabulary["<unk>"] ?? 0
-                self.vocabulary = baseVocabulary
-                self.reverseVocabulary = reverseVocabulary
-                self.unkTokenID = unkTokenID
-                self.sourceModel = try SentencePieceParser.parseModel(
-                    spec: spec,
-                    tokenIDResolver: { baseVocabulary[$0] }
-                )
+            guard manifest.tokenizer.kind == .marianSentencePieceVocabulary else {
+                throw TranslationError.incompatibleTokenizer("Unsupported tokenizer kind: \(manifest.tokenizer.kind.rawValue)")
             }
+
+            guard let sourceSentencePieceFile = manifest.tokenizer.sourceSentencePieceFile else {
+                throw TranslationError.incompatibleTokenizer("Missing source sentencepiece configuration.")
+            }
+
+            guard let vocabularyFile = manifest.tokenizer.vocabularyFile else {
+                throw TranslationError.incompatibleTokenizer("Missing tokenizer vocabulary file.")
+            }
+
+            let sourceURL = modelDirectoryURL.appendingPathComponent(sourceSentencePieceFile, isDirectory: false)
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                throw TranslationError.incompatibleTokenizer("Missing source sentencepiece file.")
+            }
+
+            if let targetSentencePieceFile = manifest.tokenizer.targetSentencePieceFile {
+                let targetURL = modelDirectoryURL.appendingPathComponent(targetSentencePieceFile, isDirectory: false)
+                guard FileManager.default.fileExists(atPath: targetURL.path) else {
+                    throw TranslationError.incompatibleTokenizer("Missing target sentencepiece file.")
+                }
+            }
+
+            let vocabularyURL = modelDirectoryURL.appendingPathComponent(vocabularyFile, isDirectory: false)
+            let data = try Data(contentsOf: vocabularyURL)
+            let decodedVocabulary = try JSONDecoder().decode([String: Int].self, from: data)
+
+            guard let unkTokenID = decodedVocabulary["<unk>"] else {
+                throw TranslationError.incompatibleTokenizer("Vocabulary does not contain <unk>.")
+            }
+
+            let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sourceURL))
+            self.vocabulary = decodedVocabulary
+            self.reverseVocabulary = Self.makeReverseVocabularyPreservingFirstID(from: decodedVocabulary)
+            self.unkTokenID = unkTokenID
+            self.sourceModel = try SentencePieceParser.parseModel(
+                spec: spec,
+                tokenIDResolver: { decodedVocabulary[$0] }
+            )
         } catch let error as TranslationError {
             throw error
         } catch {
@@ -425,31 +394,6 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
         return reverseVocabulary
     }
 
-    private static func makeVocabularyPreservingFirstPieceID(
-        from entries: [SentencePieceEntry]
-    ) -> [String: Int] {
-        var vocabulary: [String: Int] = [:]
-        vocabulary.reserveCapacity(entries.count)
-
-        for (offset, entry) in entries.enumerated() where vocabulary[entry.piece] == nil {
-            // Some SentencePiece models reuse the same visible piece for multiple token IDs.
-            // Keep the earliest ID so encoding remains deterministic instead of crashing.
-            vocabulary[entry.piece] = offset
-        }
-
-        return vocabulary
-    }
-
-    private static func makeReverseVocabulary(from entries: [SentencePieceEntry]) -> [Int: String] {
-        var reverseVocabulary: [Int: String] = [:]
-        reverseVocabulary.reserveCapacity(entries.count)
-
-        for (offset, entry) in entries.enumerated() {
-            reverseVocabulary[offset] = entry.piece
-        }
-
-        return reverseVocabulary
-    }
 
     func encode(_ text: String, maxLength: Int, eosTokenID: Int) throws -> [Int64] {
         let preparedText = sourceModel.prepare(text)
@@ -482,10 +426,6 @@ final class SentencePieceTokenizerAdapter: TokenizerAdapter {
             case "</s>", "<pad>":
                 return nil
             default:
-                let normalizedToken = token.hasPrefix("▁") ? String(token.drop(while: { $0 == "▁" })) : token
-                if normalizedToken.hasPrefix("<extra_id_") {
-                    return nil
-                }
                 return token
             }
         }

@@ -160,10 +160,7 @@ actor MarianTranslationService: TranslationService {
         }
 
         let modelInputText = preparedInputText(
-            text,
-            family: state.manifest.family,
-            source: source,
-            target: target
+            text
         )
 
         let inputTokenIDs = try state.tokenizer.encode(
@@ -324,20 +321,10 @@ actor MarianTranslationService: TranslationService {
         loadedState = nil
 
         let manifest = installation.manifest
-        let tokenizer: TokenizerAdapter
-
-        switch manifest.tokenizer.kind {
-        case .marianSentencePieceVocabulary:
-            tokenizer = try SentencePieceTokenizerAdapter(
-                modelDirectoryURL: installation.modelDirectoryURL,
-                manifest: manifest
-            )
-        case .sentencePiece:
-            tokenizer = try SentencePieceTokenizerAdapter(
-                modelDirectoryURL: installation.modelDirectoryURL,
-                manifest: manifest
-            )
-        }
+        let tokenizer = try SentencePieceTokenizerAdapter(
+            modelDirectoryURL: installation.modelDirectoryURL,
+            manifest: manifest
+        )
 
         do {
             let environment = try sharedEnvironment()
@@ -375,18 +362,8 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    private func preparedInputText(
-        _ text: String,
-        family: TranslationModelManifest.Family,
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) -> String {
-        switch family {
-        case .marian:
-            return text
-        case .mt5:
-            return "translate \(source.mt5PromptName) to \(target.mt5PromptName): \(text)"
-        }
+    private func preparedInputText(_ text: String) -> String {
+        text
     }
 
     private func sharedEnvironment() throws -> ORTEnv {
@@ -423,31 +400,6 @@ actor MarianTranslationService: TranslationService {
                 })
             } catch {
                 debugLog("failed to load suppressed token ids from generation_config.json: \(error.localizedDescription)")
-            }
-        }
-
-        let tokenizerConfigURL = modelDirectoryURL.appendingPathComponent(
-            "tokenizer_config.json",
-            isDirectory: false
-        )
-
-        if FileManager.default.fileExists(atPath: tokenizerConfigURL.path) {
-            do {
-                let data = try Data(contentsOf: tokenizerConfigURL)
-                let rawConfig = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let addedTokensDecoder = rawConfig?["added_tokens_decoder"] as? [String: [String: Any]] ?? [:]
-
-                for (tokenID, tokenInfo) in addedTokensDecoder {
-                    guard let content = tokenInfo["content"] as? String,
-                          content.contains("<extra_id_"),
-                          let parsedTokenID = Int64(tokenID) else {
-                        continue
-                    }
-
-                    suppressedTokenIDs.insert(parsedTokenID)
-                }
-            } catch {
-                debugLog("failed to load extra_id token ids from tokenizer_config.json: \(error.localizedDescription)")
             }
         }
 
