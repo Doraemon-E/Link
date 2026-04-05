@@ -94,7 +94,7 @@ struct ModelAssetsSheet: View {
             Text("还没有下载任务")
                 .font(.headline)
 
-            Text("新的翻译模型或语音模型开始下载后，会在这里显示进度和已安装状态。")
+            Text("新的翻译模型或语音识别模型开始下载后，会在这里显示进度和已安装状态。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

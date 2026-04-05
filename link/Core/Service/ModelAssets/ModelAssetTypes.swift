@@ -16,7 +16,7 @@ nonisolated enum ModelAssetKind: String, Codable, Sendable {
         case .translation:
             return "翻译模型"
         case .speech:
-            return "语音模型"
+            return "语音识别模型"
         }
     }
 }
