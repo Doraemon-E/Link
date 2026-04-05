@@ -55,16 +55,12 @@ enum MessagePhase: Sendable, Equatable {
     }
 }
 
-struct StreamingMessageState: Sendable, Equatable, Identifiable {
+struct TranslationStreamingState: Sendable, Equatable {
     let messageID: UUID
     var committedText: String
     var liveText: String?
     var phase: MessagePhase
     var revision: Int
-
-    var id: UUID {
-        messageID
-    }
 
     var displayText: String {
         if let liveText {
@@ -76,16 +72,64 @@ struct StreamingMessageState: Sendable, Equatable, Identifiable {
 
         return committedText
     }
+}
 
-    var statusText: String? {
-        phase.statusText
+struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
+    let messageID: UUID
+    var sourceCommittedText: String
+    var sourceLiveText: String?
+    var sourcePhase: MessagePhase
+    var sourceRevision: Int
+    var translatedCommittedText: String
+    var translatedLiveText: String?
+    var translationPhase: MessagePhase
+    var translationRevision: Int
+
+    var id: UUID {
+        messageID
     }
 
-    var placeholderText: String? {
-        phase.placeholderText
+    var sourceDisplayText: String {
+        resolvedDisplayText(
+            committedText: sourceCommittedText,
+            liveText: sourceLiveText
+        )
     }
 
-    var isActive: Bool {
-        phase.isInProgress
+    var translatedDisplayText: String {
+        resolvedDisplayText(
+            committedText: translatedCommittedText,
+            liveText: translatedLiveText
+        )
+    }
+
+    var sourcePlaceholderText: String? {
+        sourcePhase.placeholderText
+    }
+
+    var translatedPlaceholderText: String? {
+        translationPhase.placeholderText
+    }
+
+    var translationStatusText: String? {
+        translationPhase.statusText
+    }
+
+    var isTranslationActive: Bool {
+        translationPhase.isInProgress
+    }
+
+    private func resolvedDisplayText(
+        committedText: String,
+        liveText: String?
+    ) -> String {
+        if let liveText {
+            let normalizedLiveText = liveText.trimmingCharacters(in: .newlines)
+            if !normalizedLiveText.isEmpty {
+                return liveText
+            }
+        }
+
+        return committedText
     }
 }

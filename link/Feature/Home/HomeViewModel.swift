@@ -21,8 +21,7 @@ final class HomeViewModel {
 
     private struct LiveSpeechSession {
         let session: ChatSession
-        let userMessage: ChatMessage
-        let assistantMessage: ChatMessage
+        let message: ChatMessage
         let fallbackSourceLanguage: SupportedLanguage
         let targetLanguage: SupportedLanguage
         var latestState: LiveUtteranceState = .init()
@@ -55,7 +54,7 @@ final class HomeViewModel {
     var lastSpeechRecordingURL: URL?
     var isPlayingLastSpeechRecording = false
     var speakingMessageID: UUID?
-    var streamingStatesByMessageID: [UUID: StreamingMessageState] = [:]
+    var streamingStatesByMessageID: [UUID: ExchangeStreamingState] = [:]
     var assetRecords: [ModelAssetRecord] = []
     var assetSummary: ModelAssetSummary = .empty
     var speechResumeRequestToken = 0
@@ -132,14 +131,16 @@ final class HomeViewModel {
     func displayedMessageRenderKeys(in sessions: [ChatSession]) -> [String] {
         displayedMessages(in: sessions).map { message in
             let streamingState = streamingStatesByMessageID[message.id]
-            let revision = streamingState?.revision ?? 0
-            let displayText = streamingState?.displayText ?? message.text
-            let statusText = streamingState?.statusText ?? ""
-            return "\(message.id.uuidString)-\(revision)-\(statusText)-\(displayText)"
+            let sourceRevision = streamingState?.sourceRevision ?? 0
+            let translationRevision = streamingState?.translationRevision ?? 0
+            let sourceText = streamingState?.sourceDisplayText ?? message.sourceText
+            let translatedText = streamingState?.translatedDisplayText ?? message.translatedText
+            let translationStatus = streamingState?.translationStatusText ?? ""
+            return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(translationStatus)-\(sourceText)-\(translatedText)"
         }
     }
 
-    func streamingState(for message: ChatMessage) -> StreamingMessageState? {
+    func streamingState(for message: ChatMessage) -> ExchangeStreamingState? {
         streamingStatesByMessageID[message.id]
     }
 
@@ -207,7 +208,6 @@ final class HomeViewModel {
                 sourceLanguage: source,
                 targetLanguage: target,
                 audioURL: nil,
-                speechContent: nil,
                 translationOrigin: .manual,
                 using: modelContext,
                 sessions: sessions,
@@ -352,15 +352,11 @@ final class HomeViewModel {
     }
 
     func shouldShowMessageSpeechButton(for message: ChatMessage) -> Bool {
-        guard message.sender == .assistant else {
+        guard streamingState(for: message)?.isTranslationActive != true else {
             return false
         }
 
-        guard streamingState(for: message)?.isActive != true else {
-            return false
-        }
-
-        return !(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        return !(message.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     func isMessageSpeechPlaybackDisabled(for message: ChatMessage) -> Bool {
@@ -396,7 +392,7 @@ final class HomeViewModel {
         }
 
         let messageID = message.id
-        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = message.translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
         requestedTextToSpeechMessageID = messageID
         speakingMessageID = messageID
         ttsErrorMessage = nil
@@ -852,16 +848,11 @@ final class HomeViewModel {
     }
 
     private func playbackLanguage(for message: ChatMessage) -> SupportedLanguage? {
-        if let language = message.language {
+        if let language = message.targetLanguage {
             return language
         }
 
-        switch message.sender {
-        case .assistant:
-            return message.session?.targetLanguage ?? selectedLanguage
-        case .user:
-            return message.session?.sourceLanguage ?? sourceLanguage
-        }
+        return message.session?.targetLanguage ?? selectedLanguage
     }
 
     private func handleTextToSpeechPlaybackEvent(_ event: TextToSpeechPlaybackEvent) {
@@ -908,7 +899,6 @@ final class HomeViewModel {
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
         audioURL: String?,
-        speechContent: String?,
         translationOrigin: TranslationRequestOrigin,
         using modelContext: ModelContext,
         sessions: [ChatSession],
@@ -923,12 +913,11 @@ final class HomeViewModel {
             using: modelContext,
             sessions: sessions
         )
-        let assistantMessageID = insertConversationExchange(
+        let messageID = insertConversationExchange(
             text: trimmedText,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
             audioURL: audioURL,
-            speechContent: speechContent,
             into: session,
             using: modelContext
         )
@@ -938,7 +927,7 @@ final class HomeViewModel {
         }
 
         startStreamingTranslation(
-            for: assistantMessageID,
+            for: messageID,
             originalText: trimmedText,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
@@ -989,37 +978,27 @@ final class HomeViewModel {
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
         audioURL: String?,
-        speechContent: String?,
         into session: ChatSession,
         using modelContext: ModelContext
     ) -> UUID {
         let nextSequence = (session.messages.map(\.sequence).max() ?? -1) + 1
-        let now = Date()
-        let userMessage = ChatMessage(
-            sender: .user,
-            text: text,
-            language: sourceLanguage,
+        let message = ChatMessage(
+            inputType: .text,
+            sourceText: text,
+            translatedText: "",
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
             audioURL: audioURL,
-            speechContent: speechContent,
-            createdAt: now,
+            createdAt: .now,
             sequence: nextSequence,
             session: session
         )
-        let assistantMessage = ChatMessage(
-            sender: .assistant,
-            text: "",
-            language: targetLanguage,
-            createdAt: now.addingTimeInterval(0.001),
-            sequence: nextSequence + 1,
-            session: session
-        )
 
-        modelContext.insert(userMessage)
-        modelContext.insert(assistantMessage)
-        session.updatedAt = assistantMessage.createdAt
+        modelContext.insert(message)
+        session.updatedAt = message.createdAt
         saveContext(using: modelContext)
 
-        return assistantMessage.id
+        return message.id
     }
 
     private func insertLiveSpeechConversationExchange(
@@ -1035,60 +1014,55 @@ final class HomeViewModel {
             sessions: sessions
         )
         let nextSequence = (session.messages.map(\.sequence).max() ?? -1) + 1
-        let now = Date()
-        let userMessage = ChatMessage(
-            sender: .user,
-            text: "",
-            language: sourceLanguage,
-            createdAt: now,
+        let message = ChatMessage(
+            inputType: .speech,
+            sourceText: "",
+            translatedText: "",
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            createdAt: .now,
             sequence: nextSequence,
             session: session
         )
-        let assistantMessage = ChatMessage(
-            sender: .assistant,
-            text: "",
-            language: targetLanguage,
-            createdAt: now.addingTimeInterval(0.001),
-            sequence: nextSequence + 1,
-            session: session
-        )
 
-        modelContext.insert(userMessage)
-        modelContext.insert(assistantMessage)
-        session.updatedAt = assistantMessage.createdAt
+        modelContext.insert(message)
+        session.updatedAt = message.createdAt
         saveContext(using: modelContext)
 
         return LiveSpeechSession(
             session: session,
-            userMessage: userMessage,
-            assistantMessage: assistantMessage,
+            message: message,
             fallbackSourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage
         )
     }
 
     private func startStreamingTranslation(
-        for assistantMessageID: UUID,
+        for messageID: UUID,
         originalText: String,
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
         translationOrigin: TranslationRequestOrigin,
         using modelContext: ModelContext
     ) {
-        translationTasksByMessageID[assistantMessageID]?.cancel()
-        streamingStatesByMessageID[assistantMessageID] = StreamingMessageState(
-            messageID: assistantMessageID,
-            committedText: "",
-            liveText: nil,
-            phase: .translating,
-            revision: 0
+        translationTasksByMessageID[messageID]?.cancel()
+        streamingStatesByMessageID[messageID] = ExchangeStreamingState(
+            messageID: messageID,
+            sourceCommittedText: originalText,
+            sourceLiveText: nil,
+            sourcePhase: .completed,
+            sourceRevision: 0,
+            translatedCommittedText: "",
+            translatedLiveText: nil,
+            translationPhase: .translating,
+            translationRevision: 0
         )
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
 
             defer {
-                self.translationTasksByMessageID.removeValue(forKey: assistantMessageID)
+                self.translationTasksByMessageID.removeValue(forKey: messageID)
             }
 
             do {
@@ -1096,14 +1070,14 @@ final class HomeViewModel {
                 switch translationOrigin {
                 case .manual:
                     stream = await self.conversationStreamingCoordinator.startManualTranslation(
-                        messageID: assistantMessageID,
+                        messageID: messageID,
                         text: originalText,
                         sourceLanguage: sourceLanguage,
                         targetLanguage: targetLanguage
                     )
                 case .speech:
                     stream = await self.conversationStreamingCoordinator.startSpeechTranslation(
-                        messageID: assistantMessageID,
+                        messageID: messageID,
                         text: originalText,
                         sourceLanguage: sourceLanguage,
                         targetLanguage: targetLanguage
@@ -1114,23 +1088,23 @@ final class HomeViewModel {
                     self.handleStreamingConversationEvent(event, using: modelContext)
                 }
             } catch is CancellationError {
-                self.streamingStatesByMessageID.removeValue(forKey: assistantMessageID)
+                self.streamingStatesByMessageID.removeValue(forKey: messageID)
             } catch let error as TranslationError {
                 self.failStreamingTranslation(
-                    for: assistantMessageID,
+                    for: messageID,
                     message: error.userFacingMessage,
                     using: modelContext
                 )
             } catch {
                 self.failStreamingTranslation(
-                    for: assistantMessageID,
+                    for: messageID,
                     message: "翻译失败了，请稍后再试。",
                     using: modelContext
                 )
             }
         }
 
-        translationTasksByMessageID[assistantMessageID] = task
+        translationTasksByMessageID[messageID] = task
     }
 
     private func startLiveSpeechStreaming(
@@ -1141,7 +1115,7 @@ final class HomeViewModel {
         }
 
         liveSpeechSession.liveTask?.cancel()
-        let assistantMessageID = liveSpeechSession.assistantMessage.id
+        let messageID = liveSpeechSession.message.id
         let fallbackSourceLanguage = liveSpeechSession.fallbackSourceLanguage
         let targetLanguage = liveSpeechSession.targetLanguage
 
@@ -1150,7 +1124,7 @@ final class HomeViewModel {
 
             do {
                 let stream = await self.conversationStreamingCoordinator.startLiveSpeechTranslation(
-                    messageID: assistantMessageID,
+                    messageID: messageID,
                     audioStream: audioStream,
                     sourceLanguage: fallbackSourceLanguage,
                     targetLanguage: targetLanguage
@@ -1198,9 +1172,16 @@ final class HomeViewModel {
     ) {
         switch event {
         case .state(let state):
-            streamingStatesByMessageID[state.messageID] = state
+            guard var existingState = streamingStatesByMessageID[state.messageID] else {
+                return
+            }
+            existingState.translatedCommittedText = state.committedText
+            existingState.translatedLiveText = state.liveText
+            existingState.translationPhase = state.phase
+            existingState.translationRevision = state.revision
+            streamingStatesByMessageID[state.messageID] = existingState
         case .completed(let messageID, let text):
-            updateAssistantMessage(
+            updateTranslatedMessage(
                 id: messageID,
                 text: text,
                 using: modelContext
@@ -1210,26 +1191,36 @@ final class HomeViewModel {
     }
 
     private func failStreamingTranslation(
-        for assistantMessageID: UUID,
+        for messageID: UUID,
         message: String,
         using modelContext: ModelContext
     ) {
-        streamingStatesByMessageID[assistantMessageID] = StreamingMessageState(
-            messageID: assistantMessageID,
-            committedText: message,
-            liveText: nil,
-            phase: .failed(message),
-            revision: (streamingStatesByMessageID[assistantMessageID]?.revision ?? 0) + 1
+        var state = streamingStatesByMessageID[messageID] ?? ExchangeStreamingState(
+            messageID: messageID,
+            sourceCommittedText: "",
+            sourceLiveText: nil,
+            sourcePhase: .completed,
+            sourceRevision: 0,
+            translatedCommittedText: "",
+            translatedLiveText: nil,
+            translationPhase: .translating,
+            translationRevision: 0
         )
-        updateAssistantMessage(
-            id: assistantMessageID,
+        state.translatedCommittedText = message
+        state.translatedLiveText = nil
+        state.translationPhase = .failed(message)
+        state.translationRevision += 1
+        streamingStatesByMessageID[messageID] = state
+
+        updateTranslatedMessage(
+            id: messageID,
             text: message,
             using: modelContext
         )
-        streamingStatesByMessageID.removeValue(forKey: assistantMessageID)
+        streamingStatesByMessageID.removeValue(forKey: messageID)
     }
 
-    private func updateAssistantMessage(
+    private func updateTranslatedMessage(
         id: UUID,
         text: String,
         using modelContext: ModelContext
@@ -1244,7 +1235,7 @@ final class HomeViewModel {
             return
         }
 
-        message.text = text
+        message.translatedText = text
         message.session?.updatedAt = .now
         saveContext(using: modelContext)
     }
@@ -1258,19 +1249,16 @@ final class HomeViewModel {
         let translationText = (state.displayTranslation.isEmpty ? state.stableTranslation : state.displayTranslation)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        streamingStatesByMessageID[session.userMessage.id] = StreamingMessageState(
-            messageID: session.userMessage.id,
-            committedText: state.stableTranscript,
-            liveText: transcriptText.isEmpty ? nil : transcriptText,
-            phase: .transcribing,
-            revision: state.transcriptRevision
-        )
-        streamingStatesByMessageID[session.assistantMessage.id] = StreamingMessageState(
-            messageID: session.assistantMessage.id,
-            committedText: state.stableTranslation,
-            liveText: translationText.isEmpty ? nil : translationText,
-            phase: translationText.isEmpty ? .translating : .typing,
-            revision: state.translationRevision
+        streamingStatesByMessageID[session.message.id] = ExchangeStreamingState(
+            messageID: session.message.id,
+            sourceCommittedText: state.stableTranscript,
+            sourceLiveText: transcriptText.isEmpty ? nil : transcriptText,
+            sourcePhase: .transcribing,
+            sourceRevision: state.transcriptRevision,
+            translatedCommittedText: state.stableTranslation,
+            translatedLiveText: translationText.isEmpty ? nil : translationText,
+            translationPhase: translationText.isEmpty ? .translating : .typing,
+            translationRevision: state.translationRevision
         )
     }
 
@@ -1288,16 +1276,14 @@ final class HomeViewModel {
         let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTranslation = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        liveSpeechSession.userMessage.text = normalizedTranscript
-        liveSpeechSession.userMessage.language = sourceLanguage
-        liveSpeechSession.userMessage.speechContent = normalizedTranscript
-        liveSpeechSession.userMessage.audioURL = audioURL
-        liveSpeechSession.assistantMessage.text = normalizedTranslation
-        liveSpeechSession.assistantMessage.language = liveSpeechSession.targetLanguage
+        liveSpeechSession.message.sourceText = normalizedTranscript
+        liveSpeechSession.message.sourceLanguage = sourceLanguage
+        liveSpeechSession.message.translatedText = normalizedTranslation
+        liveSpeechSession.message.targetLanguage = liveSpeechSession.targetLanguage
+        liveSpeechSession.message.audioURL = audioURL
         liveSpeechSession.session.updatedAt = .now
 
-        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.userMessage.id)
-        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.assistantMessage.id)
+        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.message.id)
         speechErrorMessage = nil
         self.liveSpeechSession = nil
         saveContext(using: modelContext)
@@ -1318,14 +1304,12 @@ final class HomeViewModel {
 
         liveSpeechSession.liveTask?.cancel()
         Task {
-            await conversationStreamingCoordinator.cancel(messageID: liveSpeechSession.assistantMessage.id)
+            await conversationStreamingCoordinator.cancel(messageID: liveSpeechSession.message.id)
         }
-        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.userMessage.id)
-        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.assistantMessage.id)
-        modelContext.delete(liveSpeechSession.userMessage)
-        modelContext.delete(liveSpeechSession.assistantMessage)
+        streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.message.id)
+        modelContext.delete(liveSpeechSession.message)
         let remainingMessages = liveSpeechSession.session.messages.filter {
-            $0.id != liveSpeechSession.userMessage.id && $0.id != liveSpeechSession.assistantMessage.id
+            $0.id != liveSpeechSession.message.id
         }
         if remainingMessages.isEmpty {
             modelContext.delete(liveSpeechSession.session)

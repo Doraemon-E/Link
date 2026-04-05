@@ -70,15 +70,8 @@ struct HomeSessionHistorySheet: View {
     }
 
     private func sessionTitle(for session: ChatSession) -> String {
-        if let firstUserMessage = session.sortedMessages.first(where: { $0.sender == .user }) {
-            let trimmedText = firstUserMessage.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty {
-                return trimmedText
-            }
-        }
-
         if let firstMessage = session.sortedMessages.first {
-            let trimmedText = firstMessage.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedText = firstMessage.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
                 return trimmedText
             }

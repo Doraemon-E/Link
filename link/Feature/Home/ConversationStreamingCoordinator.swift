@@ -8,7 +8,7 @@
 import Foundation
 
 enum ConversationStreamingEvent: Sendable, Equatable {
-    case state(StreamingMessageState)
+    case state(TranslationStreamingState)
     case completed(messageID: UUID, text: String)
 }
 
@@ -235,7 +235,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         case .started:
                             continuation.yield(
                                 .state(
-                                    StreamingMessageState(
+                                    TranslationStreamingState(
                                         messageID: messageID,
                                         committedText: "",
                                         liveText: nil,
@@ -247,7 +247,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         case .partial(let partialText, let revision, _):
                             continuation.yield(
                                 .state(
-                                    StreamingMessageState(
+                                    TranslationStreamingState(
                                         messageID: messageID,
                                         committedText: "",
                                         liveText: partialText,

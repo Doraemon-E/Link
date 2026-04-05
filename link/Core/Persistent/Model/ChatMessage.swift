@@ -8,40 +8,43 @@
 import Foundation
 import SwiftData
 
-enum ChatMessageSender: String, Codable {
-    case user
-    case assistant
+enum ChatMessageInputType: String, Codable {
+    case text
+    case speech
 }
 
 @Model
 final class ChatMessage {
     @Attribute(.unique) var id: UUID
-    var sender: ChatMessageSender
-    var text: String
-    var language: SupportedLanguage?
+    var inputType: ChatMessageInputType
+    var sourceText: String
+    var translatedText: String
+    var sourceLanguage: SupportedLanguage?
+    var targetLanguage: SupportedLanguage?
     var audioURL: String?
-    var speechContent: String?
     var createdAt: Date
     var sequence: Int
     var session: ChatSession?
 
     init(
         id: UUID = UUID(),
-        sender: ChatMessageSender,
-        text: String,
-        language: SupportedLanguage? = nil,
+        inputType: ChatMessageInputType = .text,
+        sourceText: String,
+        translatedText: String = "",
+        sourceLanguage: SupportedLanguage? = nil,
+        targetLanguage: SupportedLanguage? = nil,
         audioURL: String? = nil,
-        speechContent: String? = nil,
         createdAt: Date = .now,
         sequence: Int,
         session: ChatSession? = nil
     ) {
         self.id = id
-        self.sender = sender
-        self.text = text
-        self.language = language
+        self.inputType = inputType
+        self.sourceText = sourceText
+        self.translatedText = translatedText
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
         self.audioURL = audioURL
-        self.speechContent = speechContent
         self.createdAt = createdAt
         self.sequence = sequence
         self.session = session

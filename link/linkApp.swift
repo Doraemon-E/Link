@@ -17,6 +17,7 @@ struct linkApp: App {
     private let textToSpeechService: TextToSpeechService
     private let modelAssetService: ModelAssetService
     private let microphoneRecordingService: MicrophoneRecordingService
+    private let modelContainer: ModelContainer
 
     init() {
         let catalogRepository = TranslationModelCatalogRepository()
@@ -34,6 +35,7 @@ struct linkApp: App {
         self.textToSpeechService = SystemTextToSpeechService()
         self.modelAssetService = assetService
         self.microphoneRecordingService = MicrophoneRecordingService()
+        self.modelContainer = Self.makeModelContainer()
 
         Task.detached(priority: .utility) {
             await catalogRepository.warmUpCatalog()
@@ -54,6 +56,36 @@ struct linkApp: App {
                 microphoneRecordingService: microphoneRecordingService
             )
         }
-        .modelContainer(for: [ChatSession.self, ChatMessage.self])
+        .modelContainer(modelContainer)
+    }
+
+    private static func makeModelContainer() -> ModelContainer {
+        let schema = Schema([
+            ChatSession.self,
+            ChatMessage.self
+        ])
+        let fileManager = FileManager.default
+        let applicationSupportURL = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+
+        do {
+            try fileManager.createDirectory(
+                at: applicationSupportURL,
+                withIntermediateDirectories: true
+            )
+            let storeURL = applicationSupportURL.appendingPathComponent("link-chat-v3.sqlite")
+            let configuration = ModelConfiguration(
+                schema: schema,
+                url: storeURL
+            )
+            return try ModelContainer(
+                for: schema,
+                configurations: [configuration]
+            )
+        } catch {
+            fatalError("Failed to create model container: \(error)")
+        }
     }
 }

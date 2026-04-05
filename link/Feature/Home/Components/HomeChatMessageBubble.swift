@@ -8,8 +8,13 @@
 import SwiftUI
 
 struct HomeChatMessageBubble: View {
+    private struct MessageBlockContent {
+        let text: String
+        let isPlaceholder: Bool
+    }
+
     let message: ChatMessage
-    let streamingState: StreamingMessageState?
+    let streamingState: ExchangeStreamingState?
     let showsSpeechPlaybackButton: Bool
     let isSpeakingMessage: Bool
     let isSpeechPlaybackDisabled: Bool
@@ -17,98 +22,114 @@ struct HomeChatMessageBubble: View {
 
     var body: some View {
         HStack {
-            if isUserMessage {
-                Spacer(minLength: 52)
-            }
+            Spacer(minLength: 52)
 
-            VStack(alignment: isUserMessage ? .trailing : .leading, spacing: 6) {
-                Text(displayText)
-                    .font(.body)
-                    .foregroundStyle(isUserMessage ? Color.white : Color.primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .background(bubbleColor)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            VStack(alignment: .trailing, spacing: 6) {
+                VStack(alignment: .leading, spacing: 14) {
+                    messageSection(
+                        title: "原文",
+                        content: sourceContent,
+                        textColor: .secondary,
+                        font: .subheadline
                     )
-                    .frame(maxWidth: 280, alignment: isUserMessage ? .trailing : .leading)
+
+                    Divider()
+
+                    messageSection(
+                        title: "译文",
+                        content: translatedContent,
+                        textColor: .primary,
+                        font: .body
+                    )
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .frame(maxWidth: 320, alignment: .trailing)
 
                 footer
-            }
-
-            if !isUserMessage {
-                Spacer(minLength: 52)
             }
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var isUserMessage: Bool {
-        message.sender == .user
+    private var sourceContent: MessageBlockContent {
+        content(
+            persistedText: message.sourceText,
+            liveText: streamingState?.sourceDisplayText,
+            placeholderText: streamingState?.sourcePlaceholderText
+        )
     }
 
-    private var displayText: String {
-        if let streamingState {
-            let liveText = streamingState.displayText
+    private var translatedContent: MessageBlockContent {
+        content(
+            persistedText: message.translatedText,
+            liveText: streamingState?.translatedDisplayText,
+            placeholderText: streamingState?.translatedPlaceholderText
+        )
+    }
+
+    private func content(
+        persistedText: String,
+        liveText: String?,
+        placeholderText: String?
+    ) -> MessageBlockContent {
+        if let liveText {
             let normalizedLiveText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalizedLiveText.isEmpty {
-                return liveText
-            }
-
-            if let placeholderText = streamingState.placeholderText {
-                return placeholderText
+                return MessageBlockContent(text: liveText, isPlaceholder: false)
             }
         }
 
-        if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "…"
+        if let placeholderText {
+            let normalizedPlaceholder = placeholderText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedPlaceholder.isEmpty {
+                return MessageBlockContent(text: placeholderText, isPlaceholder: true)
+            }
         }
 
-        return message.text
+        let normalizedPersistedText = persistedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedPersistedText.isEmpty {
+            return MessageBlockContent(text: persistedText, isPlaceholder: false)
+        }
+
+        return MessageBlockContent(text: "…", isPlaceholder: true)
     }
 
-    private var statusText: String? {
-        guard let streamingState, streamingState.isActive else {
-            return nil
-        }
+    @ViewBuilder
+    private func messageSection(
+        title: String,
+        content: MessageBlockContent,
+        textColor: Color,
+        font: Font
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
 
-        guard !streamingState.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
+            Text(content.text)
+                .font(font)
+                .foregroundStyle(content.isPlaceholder ? Color.secondary : textColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-
-        return streamingState.statusText
     }
 
     @ViewBuilder
     private var footer: some View {
-        if !isUserMessage, showsSpeechPlaybackButton || statusText != nil {
-            HStack(spacing: 8) {
-                if showsSpeechPlaybackButton {
-                    Button(action: onSpeechPlayback) {
-                        Image(systemName: isSpeakingMessage ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(isSpeakingMessage ? Color.accentColor : Color.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isSpeechPlaybackDisabled)
-                    .accessibilityLabel(isSpeakingMessage ? "停止语音播放" : "播放译文语音")
-                }
-
-                if let statusText {
-                    Text(statusText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+        if showsSpeechPlaybackButton {
+            Button(action: onSpeechPlayback) {
+                Image(systemName: isSpeakingMessage ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(isSpeakingMessage ? Color.accentColor : Color.secondary)
             }
+            .buttonStyle(.plain)
+            .disabled(isSpeechPlaybackDisabled)
+            .accessibilityLabel(isSpeakingMessage ? "停止语音播放" : "播放译文语音")
             .padding(.horizontal, 4)
         }
-    }
-
-    private var bubbleColor: Color {
-        if isUserMessage {
-            return .accentColor
-        }
-
-        return Color(uiColor: .secondarySystemBackground)
     }
 }
