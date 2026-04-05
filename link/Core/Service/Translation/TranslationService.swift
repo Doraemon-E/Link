@@ -16,13 +16,13 @@ enum TranslationStreamEvent: Sendable, Equatable {
 protocol TranslationStreamingService: Sendable {
     func streamTranslation(
         text: String,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error>
 }
 
 protocol TranslationService: TranslationStreamingService {
-    func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool
-    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute
-    func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String
+    func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool
+    func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute
+    func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String
 }

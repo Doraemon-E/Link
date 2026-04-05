@@ -38,7 +38,7 @@ actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
         }
 
         if let dominantLanguage = recognizer.dominantLanguage,
-           let mappedLanguage = HomeLanguage.fromNaturalLanguage(dominantLanguage) {
+           let mappedLanguage = SupportedLanguage.fromNaturalLanguage(dominantLanguage) {
             let fallbackConfidence = Float(rawHypotheses[dominantLanguage] ?? 0)
             return TextLanguageRecognitionResult(
                 language: mappedLanguage,
@@ -70,7 +70,7 @@ actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
             languages.append(language)
         }
 
-        for language in HomeLanguage.allCases {
+        for language in SupportedLanguage.allCases {
             append(language.nlLanguage)
 
             if language == .chinese {
@@ -83,11 +83,11 @@ actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
 
     private static func aggregateHypotheses(
         from rawHypotheses: [NLLanguage: Double]
-    ) -> [HomeLanguage: Float] {
-        var hypothesesByLanguage: [HomeLanguage: Float] = [:]
+    ) -> [SupportedLanguage: Float] {
+        var hypothesesByLanguage: [SupportedLanguage: Float] = [:]
 
         for (language, probability) in rawHypotheses {
-            guard let mappedLanguage = HomeLanguage.fromNaturalLanguage(language) else {
+            guard let mappedLanguage = SupportedLanguage.fromNaturalLanguage(language) else {
                 continue
             }
 

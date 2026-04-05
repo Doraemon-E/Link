@@ -10,8 +10,8 @@ import Foundation
 
 struct TranslationGoldenCase: Codable, Identifiable {
     let id: String
-    let sourceLanguage: HomeLanguage
-    let targetLanguage: HomeLanguage
+    let sourceLanguage: SupportedLanguage
+    let targetLanguage: SupportedLanguage
     let input: String
     let expected: String
     let category: String

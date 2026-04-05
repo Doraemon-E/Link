@@ -13,27 +13,27 @@ struct HomeLanguageSheet: View {
         case targetOnly
     }
 
-    @Binding var sourceLanguage: HomeLanguage
-    @Binding var selectedLanguage: HomeLanguage
+    @Binding var sourceLanguage: SupportedLanguage
+    @Binding var selectedLanguage: SupportedLanguage
     @Binding var isPresented: Bool
     let mode: Mode
-    let onResolveSelection: @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution
-    let onCommitSelection: @Sendable (HomeLanguage, HomeLanguage) -> Void
-    let onCommitSelectionRequiringDownload: @Sendable (HomeLanguage, HomeLanguage, HomeLanguageDownloadPrompt) -> Void
+    let onResolveSelection: @Sendable (SupportedLanguage, SupportedLanguage) async -> HomeLanguageSelectionResolution
+    let onCommitSelection: @Sendable (SupportedLanguage, SupportedLanguage) -> Void
+    let onCommitSelectionRequiringDownload: @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void
 
-    @State private var draftSourceLanguage: HomeLanguage
-    @State private var draftSelectedLanguage: HomeLanguage
+    @State private var draftSourceLanguage: SupportedLanguage
+    @State private var draftSelectedLanguage: SupportedLanguage
     @State private var errorMessage: String?
     @State private var isWorking = false
 
     init(
-        sourceLanguage: Binding<HomeLanguage>,
-        selectedLanguage: Binding<HomeLanguage>,
+        sourceLanguage: Binding<SupportedLanguage>,
+        selectedLanguage: Binding<SupportedLanguage>,
         isPresented: Binding<Bool>,
         mode: Mode,
-        onResolveSelection: @escaping @Sendable (HomeLanguage, HomeLanguage) async -> HomeLanguageSelectionResolution = { _, _ in .ready },
-        onCommitSelection: @escaping @Sendable (HomeLanguage, HomeLanguage) -> Void = { _, _ in },
-        onCommitSelectionRequiringDownload: @escaping @Sendable (HomeLanguage, HomeLanguage, HomeLanguageDownloadPrompt) -> Void = { _, _, _ in }
+        onResolveSelection: @escaping @Sendable (SupportedLanguage, SupportedLanguage) async -> HomeLanguageSelectionResolution = { _, _ in .ready },
+        onCommitSelection: @escaping @Sendable (SupportedLanguage, SupportedLanguage) -> Void = { _, _ in },
+        onCommitSelectionRequiringDownload: @escaping @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void = { _, _, _ in }
     ) {
         self._sourceLanguage = sourceLanguage
         self._selectedLanguage = selectedLanguage
@@ -130,8 +130,8 @@ struct HomeLanguageSheet: View {
 
     private func languageColumn(
         title: String,
-        selection: HomeLanguage,
-        onSelect: @escaping (HomeLanguage) -> Void
+        selection: SupportedLanguage,
+        onSelect: @escaping (SupportedLanguage) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
@@ -139,7 +139,7 @@ struct HomeLanguageSheet: View {
 
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    ForEach(HomeLanguage.allCases) { language in
+                    ForEach(SupportedLanguage.allCases) { language in
                         let isSelected = language == selection
 
                         Button {
@@ -186,11 +186,11 @@ struct HomeLanguageSheet: View {
             .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground))
     }
 
-    private func selectSourceLanguage(_ language: HomeLanguage) {
+    private func selectSourceLanguage(_ language: SupportedLanguage) {
         draftSourceLanguage = language
     }
 
-    private func selectTargetLanguage(_ language: HomeLanguage) {
+    private func selectTargetLanguage(_ language: SupportedLanguage) {
         draftSelectedLanguage = language
     }
 

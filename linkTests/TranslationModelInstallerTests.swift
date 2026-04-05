@@ -201,8 +201,8 @@ final class TranslationModelInstallerTests: XCTestCase {
 
     private func makePackage(
         packageId: String,
-        source: HomeLanguage,
-        target: HomeLanguage,
+        source: SupportedLanguage,
+        target: SupportedLanguage,
         archiveSize: Int64,
         installedSize: Int64
     ) -> TranslationModelPackage {

@@ -27,7 +27,7 @@ enum TypingRenderer {
 
     static let maximumDurationNanoseconds: UInt64 = 950_000_000
 
-    static func plan(for text: String, language: HomeLanguage) -> TypingRenderPlan {
+    static func plan(for text: String, language: SupportedLanguage) -> TypingRenderPlan {
         guard !text.isEmpty else {
             return TypingRenderPlan(steps: [])
         }
@@ -84,7 +84,7 @@ enum TypingRenderer {
 
     static func stream(
         text: String,
-        language: HomeLanguage,
+        language: SupportedLanguage,
         sleep: @escaping Sleep = defaultSleep
     ) -> AsyncThrowingStream<String, Error> {
         let plan = plan(for: text, language: language)
@@ -133,8 +133,8 @@ enum TypingRenderer {
 
         let clampedTotalDuration = min(totalDurationNanoseconds, maximumDurationNanoseconds)
         let weights = (0..<intervalCount).map { index -> Double in
-            let progress = Double(index) / Double(max(intervalCount - 1, 1))
-            return max(0.92, 1.08 - (progress * 0.16))
+            let status = Double(index) / Double(max(intervalCount - 1, 1))
+            return max(0.92, 1.08 - (status * 0.16))
         }
         let weightSum = weights.reduce(0, +)
 
@@ -156,7 +156,7 @@ enum TypingRenderer {
         return delays
     }
 
-    private static func displayChunks(for text: String, language: HomeLanguage) -> [String] {
+    private static func displayChunks(for text: String, language: SupportedLanguage) -> [String] {
         switch language {
         case .chinese, .japanese, .korean:
             return cjkChunks(for: text)

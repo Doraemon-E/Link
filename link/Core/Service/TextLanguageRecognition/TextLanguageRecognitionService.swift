@@ -8,9 +8,9 @@
 import Foundation
 
 nonisolated struct TextLanguageRecognitionResult: Sendable, Equatable {
-    let language: HomeLanguage
+    let language: SupportedLanguage
     let confidence: Float
-    let hypotheses: [HomeLanguage: Float]
+    let hypotheses: [SupportedLanguage: Float]
 }
 
 protocol TextLanguageRecognitionService: Sendable {

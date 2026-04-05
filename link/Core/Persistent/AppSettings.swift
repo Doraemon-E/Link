@@ -15,7 +15,7 @@ final class AppSettings {
         static let selectedTargetLanguage = "app.selectedTargetLanguage"
     }
 
-    var selectedTargetLanguage: HomeLanguage {
+    var selectedTargetLanguage: SupportedLanguage {
         didSet {
             persistSelectedTargetLanguage()
         }
@@ -32,10 +32,10 @@ final class AppSettings {
         userDefaults.set(selectedTargetLanguage.rawValue, forKey: UserDefaultsKey.selectedTargetLanguage)
     }
 
-    private static func loadSelectedTargetLanguage(from userDefaults: UserDefaults) -> HomeLanguage {
+    private static func loadSelectedTargetLanguage(from userDefaults: UserDefaults) -> SupportedLanguage {
         guard
             let rawValue = userDefaults.string(forKey: UserDefaultsKey.selectedTargetLanguage),
-            let language = HomeLanguage(rawValue: rawValue)
+            let language = SupportedLanguage(rawValue: rawValue)
         else {
             return .english
         }

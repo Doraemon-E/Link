@@ -11,9 +11,9 @@ nonisolated enum TranslationError: LocalizedError {
     case installationFailed(String)
     case manifestMissing
     case manifestInvalid(String)
-    case unsupportedLanguagePair(source: HomeLanguage, target: HomeLanguage)
-    case modelPackageUnavailable(source: HomeLanguage, target: HomeLanguage)
-    case modelNotInstalled(source: HomeLanguage, target: HomeLanguage)
+    case unsupportedLanguagePair(source: SupportedLanguage, target: SupportedLanguage)
+    case modelPackageUnavailable(source: SupportedLanguage, target: SupportedLanguage)
+    case modelNotInstalled(source: SupportedLanguage, target: SupportedLanguage)
     case packageMissing(packageId: String)
     case catalogMissing
     case catalogInvalid(String)

@@ -11,16 +11,16 @@ import SwiftData
 @Model
 final class ChatSession {
     @Attribute(.unique) var id: UUID
-    var sourceLanguage: HomeLanguage
-    var targetLanguage: HomeLanguage
+    var sourceLanguage: SupportedLanguage
+    var targetLanguage: SupportedLanguage
     var createdAt: Date
     var updatedAt: Date
     @Relationship(deleteRule: .cascade, inverse: \ChatMessage.session) var messages: [ChatMessage]
 
     init(
         id: UUID = UUID(),
-        sourceLanguage: HomeLanguage = .chinese,
-        targetLanguage: HomeLanguage = .english,
+        sourceLanguage: SupportedLanguage = .chinese,
+        targetLanguage: SupportedLanguage = .english,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         messages: [ChatMessage] = []

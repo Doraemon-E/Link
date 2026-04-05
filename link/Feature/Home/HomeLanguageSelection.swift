@@ -9,15 +9,15 @@ import Foundation
 
 struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
     let packageIds: [String]
-    let sourceLanguage: HomeLanguage
-    let targetLanguage: HomeLanguage
+    let sourceLanguage: SupportedLanguage
+    let targetLanguage: SupportedLanguage
     let archiveSize: Int64
     let installedSize: Int64
 
     init(
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
-        requirement: TranslationModelDownloadRequirement
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        requirement: TranslationAssetRequirement
     ) {
         self.packageIds = requirement.packageIds
         self.sourceLanguage = sourceLanguage

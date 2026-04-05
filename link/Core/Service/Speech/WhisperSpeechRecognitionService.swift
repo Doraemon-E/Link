@@ -21,13 +21,13 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
 
     private struct StreamingInferenceResult {
         let text: String
-        let detectedLanguage: HomeLanguage?
+        let detectedLanguage: SupportedLanguage?
     }
 
-    private let installer: SpeechModelInstaller
+    private let installer: SpeechModelPackageManager
     private var loadedState: LoadedState?
 
-    init(installer: SpeechModelInstaller) {
+    init(installer: SpeechModelPackageManager) {
         self.installer = installer
     }
 
@@ -68,7 +68,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                     var rollingSamples: [Float] = []
                     var pendingSampleCount = 0
                     var latestText = ""
-                    var latestLanguage: HomeLanguage?
+                    var latestLanguage: SupportedLanguage?
                     var revision = 0
 
                     for await chunk in audioStream {
@@ -221,7 +221,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
 
         return StreamingInferenceResult(
             text: text,
-            detectedLanguage: HomeLanguage.fromWhisperLanguageCode(result.detectedLanguage)
+            detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage)
         )
     }
 

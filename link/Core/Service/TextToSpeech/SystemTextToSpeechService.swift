@@ -20,7 +20,7 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
         self.synthesizer.delegate = self
     }
 
-    func speak(text: String, language: HomeLanguage, messageID: UUID) async throws {
+    func speak(text: String, language: SupportedLanguage, messageID: UUID) async throws {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
             let error = TextToSpeechError.emptyText

@@ -469,8 +469,8 @@ private final class StubSpeechStreamingService: SpeechRecognitionStreamingServic
 private final class StubTranslationService: TranslationService, @unchecked Sendable {
     struct TranslationCall: Equatable {
         let text: String
-        let source: HomeLanguage
-        let target: HomeLanguage
+        let source: SupportedLanguage
+        let target: SupportedLanguage
     }
 
     let streamEvents: [TranslationStreamEvent]
@@ -503,7 +503,7 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
         lock.unlock()
     }
 
-    func setSupports(_ source: HomeLanguage, target: HomeLanguage, value: Bool) {
+    func setSupports(_ source: SupportedLanguage, target: SupportedLanguage, value: Bool) {
         lock.lock()
         supportsByPair["\(source.rawValue)->\(target.rawValue)"] = value
         lock.unlock()
@@ -523,14 +523,14 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
         return calls
     }
 
-    func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
+    func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
         lock.lock()
         let value = supportsByPair["\(source.rawValue)->\(target.rawValue)"] ?? true
         lock.unlock()
         return value
     }
 
-    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
+    func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute {
         lock.lock()
         let value = supportsByPair["\(source.rawValue)->\(target.rawValue)"] ?? true
         lock.unlock()
@@ -543,7 +543,7 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
         return TranslationRoute(source: source, target: target, steps: steps)
     }
 
-    func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
+    func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         let result: String
         let delayMilliseconds: Int
 
@@ -565,8 +565,8 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
 
     func streamTranslation(
         text: String,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error> {
         _ = text
         _ = source
@@ -586,7 +586,7 @@ private final class StubTranslationModelAvailabilityProvider: TranslationModelAv
     private let lock = NSLock()
     private var readinessByPair: [String: Bool] = [:]
 
-    func setReady(_ source: HomeLanguage, target: HomeLanguage, value: Bool) {
+    func setReady(_ source: SupportedLanguage, target: SupportedLanguage, value: Bool) {
         lock.lock()
         readinessByPair["\(source.rawValue)->\(target.rawValue)"] = value
         lock.unlock()

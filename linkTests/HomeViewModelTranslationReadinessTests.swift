@@ -99,13 +99,13 @@ private final class TranslationRouteStubService: TranslationService, @unchecked 
     private(set) var translateCallCount = 0
     private(set) var streamTranslationCallCount = 0
 
-    func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
+    func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
         _ = source
         _ = target
         return true
     }
 
-    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
+    func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute {
         TranslationRoute(
             source: source,
             target: target,
@@ -113,7 +113,7 @@ private final class TranslationRouteStubService: TranslationService, @unchecked 
         )
     }
 
-    func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
+    func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         _ = text
         _ = source
         _ = target
@@ -123,8 +123,8 @@ private final class TranslationRouteStubService: TranslationService, @unchecked 
 
     func streamTranslation(
         text: String,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error> {
         _ = text
         _ = source
@@ -146,7 +146,7 @@ private struct HomeViewModelSpeechRecognitionStub: SpeechRecognitionService {
 
 @MainActor
 private final class HomeViewModelTextToSpeechStub: TextToSpeechService {
-    func speak(text: String, language: HomeLanguage, messageID: UUID) async throws {
+    func speak(text: String, language: SupportedLanguage, messageID: UUID) async throws {
         _ = text
         _ = language
         _ = messageID

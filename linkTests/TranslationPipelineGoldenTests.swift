@@ -76,7 +76,7 @@ final class TranslationPipelineGoldenTests: XCTestCase {
         try await runCases(for: .english)
     }
 
-    private func runCases(for sourceLanguage: HomeLanguage) async throws {
+    private func runCases(for sourceLanguage: SupportedLanguage) async throws {
         let cases = testCases.filter { $0.sourceLanguage == sourceLanguage }
         XCTAssertEqual(cases.count, 10, "\(sourceLanguage.displayName) 应该固定有 10 条测试用例。")
 

@@ -157,8 +157,8 @@ final class HomeViewModelTextToSpeechTests: XCTestCase {
 
     private func makeAssistantMessage(
         text: String,
-        language: HomeLanguage?,
-        sessionTargetLanguage: HomeLanguage
+        language: SupportedLanguage?,
+        sessionTargetLanguage: SupportedLanguage
     ) -> ChatMessage {
         let session = ChatSession(
             sourceLanguage: .chinese,
@@ -184,7 +184,7 @@ final class HomeViewModelTextToSpeechTests: XCTestCase {
 private final class StubTextToSpeechService: TextToSpeechService {
     struct SpeakCall: Equatable {
         let text: String
-        let language: HomeLanguage
+        let language: SupportedLanguage
         let messageID: UUID
     }
 
@@ -192,7 +192,7 @@ private final class StubTextToSpeechService: TextToSpeechService {
     private(set) var stopCallCount = 0
     private var continuation: AsyncStream<TextToSpeechPlaybackEvent>.Continuation?
 
-    func speak(text: String, language: HomeLanguage, messageID: UUID) async throws {
+    func speak(text: String, language: SupportedLanguage, messageID: UUID) async throws {
         speakCalls.append(
             SpeakCall(
                 text: text,
@@ -218,13 +218,13 @@ private final class StubTextToSpeechService: TextToSpeechService {
 }
 
 private final class StubTranslationService: TranslationService, @unchecked Sendable {
-    func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
+    func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
         _ = source
         _ = target
         return true
     }
 
-    func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
+    func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute {
         TranslationRoute(
             source: source,
             target: target,
@@ -237,7 +237,7 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
         )
     }
 
-    func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
+    func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         _ = source
         _ = target
         return text
@@ -245,8 +245,8 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
 
     func streamTranslation(
         text: String,
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error> {
         _ = source
         _ = target

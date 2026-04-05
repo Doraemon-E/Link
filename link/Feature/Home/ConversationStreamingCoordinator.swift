@@ -18,7 +18,7 @@ struct LiveUtteranceState: Sendable, Equatable {
     var stableTranslation: String = ""
     var unstableTranslation: String = ""
     var displayTranslation: String = ""
-    var detectedLanguage: HomeLanguage?
+    var detectedLanguage: SupportedLanguage?
     var transcriptRevision: Int = 0
     var translationRevision: Int = 0
 }
@@ -43,22 +43,22 @@ protocol ConversationStreamingCoordinator: Sendable {
     func startManualTranslation(
         messageID: UUID,
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error>
 
     func startSpeechTranslation(
         messageID: UUID,
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error>
 
     func startLiveSpeechTranslation(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
-        sourceLanguage: HomeLanguage?,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage?,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error>
 
     func cancel(messageID: UUID) async
@@ -68,17 +68,17 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private struct LivePreviewRequest: Sendable {
         let requestID: Int
         let transcript: String
-        let sourceLanguage: HomeLanguage
-        let targetLanguage: HomeLanguage
+        let sourceLanguage: SupportedLanguage
+        let targetLanguage: SupportedLanguage
     }
 
     private let translationService: TranslationService
-    private let translationModelAvailabilityProvider: (any TranslationModelAvailabilityProviding)?
+    private let translationModelAvailabilityProvider: (any TranslationAssetReadinessProviding)?
     private let speechStreamingService: (any SpeechRecognitionStreamingService)?
     private var tasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var liveStatesByMessageID: [UUID: LiveUtteranceState] = [:]
     private var liveTranscriptCandidatesByMessageID: [UUID: String] = [:]
-    private var liveResolvedSourceLanguagesByMessageID: [UUID: HomeLanguage] = [:]
+    private var liveResolvedSourceLanguagesByMessageID: [UUID: SupportedLanguage] = [:]
     private var liveStableTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var livePreviewTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var livePreviewRequestsByMessageID: [UUID: LivePreviewRequest] = [:]
@@ -87,7 +87,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     init(
         translationService: TranslationService,
-        translationModelAvailabilityProvider: (any TranslationModelAvailabilityProviding)? = nil,
+        translationModelAvailabilityProvider: (any TranslationAssetReadinessProviding)? = nil,
         speechStreamingService: (any SpeechRecognitionStreamingService)? = nil
     ) {
         self.translationService = translationService
@@ -98,8 +98,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     func startManualTranslation(
         messageID: UUID,
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
         startTranslation(
             messageID: messageID,
@@ -112,8 +112,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     func startSpeechTranslation(
         messageID: UUID,
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
         startTranslation(
             messageID: messageID,
@@ -126,8 +126,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     func startLiveSpeechTranslation(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
-        sourceLanguage: HomeLanguage?,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage?,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error> {
         let speechStreamingService = self.speechStreamingService
 
@@ -216,8 +216,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func startTranslation(
         messageID: UUID,
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
         let translationService = self.translationService
 
@@ -296,7 +296,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     private func initializeLiveSpeechState(
         messageID: UUID,
-        sourceLanguage: HomeLanguage?
+        sourceLanguage: SupportedLanguage?
     ) -> LiveUtteranceState {
         let state = LiveUtteranceState(detectedLanguage: sourceLanguage)
         liveStatesByMessageID[messageID] = state
@@ -323,9 +323,9 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func consumeLiveTranscript(
         messageID: UUID,
         candidate: String,
-        detectedLanguage: HomeLanguage?,
-        preferredSourceLanguage: HomeLanguage?,
-        targetLanguage: HomeLanguage,
+        detectedLanguage: SupportedLanguage?,
+        preferredSourceLanguage: SupportedLanguage?,
+        targetLanguage: SupportedLanguage,
         forceFinalizeCandidate: Bool,
         continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
     ) async throws -> LiveUtteranceState? {
@@ -407,10 +407,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     private func resolveLiveSourceLanguage(
         messageID: UUID,
-        preferredSourceLanguage: HomeLanguage?,
-        detectedLanguage: HomeLanguage?,
-        targetLanguage: HomeLanguage
-    ) async throws -> HomeLanguage? {
+        preferredSourceLanguage: SupportedLanguage?,
+        detectedLanguage: SupportedLanguage?,
+        targetLanguage: SupportedLanguage
+    ) async throws -> SupportedLanguage? {
         if let detectedLanguage {
             let currentResolvedLanguage = liveResolvedSourceLanguagesByMessageID[messageID]
             if currentResolvedLanguage != detectedLanguage,
@@ -440,13 +440,13 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     }
 
     private func hasReadyTranslation(
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) async throws -> Bool {
         if let translationModelAvailabilityProvider {
             do {
                 let route = try await translationService.route(source: source, target: target)
-                return try await translationModelAvailabilityProvider.areTranslationModelsReady(
+                return try await translationModelAvailabilityProvider.areTranslationAssetsReady(
                     for: route
                 )
             } catch is TranslationError {
@@ -460,8 +460,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func scheduleStableTranslation(
         messageID: UUID,
         transcript: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
     ) {
         liveStableTranslationTasksByMessageID[messageID]?.cancel()
@@ -507,8 +507,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func schedulePreviewTranslation(
         messageID: UUID,
         transcript: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         forceImmediate: Bool,
         continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
     ) {
@@ -609,7 +609,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func applyStableTranslation(
         messageID: UUID,
         translatedText: String,
-        targetLanguage: HomeLanguage
+        targetLanguage: SupportedLanguage
     ) -> LiveUtteranceState? {
         guard var state = liveStatesByMessageID[messageID] else {
             return nil
@@ -643,7 +643,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         requestID: Int,
         sourceTranscript: String,
         translatedText: String,
-        targetLanguage: HomeLanguage
+        targetLanguage: SupportedLanguage
     ) -> LiveUtteranceState? {
         guard var state = liveStatesByMessageID[messageID] else {
             return nil
@@ -759,7 +759,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     private func committedPortion(
         of text: String,
-        language: HomeLanguage?,
+        language: SupportedLanguage?,
         minimumCommittedLength: Int
     ) -> String {
         committedPortion(
@@ -772,7 +772,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     private func committedPortion(
         of text: String,
-        language: HomeLanguage?,
+        language: SupportedLanguage?,
         minimumCommittedLength: Int,
         reserveCount: Int
     ) -> String {
@@ -821,7 +821,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         return String(text.prefix(finalCommittedLength))
     }
 
-    private func transcriptTailReserveCharacterCount(for language: HomeLanguage?) -> Int {
+    private func transcriptTailReserveCharacterCount(for language: SupportedLanguage?) -> Int {
         guard let language else {
             return 16
         }
@@ -837,7 +837,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         previousDisplayTranslation: String,
         stableTranslation: String,
         previewTranslation: String,
-        targetLanguage: HomeLanguage
+        targetLanguage: SupportedLanguage
     ) -> String {
         let normalizedStable = stableTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPreview = previewTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -869,7 +869,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func mergeStableTranslationWithPreview(
         stableTranslation: String,
         previewTranslation: String,
-        targetLanguage: HomeLanguage
+        targetLanguage: SupportedLanguage
     ) -> String? {
         if previewTranslation == stableTranslation {
             return stableTranslation
@@ -914,7 +914,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     }
 
     private func minimumDisplayTranslationOverlapCharacterCount(
-        for language: HomeLanguage
+        for language: SupportedLanguage
     ) -> Int {
         if [.chinese, .japanese, .korean].contains(language) {
             return 2
@@ -926,7 +926,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private func isValidDisplayTranslationOverlap(
         stableCharacters: [Character],
         overlapLength: Int,
-        targetLanguage: HomeLanguage
+        targetLanguage: SupportedLanguage
     ) -> Bool {
         if [.chinese, .japanese, .korean].contains(targetLanguage) {
             return true

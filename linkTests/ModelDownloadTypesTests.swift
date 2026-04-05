@@ -9,17 +9,19 @@ import XCTest
 @testable import link
 
 final class ModelDownloadTypesTests: XCTestCase {
-    func testDownloadProgressDerivesFractionFromBytes() {
+    func testDownloadProgressDerivesFractionFromBytes() throws {
         let progress = ModelDownloadProgress(
             phase: .downloading,
             downloadedBytes: 512,
             totalBytes: 1024,
             bytesPerSecond: 256
         )
+        let bytesPerSecond = try XCTUnwrap(progress.bytesPerSecond)
+        let estimatedRemainingTime = try XCTUnwrap(progress.estimatedRemainingTime)
 
         XCTAssertEqual(progress.fractionCompleted, 0.5, accuracy: 0.0001)
-        XCTAssertEqual(progress.bytesPerSecond, 256, accuracy: 0.0001)
-        XCTAssertEqual(progress.estimatedRemainingTime, 2, accuracy: 0.0001)
+        XCTAssertEqual(bytesPerSecond, 256, accuracy: 0.0001)
+        XCTAssertEqual(estimatedRemainingTime, 2, accuracy: 0.0001)
         XCTAssertFalse(progress.isResumable)
     }
 
@@ -51,9 +53,9 @@ final class ModelDownloadTypesTests: XCTestCase {
         XCTAssertEqual(descriptor.id, "translation:opus-mt-en-zh-onnx")
     }
 
-    func testHomeLanguageCanResolveTranslationModelCode() {
-        XCTAssertEqual(HomeLanguage.fromTranslationModelCode("eng"), .english)
-        XCTAssertEqual(HomeLanguage.fromTranslationModelCode(" zho "), .chinese)
-        XCTAssertNil(HomeLanguage.fromTranslationModelCode("unknown"))
+    func testSupportedLanguageCanResolveTranslationModelCode() {
+        XCTAssertEqual(SupportedLanguage.fromTranslationModelCode("eng"), .english)
+        XCTAssertEqual(SupportedLanguage.fromTranslationModelCode(" zho "), .chinese)
+        XCTAssertNil(SupportedLanguage.fromTranslationModelCode("unknown"))
     }
 }

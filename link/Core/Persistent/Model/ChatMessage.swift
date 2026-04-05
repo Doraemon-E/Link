@@ -18,7 +18,7 @@ final class ChatMessage {
     @Attribute(.unique) var id: UUID
     var sender: ChatMessageSender
     var text: String
-    var language: HomeLanguage?
+    var language: SupportedLanguage?
     var audioURL: String?
     var speechContent: String?
     var createdAt: Date
@@ -29,7 +29,7 @@ final class ChatMessage {
         id: UUID = UUID(),
         sender: ChatMessageSender,
         text: String,
-        language: HomeLanguage? = nil,
+        language: SupportedLanguage? = nil,
         audioURL: String? = nil,
         speechContent: String? = nil,
         createdAt: Date = .now,

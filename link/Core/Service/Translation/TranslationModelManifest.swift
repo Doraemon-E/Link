@@ -65,7 +65,7 @@ nonisolated struct TranslationModelManifest: Codable, Sendable {
     let tensorNames: TensorNames
     let supportedLanguagePairs: [LanguagePair]
 
-    func supports(source: HomeLanguage, target: HomeLanguage) -> Bool {
+    func supports(source: SupportedLanguage, target: SupportedLanguage) -> Bool {
         supportedLanguagePairs.contains {
             $0.source == source.translationModelCode && $0.target == target.translationModelCode
         }

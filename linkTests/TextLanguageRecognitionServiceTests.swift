@@ -17,15 +17,15 @@ final class TextLanguageRecognitionServiceTests: XCTestCase {
         service = SystemTextLanguageRecognitionService()
     }
 
-    func testHomeLanguageCanResolveNaturalLanguageCodes() {
-        XCTAssertEqual(HomeLanguage.chinese.nlLanguage, .simplifiedChinese)
-        XCTAssertEqual(HomeLanguage.fromNaturalLanguage(.english), .english)
-        XCTAssertEqual(HomeLanguage.fromNaturalLanguage(.traditionalChinese), .chinese)
-        XCTAssertNil(HomeLanguage.fromNaturalLanguage(NLLanguage(rawValue: "pt")))
+    func testSupportedLanguageCanResolveNaturalLanguageCodes() {
+        XCTAssertEqual(SupportedLanguage.chinese.nlLanguage, .simplifiedChinese)
+        XCTAssertEqual(SupportedLanguage.fromNaturalLanguage(.english), .english)
+        XCTAssertEqual(SupportedLanguage.fromNaturalLanguage(.traditionalChinese), .chinese)
+        XCTAssertNil(SupportedLanguage.fromNaturalLanguage(NLLanguage(rawValue: "pt")))
     }
 
     func testRecognizeLanguageReturnsExpectedBestGuessForSupportedLanguages() async throws {
-        let samples: [(HomeLanguage, String)] = [
+        let samples: [(SupportedLanguage, String)] = [
             (
                 .english,
                 "This application identifies the language of a paragraph and returns a reliable result to the rest of the system."
@@ -77,7 +77,7 @@ final class TextLanguageRecognitionServiceTests: XCTestCase {
             for: "Hello there, this message is mostly in English, 但是最后一句用了中文。"
         )
 
-        XCTAssertTrue([HomeLanguage.english, .chinese].contains(result.language))
+        XCTAssertTrue([SupportedLanguage.english, .chinese].contains(result.language))
         assertValidResult(result)
     }
 

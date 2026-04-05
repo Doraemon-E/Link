@@ -14,8 +14,8 @@ nonisolated struct SpeechRecognitionResult: Sendable {
 
 nonisolated enum SpeechTranscriptEvent: Sendable, Equatable {
     case started
-    case partial(text: String, revision: Int, isFinal: Bool, detectedLanguage: HomeLanguage?)
-    case completed(text: String, detectedLanguage: HomeLanguage?)
+    case partial(text: String, revision: Int, isFinal: Bool, detectedLanguage: SupportedLanguage?)
+    case completed(text: String, detectedLanguage: SupportedLanguage?)
 }
 
 protocol SpeechRecognitionStreamingService: Sendable {
@@ -56,7 +56,7 @@ nonisolated enum SpeechRecognitionError: LocalizedError {
         case .microphoneUnavailable:
             return "Microphone is unavailable."
         case .recordingInProgress:
-            return "A recording session is already in progress."
+            return "A recording session is already in status."
         case .recordingNotActive:
             return "No active recording session."
         case .recordingTooShort:
