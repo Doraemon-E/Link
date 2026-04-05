@@ -12,7 +12,8 @@ import Foundation
 final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     private let synthesizer: AVSpeechSynthesizer
     private var utteranceMessageIDs: [ObjectIdentifier: UUID] = [:]
-    private var eventContinuations: [UUID: AsyncStream<TextToSpeechPlaybackEvent>.Continuation] = [:]
+    private var eventContinuation: AsyncStream<TextToSpeechPlaybackEvent>.Continuation?
+    private var eventContinuationToken: UUID?
 
     init(synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()) {
         self.synthesizer = synthesizer
@@ -61,10 +62,16 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     func playbackEvents() -> AsyncStream<TextToSpeechPlaybackEvent> {
         AsyncStream { continuation in
             let token = UUID()
-            eventContinuations[token] = continuation
+            eventContinuation = continuation
+            eventContinuationToken = token
             continuation.onTermination = { _ in
                 Task { @MainActor [weak self] in
-                    self?.eventContinuations.removeValue(forKey: token)
+                    guard self?.eventContinuationToken == token else {
+                        return
+                    }
+
+                    self?.eventContinuation = nil
+                    self?.eventContinuationToken = nil
                 }
             }
         }
@@ -93,9 +100,7 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     }
 
     private func emit(_ event: TextToSpeechPlaybackEvent) {
-        for continuation in eventContinuations.values {
-            continuation.yield(event)
-        }
+        eventContinuation?.yield(event)
     }
 }
 
