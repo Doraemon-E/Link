@@ -37,6 +37,7 @@ actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
             )
         }
 
+        // NOTE: 降级处理，如果没有任何一个语言的置信度足够高，但 NaturalLanguage 仍然返回了一个 dominantLanguage，我们可以使用它作为备选方案，尽管它可能不在我们的支持列表中。
         if let dominantLanguage = recognizer.dominantLanguage,
            let mappedLanguage = SupportedLanguage.fromNaturalLanguage(dominantLanguage) {
             let fallbackConfidence = Float(rawHypotheses[dominantLanguage] ?? 0)
@@ -73,6 +74,7 @@ actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
         for language in SupportedLanguage.allCases {
             append(language.nlLanguage)
 
+            // NOTE:包含简体中文，因为有繁体中文，暂时还没有支持
             if language == .chinese {
                 append(.traditionalChinese)
             }
