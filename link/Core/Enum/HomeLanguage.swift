@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import NaturalLanguage
 
 nonisolated enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     case chinese
@@ -158,6 +159,29 @@ nonisolated enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Send
         }
     }
 
+    var nlLanguage: NLLanguage {
+        switch self {
+        case .chinese:
+            return .simplifiedChinese
+        case .english:
+            return .english
+        case .japanese:
+            return .japanese
+        case .korean:
+            return .korean
+        case .french:
+            return .french
+        case .german:
+            return .german
+        case .russian:
+            return .russian
+        case .spanish:
+            return .spanish
+        case .italian:
+            return .italian
+        }
+    }
+
     static func fromWhisperLanguageCode(_ code: String?) -> HomeLanguage? {
         guard let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !normalizedCode.isEmpty else {
@@ -174,5 +198,35 @@ nonisolated enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Send
         }
 
         return allCases.first { $0.translationModelCode == normalizedCode }
+    }
+
+    static func fromNaturalLanguage(_ language: NLLanguage?) -> HomeLanguage? {
+        guard let normalizedCode = language?.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalizedCode.isEmpty else {
+            return nil
+        }
+
+        switch normalizedCode {
+        case let code where code == "zh" || code.hasPrefix("zh-"):
+            return .chinese
+        case let code where code == "en" || code.hasPrefix("en-"):
+            return .english
+        case let code where code == "ja" || code.hasPrefix("ja-"):
+            return .japanese
+        case let code where code == "ko" || code.hasPrefix("ko-"):
+            return .korean
+        case let code where code == "fr" || code.hasPrefix("fr-"):
+            return .french
+        case let code where code == "de" || code.hasPrefix("de-"):
+            return .german
+        case let code where code == "ru" || code.hasPrefix("ru-"):
+            return .russian
+        case let code where code == "es" || code.hasPrefix("es-"):
+            return .spanish
+        case let code where code == "it" || code.hasPrefix("it-"):
+            return .italian
+        default:
+            return nil
+        }
     }
 }
