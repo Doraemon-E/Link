@@ -63,12 +63,12 @@ actor ResumableAssetArchiveService {
         self.progressPollIntervalNanoseconds = progressPollIntervalNanoseconds
 
         let configuration = URLSessionConfiguration.default
-        configuration.allowsCellularAccess = true
-        configuration.allowsExpensiveNetworkAccess = true
-        configuration.allowsConstrainedNetworkAccess = false
-        configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 60 * 60
+        configuration.allowsCellularAccess = true           // 允许使用蜂窝网络（4G/5G）
+        configuration.allowsExpensiveNetworkAccess = true   // 允许"昂贵"网络（如个人热点）
+        configuration.allowsConstrainedNetworkAccess = false // 禁止低数据模式下下载（省流/省电）
+        configuration.waitsForConnectivity = true           // 无网络时等待，而非立即报错
+        configuration.timeoutIntervalForRequest = 60        // 单次请求（含握手）超时 60 秒
+        configuration.timeoutIntervalForResource = 60 * 60  // 整个资源下载最长允许 1 小时
         self.session = URLSession(configuration: configuration)
     }
 
@@ -175,6 +175,7 @@ actor ResumableAssetArchiveService {
 
         if let state = try loadPersistedState(for: asset),
            state.downloadedBytes != downloadedBytes {
+            /// 如果磁盘上的部分文件大小与记录的状态不符, 则以实际文件大小为准并更新状态记录
             try saveState(
                 PersistedAssetTransferState(
                     packageId: asset.packageId,
@@ -203,6 +204,7 @@ actor ResumableAssetArchiveService {
         }
 
         while downloadedBytes < metadata.contentLength {
+            /// 计算请求的块的结束位置
             let rangeEnd = min(downloadedBytes + chunkSize - 1, metadata.contentLength - 1)
             let chunkData = try await fetchChunk(
                 asset: asset,
@@ -414,7 +416,7 @@ actor ResumableAssetArchiveService {
             data.reserveCapacity(Int(expectedByteCount))
         }
 
-        let reportThreshold: Int64 = 64 * 1_024
+        let reportThreshold: Int64 = 64 * 1_024 // 64 KB
         var receivedBytes: Int64 = 0
         var lastReportedBytes: Int64 = 0
 
@@ -499,6 +501,7 @@ actor ResumableAssetArchiveService {
 
     private func saveState(_ state: PersistedAssetTransferState, to url: URL) throws {
         let encoder = JSONEncoder()
+        /// 输出带缩进的可读 JSON, 键名按字母排序
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(state).write(to: url, options: .atomic)
@@ -532,7 +535,9 @@ actor ResumableAssetArchiveService {
             defer {
                 try? handle.close()
             }
+            /// 将指针移动到文件末尾以追加数据
             try handle.seekToEnd()
+            /// 将Data写入文件
             try handle.write(contentsOf: data)
         } catch {
             throw ResumableAssetArchiveServiceError.filesystemFailure(error.localizedDescription)
@@ -561,6 +566,8 @@ actor ResumableAssetArchiveService {
     }
 }
 
+
+/// EMA 平滑算法实现, 用于根据下载数据的波动计算更稳定的下载速度估计
 private nonisolated struct TransferSpeedTracker {
     private let smoothingFactor: Double
     private var lastSampleBytes: Int64
@@ -589,6 +596,7 @@ private nonisolated struct TransferSpeedTracker {
 
         let instantaneousBytesPerSecond = Double(byteDelta) / timeDelta
 
+        /// EMA 公式平滑速度
         if let smoothedBytesPerSecond {
             self.smoothedBytesPerSecond =
                 (smoothedBytesPerSecond * (1 - smoothingFactor)) +
