@@ -23,14 +23,14 @@ final class HomeViewModel {
         let session: ChatSession
         let userMessage: ChatMessage
         let assistantMessage: ChatMessage
-        let fallbackSourceLanguage: HomeLanguage
-        let targetLanguage: HomeLanguage
+        let fallbackSourceLanguage: SupportedLanguage
+        let targetLanguage: SupportedLanguage
         var latestState: LiveUtteranceState = .init()
         var liveTask: Task<Void, Never>?
     }
 
-    var sourceLanguage: HomeLanguage = .chinese
-    var selectedLanguage: HomeLanguage {
+    var sourceLanguage: SupportedLanguage = .chinese
+    var selectedLanguage: SupportedLanguage {
         didSet {
             guard appSettings.selectedTargetLanguage != selectedLanguage else { return }
             appSettings.selectedTargetLanguage = selectedLanguage
@@ -56,15 +56,15 @@ final class HomeViewModel {
     var isPlayingLastSpeechRecording = false
     var speakingMessageID: UUID?
     var streamingStatesByMessageID: [UUID: StreamingMessageState] = [:]
-    var downloadManagerItems: [ModelDownloadItem] = []
-    var downloadManagerSummary: ModelDownloadManagerSummary = .empty
+    var assetRecords: [ModelAssetRecord] = []
+    var assetSummary: ModelAssetSummary = .empty
     var speechResumeRequestToken = 0
 
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let textToSpeechService: TextToSpeechService
-    @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
-    @ObservationIgnored private let modelDownloadCenter: ModelDownloadCenter
+    @ObservationIgnored private let speechModelInstaller: SpeechModelPackageManager
+    @ObservationIgnored private let modelAssetService: ModelAssetService
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
     @ObservationIgnored private let appSettings: AppSettings
@@ -89,8 +89,8 @@ final class HomeViewModel {
         translationService: TranslationService,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
-        speechModelInstaller: SpeechModelInstaller,
-        modelDownloadCenter: ModelDownloadCenter,
+        speechModelInstaller: SpeechModelPackageManager,
+        modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
         self.appSettings = appSettings
@@ -98,11 +98,11 @@ final class HomeViewModel {
         self.speechRecognitionService = speechRecognitionService
         self.textToSpeechService = textToSpeechService
         self.speechModelInstaller = speechModelInstaller
-        self.modelDownloadCenter = modelDownloadCenter
+        self.modelAssetService = modelAssetService
         self.microphoneRecordingService = microphoneRecordingService
         self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
-            translationModelAvailabilityProvider: modelDownloadCenter,
+            translationModelAvailabilityProvider: modelAssetService,
             speechStreamingService: speechRecognitionService as? any SpeechRecognitionStreamingService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
@@ -116,7 +116,7 @@ final class HomeViewModel {
         }
         removeEmptySessions(using: modelContext, sessions: sessions)
         Task {
-            await modelDownloadCenter.warmUp()
+            await modelAssetService.warmUp()
         }
     }
 
@@ -141,10 +141,6 @@ final class HomeViewModel {
 
     func streamingState(for message: ChatMessage) -> StreamingMessageState? {
         streamingStatesByMessageID[message.id]
-    }
-
-    func shouldShowNavigationBar(in sessions: [ChatSession]) -> Bool {
-        isChatInputFocused || currentSession(in: sessions) != nil
     }
 
     func shouldShowSessionHistoryButton(in sessions: [ChatSession]) -> Bool {
@@ -221,8 +217,8 @@ final class HomeViewModel {
     }
 
     func resolveLanguageSelection(
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) async -> HomeLanguageSelectionResolution {
         do {
             let requirement = try await translationDownloadRequirement(
@@ -248,7 +244,7 @@ final class HomeViewModel {
         }
     }
 
-    func commitLanguageSelection(source: HomeLanguage, target: HomeLanguage) {
+    func commitLanguageSelection(source: SupportedLanguage, target: SupportedLanguage) {
         sourceLanguage = source
         selectedLanguage = target
         downloadableLanguagePrompt = nil
@@ -257,8 +253,8 @@ final class HomeViewModel {
     }
 
     func commitLanguageSelectionRequiringDownload(
-        source: HomeLanguage,
-        target: HomeLanguage,
+        source: SupportedLanguage,
+        target: SupportedLanguage,
         prompt: HomeLanguageDownloadPrompt
     ) {
         sourceLanguage = source
@@ -326,7 +322,7 @@ final class HomeViewModel {
         downloadErrorMessage = nil
         activeDownloadPrompt = nil
         isDownloadManagerPresented = true
-        await modelDownloadCenter.startTranslationDownloads(packageIDs: packageIds)
+        await modelAssetService.startTranslationAssets(packageIDs: packageIds)
         await refreshDownloadAvailabilityForCurrentSelection()
     }
 
@@ -619,7 +615,7 @@ final class HomeViewModel {
         isDownloadManagerPresented = true
         pendingVoiceStartAfterInstall = shouldResumeRecording
         pendingSpeechResumePackageID = packageId
-        await modelDownloadCenter.startSpeechDownload(packageId: packageId)
+        await modelAssetService.startSpeechAsset(packageId: packageId)
     }
 
     var shouldShowDownloadToolbarButton: Bool {
@@ -639,63 +635,63 @@ final class HomeViewModel {
     }
 
     var downloadManagerHasAttention: Bool {
-        downloadManagerSummary.hasAttention
+        assetSummary.hasAttention
     }
 
     var downloadManagerIsBusy: Bool {
-        downloadManagerSummary.hasActiveTasks
+        assetSummary.hasActiveTasks
     }
 
-    var activeDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter {
-            [.preparing, .downloading, .verifying, .installing].contains($0.progress.phase)
+    var activeDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter {
+            [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
         }
     }
 
-    var processingDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter {
-            [.preparing, .downloading, .verifying, .installing].contains($0.progress.phase)
+    var processingDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter {
+            [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
         }
     }
 
-    var resumableDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter { $0.progress.phase == .pausedResumable }
+    var resumableDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter { $0.status.state == .pausedResumable }
     }
 
-    var failedDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter { $0.progress.phase == .failed }
+    var failedDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter { $0.status.state == .failed }
     }
 
-    var installedDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter(\.isInstalled)
+    var installedDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter(\.isInstalled)
     }
 
-    var availableDownloadItems: [ModelDownloadItem] {
-        downloadManagerItems.filter {
-            !$0.isInstalled && $0.progress.phase == .idle
+    var availableDownloadItems: [ModelAssetRecord] {
+        assetRecords.filter {
+            !$0.isInstalled && $0.status.state == .idle
         }
     }
 
     func retryDownload(itemID: String) async {
-        await modelDownloadCenter.retry(itemID: itemID)
+        await modelAssetService.retry(assetID: itemID)
     }
 
     func resumeDownload(itemID: String) async {
-        await modelDownloadCenter.resume(itemID: itemID)
+        await modelAssetService.resume(assetID: itemID)
     }
 
-    func startDownload(item: ModelDownloadItem) async {
+    func startDownload(item: ModelAssetRecord) async {
         switch item.kind {
         case .translation:
-            await modelDownloadCenter.startTranslationDownloads(packageIDs: [item.descriptor.packageId])
+            await modelAssetService.startTranslationAssets(packageIDs: [item.asset.packageId])
         case .speech:
-            await modelDownloadCenter.startSpeechDownload(packageId: item.descriptor.packageId)
+            await modelAssetService.startSpeechAsset(packageId: item.asset.packageId)
         }
     }
 
     func deleteInstalledDownload(itemID: String) async {
         do {
-            try await modelDownloadCenter.removeInstalled(itemID: itemID)
+            try await modelAssetService.removeInstalledAsset(id:  itemID)
             await refreshDownloadAvailabilityForCurrentSelection()
         } catch let error as TranslationError {
             downloadErrorMessage = error.userFacingMessage
@@ -743,8 +739,8 @@ final class HomeViewModel {
 
     @discardableResult
     private func createNewSession(
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         using modelContext: ModelContext
     ) -> ChatSession {
         let session = ChatSession(
@@ -780,11 +776,11 @@ final class HomeViewModel {
 
         downloadObservationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let stream = await self.modelDownloadCenter.streamSnapshots()
+            let stream = await self.modelAssetService.snapshotStream()
 
             for await snapshot in stream {
-                self.downloadManagerItems = snapshot.items
-                self.downloadManagerSummary = snapshot.summary
+                self.assetRecords = snapshot.records
+                self.assetSummary = snapshot.summary
                 self.handleDownloadMilestones(for: snapshot)
             }
         }
@@ -804,9 +800,9 @@ final class HomeViewModel {
         }
     }
 
-    private func handleDownloadMilestones(for snapshot: ModelDownloadsSnapshot) {
-        let milestoneSignature = snapshot.items
-            .map { "\($0.id):\($0.progress.phase.rawValue):\($0.isInstalled)" }
+    private func handleDownloadMilestones(for snapshot: ModelAssetSnapshot) {
+        let milestoneSignature = snapshot.records
+            .map { "\($0.id):\($0.status.state.rawValue):\($0.isInstalled)" }
             .sorted()
             .joined(separator: "|")
 
@@ -823,9 +819,9 @@ final class HomeViewModel {
             return
         }
 
-        let matchingItemID = ModelDownloadDescriptor.itemID(kind: .speech, packageId: packageID)
+        let matchingItemID = ModelAsset.makeID(kind: .speech, packageId: packageID)
 
-        if snapshot.items.contains(where: {
+        if snapshot.records.contains(where: {
             $0.id == matchingItemID && $0.isInstalled
         }) {
             pendingVoiceStartAfterInstall = false
@@ -833,8 +829,8 @@ final class HomeViewModel {
             speechResumeRequestToken += 1
         }
 
-        if snapshot.items.contains(where: {
-            $0.id == matchingItemID && $0.progress.phase == .failed
+        if snapshot.records.contains(where: {
+            $0.id == matchingItemID && $0.status.state == .failed
         }) {
             pendingVoiceStartAfterInstall = false
             pendingSpeechResumePackageID = nil
@@ -855,7 +851,7 @@ final class HomeViewModel {
         textToSpeechService.stop()
     }
 
-    private func playbackLanguage(for message: ChatMessage) -> HomeLanguage? {
+    private func playbackLanguage(for message: ChatMessage) -> SupportedLanguage? {
         if let language = message.language {
             return language
         }
@@ -909,8 +905,8 @@ final class HomeViewModel {
 
     private func submitMessage(
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         audioURL: String?,
         speechContent: String?,
         translationOrigin: TranslationRequestOrigin,
@@ -952,8 +948,8 @@ final class HomeViewModel {
     }
 
     private func resolveSession(
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         using modelContext: ModelContext,
         sessions: [ChatSession]
     ) -> ChatSession {
@@ -990,8 +986,8 @@ final class HomeViewModel {
 
     private func insertConversationExchange(
         text: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         audioURL: String?,
         speechContent: String?,
         into session: ChatSession,
@@ -1027,8 +1023,8 @@ final class HomeViewModel {
     }
 
     private func insertLiveSpeechConversationExchange(
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         using modelContext: ModelContext,
         sessions: [ChatSession]
     ) -> LiveSpeechSession {
@@ -1074,8 +1070,8 @@ final class HomeViewModel {
     private func startStreamingTranslation(
         for assistantMessageID: UUID,
         originalText: String,
-        sourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
         translationOrigin: TranslationRequestOrigin,
         using modelContext: ModelContext
     ) {
@@ -1238,13 +1234,13 @@ final class HomeViewModel {
         text: String,
         using modelContext: ModelContext
     ) {
-        let descriptor = FetchDescriptor<ChatMessage>(
+        let asset = FetchDescriptor<ChatMessage>(
             predicate: #Predicate { message in
                 message.id == id
             }
         )
 
-        guard let message = try? modelContext.fetch(descriptor).first else {
+        guard let message = try? modelContext.fetch(asset).first else {
             return
         }
 
@@ -1281,7 +1277,7 @@ final class HomeViewModel {
     private func finalizeLiveSpeechSession(
         transcript: String,
         translatedText: String,
-        sourceLanguage: HomeLanguage,
+        sourceLanguage: SupportedLanguage,
         audioURL: String?,
         using modelContext: ModelContext
     ) {
@@ -1387,10 +1383,10 @@ final class HomeViewModel {
 
     private func resolvedSpeechSourceLanguage(
         detectedLanguageCode: String?,
-        fallbackSourceLanguage: HomeLanguage,
-        targetLanguage: HomeLanguage
-    ) async throws -> HomeLanguage {
-        if let detectedLanguage = HomeLanguage.fromWhisperLanguageCode(detectedLanguageCode),
+        fallbackSourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
+    ) async throws -> SupportedLanguage {
+        if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode),
            await isTranslationReady(
                source: detectedLanguage,
                target: targetLanguage
@@ -1402,16 +1398,16 @@ final class HomeViewModel {
     }
 
     private func translationDownloadRequirement(
-        source: HomeLanguage,
-        target: HomeLanguage
-    ) async throws -> TranslationModelDownloadRequirement {
+        source: SupportedLanguage,
+        target: SupportedLanguage
+    ) async throws -> TranslationAssetRequirement {
         let route = try await translationService.route(source: source, target: target)
-        return try await modelDownloadCenter.translationModelDownloadRequirement(for: route)
+        return try await modelAssetService.translationAssetRequirement(for: route)
     }
 
     private func translationDownloadPrompt(
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) async throws -> HomeLanguageDownloadPrompt? {
         let requirement = try await translationDownloadRequirement(
             source: source,
@@ -1429,8 +1425,8 @@ final class HomeViewModel {
     }
 
     private func downloadPromptIfNeeded(
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) async -> HomeLanguageDownloadPrompt? {
         do {
             return try await translationDownloadPrompt(source: source, target: target)
@@ -1440,12 +1436,12 @@ final class HomeViewModel {
     }
 
     private func isTranslationReady(
-        source: HomeLanguage,
-        target: HomeLanguage
+        source: SupportedLanguage,
+        target: SupportedLanguage
     ) async -> Bool {
         do {
             let route = try await translationService.route(source: source, target: target)
-            return try await modelDownloadCenter.areTranslationModelsReady(for: route)
+            return try await modelAssetService.areTranslationAssetsReady(for: route)
         } catch {
             return false
         }

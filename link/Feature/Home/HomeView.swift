@@ -19,8 +19,8 @@ struct HomeView: View {
         translationService: TranslationService,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
-        speechModelInstaller: SpeechModelInstaller,
-        modelDownloadCenter: ModelDownloadCenter,
+        speechModelInstaller: SpeechModelPackageManager,
+        modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
         _viewModel = State(
@@ -30,7 +30,7 @@ struct HomeView: View {
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
                 speechModelInstaller: speechModelInstaller,
-                modelDownloadCenter: modelDownloadCenter,
+                modelAssetService: modelAssetService,
                 microphoneRecordingService: microphoneRecordingService
             )
         )
@@ -63,18 +63,18 @@ struct HomeView: View {
                         sessionHistoryToolbarButton
                     }
 
-                    if shouldShowNavigationBar {
-                        ToolbarItem {
-                            toolbarContent
+                    ToolbarItem {
+                        toolbarContent
+                    }
+
+                    ToolbarSpacer()
+
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        if viewModel.shouldShowDownloadToolbarButton {
+                            downloadToolbarButton
                         }
 
-                        ToolbarSpacer()
-
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            if viewModel.shouldShowDownloadToolbarButton {
-                                downloadToolbarButton
-                            }
-
+                        if shouldShowNewSessionButton {
                             newSessionToolbarButton
                         }
                     }
@@ -120,7 +120,7 @@ struct HomeView: View {
             )
         }
         .sheet(isPresented: $viewModel.isDownloadManagerPresented) {
-            ModelDownloadsSheet(
+            ModelAssetsSheet(
                 processingItems: viewModel.processingDownloadItems,
                 resumableItems: viewModel.resumableDownloadItems,
                 failedItems: viewModel.failedDownloadItems,
@@ -302,10 +302,6 @@ struct HomeView: View {
 
     private var displayedMessageRenderKeys: [String] {
         viewModel.displayedMessageRenderKeys(in: sessions)
-    }
-
-    private var shouldShowNavigationBar: Bool {
-        viewModel.shouldShowNavigationBar(in: sessions)
     }
 
     private var historySessions: [ChatSession] {
@@ -509,10 +505,10 @@ private struct HomeDownloadToolbarIcon: View {
 }
 
 #Preview {
-    let catalogService = TranslationModelCatalogService(remoteCatalogURL: nil, bundle: .main)
-    let installer = TranslationModelInstaller(catalogService: catalogService)
-    let speechInstaller = SpeechModelInstaller(
-        catalogService: SpeechModelCatalogService(remoteCatalogURL: nil, bundle: .main)
+    let catalogService = TranslationModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
+    let installer = TranslationModelPackageManager(catalogRepository: catalogService)
+    let speechInstaller = SpeechModelPackageManager(
+        catalogRepository: SpeechModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
     )
     HomeView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
@@ -522,7 +518,7 @@ private struct HomeDownloadToolbarIcon: View {
         ),
         textToSpeechService: SystemTextToSpeechService(),
         speechModelInstaller: speechInstaller,
-        modelDownloadCenter: ModelDownloadCenter(
+        modelAssetService: ModelAssetService(
             translationInstaller: installer,
             speechInstaller: speechInstaller
         ),
