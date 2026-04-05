@@ -7,6 +7,9 @@
 
 import Foundation
 
+/// 从 actor 外部调用它的方法时必须加 await，因为调用方可能需要等待 actor 当前任务完成。
+/// 核心机制：串行化访问，不需要自己加锁，actor 内部的状态（如字典）在同一时间只能被一个任务访问和修改，这样就避免了数据竞争和不一致的问题。
+
 actor ModelAssetSnapshotStore {
     private enum RunningTaskState {
         case reserved
@@ -17,6 +20,8 @@ actor ModelAssetSnapshotStore {
     private var installedRecordsByID: [String: ModelAssetRecord] = [:]
     private var availableRecordsByID: [String: ModelAssetRecord] = [:]
     private var runningTasksByID: [String: RunningTaskState] = [:]
+
+    // 这是实现"多播推送"的核心机制，本质上是一个观察者模式。
     private var continuations: [UUID: AsyncStream<ModelAssetSnapshot>.Continuation] = [:]
 
     func snapshotStream() -> AsyncStream<ModelAssetSnapshot> {
@@ -24,6 +29,8 @@ actor ModelAssetSnapshotStore {
             let token = UUID()
             continuations[token] = continuation
             continuation.yield(makeSnapshot())
+            /// ModelAssetSnapshotStore 引用了 continuation, 而 continuation 的闭包又引用了 self（通过调用 removeContinuation），形成了一个循环引用。为了打破这个循环，我们在闭包中使用 [weak self] 来弱引用 self，防止内存泄漏。当 continuation 被终止时，闭包会被调用，从而移除对应的 continuation。
+
             continuation.onTermination = { [weak self] _ in
                 Task {
                     await self?.removeContinuation(token)
@@ -48,6 +55,7 @@ actor ModelAssetSnapshotStore {
         runningTasksByID[id] != nil
     }
 
+    /// 在真正开始下载之前，先"占位"，防止重复触发同一个资产的下载任务
     func reserveRun(for asset: ModelAsset) -> Bool {
         guard runningTasksByID[asset.id] == nil else {
             return false
