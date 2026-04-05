@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum TextToSpeechPlaybackEvent: Sendable, Equatable {
+nonisolated enum TextToSpeechPlaybackEvent: Sendable, Equatable {
     case started(messageID: UUID)
     case finished(messageID: UUID)
     case cancelled(messageID: UUID)
@@ -21,7 +21,7 @@ protocol TextToSpeechService: AnyObject {
     func playbackEvents() -> AsyncStream<TextToSpeechPlaybackEvent>
 }
 
-enum TextToSpeechError: LocalizedError {
+nonisolated enum TextToSpeechError: LocalizedError {
     case emptyText
     case audioSessionUnavailable(String)
     case playbackUnavailable(String)

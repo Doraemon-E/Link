@@ -7,7 +7,7 @@
 
 import Foundation
 
-actor ModelDownloadCenter {
+actor ModelDownloadCenter: TranslationModelAvailabilityProviding {
     private let translationInstaller: TranslationModelInstaller
     private let speechInstaller: SpeechModelInstaller
     private let downloader: ResumableArchiveDownloader
@@ -37,9 +37,7 @@ actor ModelDownloadCenter {
     func streamSnapshots() -> AsyncStream<ModelDownloadsSnapshot> {
         AsyncStream { continuation in
             let token = UUID()
-            Task {
-                await self.registerContinuation(continuation, token: token)
-            }
+            registerContinuation(continuation, token: token)
             continuation.onTermination = { _ in
                 Task {
                     await self.removeContinuation(token)
@@ -94,6 +92,18 @@ actor ModelDownloadCenter {
         currentSnapshot()
     }
 
+    func translationModelDownloadRequirement(
+        for route: TranslationRoute
+    ) async throws -> TranslationModelDownloadRequirement {
+        try await translationInstaller.downloadRequirement(for: route)
+    }
+
+    func areTranslationModelsReady(
+        for route: TranslationRoute
+    ) async throws -> Bool {
+        try await translationInstaller.areModelsReady(for: route)
+    }
+
     private func startDownload(kind: ModelAssetKind, packageId: String) async {
         guard let descriptor = try? await resolveDescriptor(kind: kind, packageId: packageId) else {
             return
@@ -136,7 +146,7 @@ actor ModelDownloadCenter {
                 )
             }
 
-            await updateTransientItem(
+            updateTransientItem(
                 for: descriptor,
                 progress: ModelDownloadProgress(
                     phase: .verifying,
@@ -148,7 +158,7 @@ actor ModelDownloadCenter {
 
             switch descriptor.kind {
             case .translation:
-                await updateTransientItem(
+                updateTransientItem(
                     for: descriptor,
                     progress: ModelDownloadProgress(
                         phase: .installing,
@@ -162,7 +172,7 @@ actor ModelDownloadCenter {
                     archiveURL: archiveURL
                 )
             case .speech:
-                await updateTransientItem(
+                updateTransientItem(
                     for: descriptor,
                     progress: ModelDownloadProgress(
                         phase: .installing,

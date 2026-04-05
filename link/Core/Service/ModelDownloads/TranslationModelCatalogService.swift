@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum TranslationModelHostingConfiguration {
+nonisolated enum TranslationModelHostingConfiguration {
     static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/translation/translation-catalog.json")
 }
 
@@ -213,14 +213,7 @@ actor TranslationModelCatalogService {
             return baseDirectoryURLOverride
         }
 
-        guard let applicationSupportURL = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw TranslationError.installationFailed("Unable to locate Application Support directory.")
-        }
-
-        return applicationSupportURL.appendingPathComponent("TranslationModels", isDirectory: true)
+        return try ModelStoragePaths.baseDirectoryURL(for: .translation)
     }
 
     private func ensureBaseDirectoryExists() throws {

@@ -144,7 +144,6 @@ final class HomeViewModelTextToSpeechTests: XCTestCase {
                 userDefaults: UserDefaults(suiteName: "HomeViewModelTextToSpeechTests.\(UUID().uuidString)") ?? .standard
             ),
             translationService: StubTranslationService(),
-            translationModelInstaller: translationInstaller,
             speechRecognitionService: StubSpeechRecognitionService(),
             textToSpeechService: textToSpeechService,
             speechModelInstaller: speechInstaller,
@@ -232,11 +231,7 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
             steps: [
                 TranslationRouteStep(
                     source: source,
-                    target: target,
-                    packageId: "\(source.rawValue)-\(target.rawValue)",
-                    archiveSize: 1,
-                    installedSize: 1,
-                    isInstalled: true
+                    target: target
                 )
             ]
         )

@@ -14,13 +14,16 @@ struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
     let archiveSize: Int64
     let installedSize: Int64
 
-    init(route: TranslationRoute) {
-        let missingSteps = route.missingSteps
-        self.packageIds = missingSteps.map(\.packageId)
-        self.sourceLanguage = route.source
-        self.targetLanguage = route.target
-        self.archiveSize = missingSteps.reduce(0) { $0 + $1.archiveSize }
-        self.installedSize = missingSteps.reduce(0) { $0 + $1.installedSize }
+    init(
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
+        requirement: TranslationModelDownloadRequirement
+    ) {
+        self.packageIds = requirement.packageIds
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
+        self.archiveSize = requirement.archiveSize
+        self.installedSize = requirement.installedSize
     }
 
     var id: String {

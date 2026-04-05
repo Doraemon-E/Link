@@ -25,7 +25,7 @@ final class TranslationPipelineGoldenTests: XCTestCase {
         )
         let installer = TranslationModelInstaller(catalogService: catalogService)
         self.installer = installer
-        self.translationService = MarianTranslationService(installer: installer)
+        self.translationService = MarianTranslationService(modelAccess: installer)
         self.testCases = try TranslationGoldenCaseStore.load()
     }
 
@@ -91,8 +91,10 @@ final class TranslationPipelineGoldenTests: XCTestCase {
             target: testCase.targetLanguage
         )
 
-        if initialRoute.requiresModelDownload {
-            let missingPackageIDs = initialRoute.missingSteps.map(\.packageId)
+        let initialRequirement = try await installer.downloadRequirement(for: initialRoute)
+
+        if !initialRequirement.isReady {
+            let missingPackageIDs = initialRequirement.packageIds
 
             if Self.autoInstallModels {
                 for packageID in missingPackageIDs {
@@ -144,8 +146,7 @@ final class TranslationPipelineGoldenTests: XCTestCase {
         }
 
         return route.steps.map { step in
-            let installState = step.isInstalled ? "installed" : "missing"
-            return "\(step.source.displayName)->\(step.target.displayName) [\(step.packageId)] \(installState)"
+            "\(step.source.displayName)->\(step.target.displayName)"
         }
         .joined(separator: " | ")
     }

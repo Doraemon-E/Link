@@ -61,7 +61,6 @@ final class HomeViewModel {
     var speechResumeRequestToken = 0
 
     @ObservationIgnored private let translationService: TranslationService
-    @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let textToSpeechService: TextToSpeechService
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
@@ -88,7 +87,6 @@ final class HomeViewModel {
     init(
         appSettings: AppSettings,
         translationService: TranslationService,
-        translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
         speechModelInstaller: SpeechModelInstaller,
@@ -97,7 +95,6 @@ final class HomeViewModel {
     ) {
         self.appSettings = appSettings
         self.translationService = translationService
-        self.translationModelInstaller = translationModelInstaller
         self.speechRecognitionService = speechRecognitionService
         self.textToSpeechService = textToSpeechService
         self.speechModelInstaller = speechModelInstaller
@@ -105,6 +102,7 @@ final class HomeViewModel {
         self.microphoneRecordingService = microphoneRecordingService
         self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
+            translationModelAvailabilityProvider: modelDownloadCenter,
             speechStreamingService: speechRecognitionService as? any SpeechRecognitionStreamingService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
@@ -197,17 +195,29 @@ final class HomeViewModel {
             return
         }
 
-        submitMessage(
-            text: trimmedText,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: selectedLanguage,
-            audioURL: nil,
-            speechContent: nil,
-            translationOrigin: .manual,
-            using: modelContext,
-            sessions: sessions,
-            clearInput: true
-        )
+        let source = sourceLanguage
+        let target = selectedLanguage
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if let prompt = await self.downloadPromptIfNeeded(source: source, target: target) {
+                self.presentTranslationDownloadPrompt(prompt)
+                return
+            }
+
+            self.submitMessage(
+                text: trimmedText,
+                sourceLanguage: source,
+                targetLanguage: target,
+                audioURL: nil,
+                speechContent: nil,
+                translationOrigin: .manual,
+                using: modelContext,
+                sessions: sessions,
+                clearInput: true
+            )
+        }
     }
 
     func resolveLanguageSelection(
@@ -215,13 +225,22 @@ final class HomeViewModel {
         target: HomeLanguage
     ) async -> HomeLanguageSelectionResolution {
         do {
-            let route = try await translationService.route(source: source, target: target)
+            let requirement = try await translationDownloadRequirement(
+                source: source,
+                target: target
+            )
 
-            if !route.requiresModelDownload {
+            if requirement.isReady {
                 return .ready
             }
 
-            return .requiresDownload(HomeLanguageDownloadPrompt(route: route))
+            return .requiresDownload(
+                HomeLanguageDownloadPrompt(
+                    sourceLanguage: source,
+                    targetLanguage: target,
+                    requirement: requirement
+                )
+            )
         } catch let error as TranslationError {
             return .failure(error.userFacingMessage)
         } catch {
@@ -271,6 +290,12 @@ final class HomeViewModel {
 
     func dismissDownloadPrompt() {
         activeDownloadPrompt = nil
+    }
+
+    func presentTranslationDownloadPrompt(_ prompt: HomeLanguageDownloadPrompt) {
+        downloadableLanguagePrompt = prompt
+        deferredDownloadPrompt = nil
+        activeDownloadPrompt = prompt
     }
 
     func dismissSpeechDownloadPrompt() {
@@ -476,6 +501,24 @@ final class HomeViewModel {
                 fallbackSourceLanguage: liveSession.fallbackSourceLanguage,
                 targetLanguage: liveSession.targetLanguage
             )
+            if let prompt = try await translationDownloadPrompt(
+                source: effectiveSourceLanguage,
+                target: liveSession.targetLanguage
+            ) {
+                presentTranslationDownloadPrompt(prompt)
+                finalizeLiveSpeechSession(
+                    transcript: transcribedText,
+                    translatedText: TranslationError.modelNotInstalled(
+                        source: effectiveSourceLanguage,
+                        target: liveSession.targetLanguage
+                    ).userFacingMessage,
+                    sourceLanguage: effectiveSourceLanguage,
+                    audioURL: recordingResult.preservedRecordingURL?.absoluteString,
+                    using: modelContext
+                )
+                return
+            }
+
             let translatedText = try await translationService.translate(
                 text: transcribedText,
                 source: effectiveSourceLanguage,
@@ -1348,11 +1391,41 @@ final class HomeViewModel {
         targetLanguage: HomeLanguage
     ) async throws -> HomeLanguage {
         if let detectedLanguage = HomeLanguage.fromWhisperLanguageCode(detectedLanguageCode),
-           try await translationService.supports(source: detectedLanguage, target: targetLanguage) {
+           await isTranslationReady(
+               source: detectedLanguage,
+               target: targetLanguage
+           ) {
             return detectedLanguage
         }
 
         return fallbackSourceLanguage
+    }
+
+    private func translationDownloadRequirement(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async throws -> TranslationModelDownloadRequirement {
+        let route = try await translationService.route(source: source, target: target)
+        return try await modelDownloadCenter.translationModelDownloadRequirement(for: route)
+    }
+
+    private func translationDownloadPrompt(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async throws -> HomeLanguageDownloadPrompt? {
+        let requirement = try await translationDownloadRequirement(
+            source: source,
+            target: target
+        )
+        guard !requirement.isReady else {
+            return nil
+        }
+
+        return HomeLanguageDownloadPrompt(
+            sourceLanguage: source,
+            targetLanguage: target,
+            requirement: requirement
+        )
     }
 
     private func downloadPromptIfNeeded(
@@ -1360,15 +1433,21 @@ final class HomeViewModel {
         target: HomeLanguage
     ) async -> HomeLanguageDownloadPrompt? {
         do {
-            let route = try await translationService.route(source: source, target: target)
-
-            if !route.requiresModelDownload {
-                return nil
-            }
-
-            return HomeLanguageDownloadPrompt(route: route)
+            return try await translationDownloadPrompt(source: source, target: target)
         } catch {
             return nil
+        }
+    }
+
+    private func isTranslationReady(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async -> Bool {
+        do {
+            let route = try await translationService.route(source: source, target: target)
+            return try await modelDownloadCenter.areTranslationModelsReady(for: route)
+        } catch {
+            return false
         }
     }
 

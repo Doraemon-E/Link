@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum SpeechModelHostingConfiguration {
+nonisolated enum SpeechModelHostingConfiguration {
     static let remoteCatalogURL = URL(string: "https://link.hackerapp.site/link/speech/speech-catalog.json")
 }
 

@@ -9,13 +9,13 @@ import CryptoKit
 import Foundation
 import ZIPFoundation
 
-struct TranslationModelInstallation {
+nonisolated struct TranslationModelInstallation {
     let package: TranslationModelPackage
     let manifest: TranslationModelManifest
     let modelDirectoryURL: URL
 }
 
-actor TranslationModelInstaller {
+actor TranslationModelInstaller: TranslationModelAccessing {
     private struct RawMarianConfig: Decodable {
         let bosTokenId: Int?
         let eosTokenId: Int?
@@ -72,11 +72,14 @@ actor TranslationModelInstaller {
     }
 
     private let catalogService: TranslationModelCatalogService
+    private let baseDirectoryURLOverride: URL?
 
     init(
-        catalogService: TranslationModelCatalogService
+        catalogService: TranslationModelCatalogService,
+        baseDirectoryURLOverride: URL? = nil
     ) {
         self.catalogService = catalogService
+        self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
     func warmUpCatalog() async {
@@ -158,6 +161,38 @@ actor TranslationModelInstaller {
         }
 
         return summaries
+    }
+
+    func downloadRequirement(
+        for route: TranslationRoute
+    ) async throws -> TranslationModelDownloadRequirement {
+        guard !route.steps.isEmpty else {
+            return .ready
+        }
+
+        var missingPackages: [TranslationModelPackage] = []
+
+        for step in route.steps {
+            guard let package = try await packageMetadata(
+                source: step.source,
+                target: step.target
+            ) else {
+                throw TranslationError.modelPackageUnavailable(
+                    source: step.source,
+                    target: step.target
+                )
+            }
+
+            if try validInstalledPackage(for: package) == nil {
+                missingPackages.append(package)
+            }
+        }
+
+        return TranslationModelDownloadRequirement(missingPackages: missingPackages)
+    }
+
+    func areModelsReady(for route: TranslationRoute) async throws -> Bool {
+        try await downloadRequirement(for: route).isReady
     }
 
     func install(packageId: String) async throws -> TranslationModelInstallation {
@@ -1018,14 +1053,11 @@ actor TranslationModelInstaller {
     }
 
     private func baseDirectoryURL() throws -> URL {
-        guard let applicationSupportURL = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw TranslationError.installationFailed("Unable to locate Application Support directory.")
+        if let baseDirectoryURLOverride {
+            return baseDirectoryURLOverride
         }
 
-        return applicationSupportURL.appendingPathComponent("TranslationModels", isDirectory: true)
+        return try ModelStoragePaths.baseDirectoryURL(for: .translation)
     }
 
     private func makeWorkingDirectory() throws -> URL {

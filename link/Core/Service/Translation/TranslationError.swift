@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum TranslationError: LocalizedError {
+nonisolated enum TranslationError: LocalizedError {
     case installationFailed(String)
     case manifestMissing
     case manifestInvalid(String)

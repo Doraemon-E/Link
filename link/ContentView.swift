@@ -10,7 +10,6 @@ import SwiftUI
 struct ContentView: View {
     let appSettings: AppSettings
     let translationService: TranslationService
-    let translationModelInstaller: TranslationModelInstaller
     let speechRecognitionService: SpeechRecognitionService
     let textToSpeechService: TextToSpeechService
     let speechModelInstaller: SpeechModelInstaller
@@ -21,7 +20,6 @@ struct ContentView: View {
         HomeView(
             appSettings: appSettings,
             translationService: translationService,
-            translationModelInstaller: translationModelInstaller,
             speechRecognitionService: speechRecognitionService,
             textToSpeechService: textToSpeechService,
             speechModelInstaller: speechModelInstaller,
@@ -43,8 +41,7 @@ struct ContentView: View {
     )
     ContentView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "ContentViewPreview") ?? .standard),
-        translationService: MarianTranslationService(installer: installer),
-        translationModelInstaller: installer,
+        translationService: MarianTranslationService(modelAccess: installer),
         speechRecognitionService: WhisperSpeechRecognitionService(installer: speechInstaller),
         textToSpeechService: textToSpeechService,
         speechModelInstaller: speechInstaller,

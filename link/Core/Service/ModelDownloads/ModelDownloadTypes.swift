@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum ModelAssetKind: String, Codable, Sendable {
+nonisolated enum ModelAssetKind: String, Codable, Sendable {
     case translation
     case speech
 
@@ -21,7 +21,7 @@ enum ModelAssetKind: String, Codable, Sendable {
     }
 }
 
-enum ModelDownloadPhase: String, Codable, Sendable {
+nonisolated enum ModelDownloadPhase: String, Codable, Sendable {
     case idle
     case preparing
     case downloading
@@ -53,7 +53,7 @@ enum ModelDownloadPhase: String, Codable, Sendable {
     }
 }
 
-struct ModelDownloadDescriptor: Identifiable, Equatable, Sendable {
+nonisolated struct ModelDownloadDescriptor: Identifiable, Equatable, Sendable {
     let kind: ModelAssetKind
     let packageId: String
     let version: String
@@ -73,7 +73,7 @@ struct ModelDownloadDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
-struct ModelDownloadProgress: Equatable, Sendable {
+nonisolated struct ModelDownloadProgress: Equatable, Sendable {
     let phase: ModelDownloadPhase
     let downloadedBytes: Int64
     let totalBytes: Int64
@@ -129,7 +129,7 @@ struct ModelDownloadProgress: Equatable, Sendable {
     )
 }
 
-struct ModelDownloadItem: Identifiable, Equatable, Sendable {
+nonisolated struct ModelDownloadItem: Identifiable, Equatable, Sendable {
     let descriptor: ModelDownloadDescriptor
     let progress: ModelDownloadProgress
     let errorMessage: String?
@@ -140,7 +140,7 @@ struct ModelDownloadItem: Identifiable, Equatable, Sendable {
     var kind: ModelAssetKind { descriptor.kind }
 }
 
-struct ModelDownloadManagerSummary: Equatable, Sendable {
+nonisolated struct ModelDownloadManagerSummary: Equatable, Sendable {
     let activeCount: Int
     let resumableCount: Int
     let failedCount: Int
@@ -164,14 +164,58 @@ struct ModelDownloadManagerSummary: Equatable, Sendable {
     )
 }
 
-struct ModelDownloadsSnapshot: Equatable, Sendable {
+nonisolated struct ModelDownloadsSnapshot: Equatable, Sendable {
     let items: [ModelDownloadItem]
     let summary: ModelDownloadManagerSummary
 
     static let empty = ModelDownloadsSnapshot(items: [], summary: .empty)
 }
 
-struct TranslationInstalledPackageSummary: Equatable, Sendable {
+nonisolated struct TranslationModelDownloadRequirement: Equatable, Sendable {
+    let missingPackages: [TranslationModelPackage]
+
+    var packageIds: [String] {
+        missingPackages.map(\.packageId)
+    }
+
+    var archiveSize: Int64 {
+        missingPackages.reduce(0) { $0 + $1.archiveSize }
+    }
+
+    var installedSize: Int64 {
+        missingPackages.reduce(0) { $0 + $1.installedSize }
+    }
+
+    var isReady: Bool {
+        missingPackages.isEmpty
+    }
+
+    static let ready = TranslationModelDownloadRequirement(missingPackages: [])
+}
+
+nonisolated protocol TranslationModelAccessing: Sendable {
+    func packageMetadata(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async throws -> TranslationModelPackage?
+
+    func installedPackage(
+        for source: HomeLanguage,
+        target: HomeLanguage
+    ) async throws -> TranslationModelInstallation?
+}
+
+nonisolated protocol TranslationModelAvailabilityProviding: Sendable {
+    func translationModelDownloadRequirement(
+        for route: TranslationRoute
+    ) async throws -> TranslationModelDownloadRequirement
+
+    func areTranslationModelsReady(
+        for route: TranslationRoute
+    ) async throws -> Bool
+}
+
+nonisolated struct TranslationInstalledPackageSummary: Equatable, Sendable {
     let packageId: String
     let version: String
     let sourceLanguage: HomeLanguage?
@@ -181,7 +225,7 @@ struct TranslationInstalledPackageSummary: Equatable, Sendable {
     let installedAt: Date
 }
 
-struct SpeechInstalledPackageSummary: Equatable, Sendable {
+nonisolated struct SpeechInstalledPackageSummary: Equatable, Sendable {
     let packageId: String
     let version: String
     let archiveSize: Int64

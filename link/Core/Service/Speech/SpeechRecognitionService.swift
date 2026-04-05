@@ -7,12 +7,12 @@
 
 import Foundation
 
-struct SpeechRecognitionResult: Sendable {
+nonisolated struct SpeechRecognitionResult: Sendable {
     let text: String
     let detectedLanguage: String?
 }
 
-enum SpeechTranscriptEvent: Sendable, Equatable {
+nonisolated enum SpeechTranscriptEvent: Sendable, Equatable {
     case started
     case partial(text: String, revision: Int, isFinal: Bool, detectedLanguage: HomeLanguage?)
     case completed(text: String, detectedLanguage: HomeLanguage?)
@@ -28,7 +28,7 @@ protocol SpeechRecognitionService: Sendable {
     func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult
 }
 
-enum SpeechRecognitionError: LocalizedError {
+nonisolated enum SpeechRecognitionError: LocalizedError {
     case microphonePermissionDenied
     case microphoneUnavailable
     case recordingInProgress

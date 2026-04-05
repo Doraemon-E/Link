@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
+nonisolated enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     case chinese
     case english
     case japanese

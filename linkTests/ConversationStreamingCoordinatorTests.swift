@@ -250,6 +250,80 @@ final class ConversationStreamingCoordinatorTests: XCTestCase {
         XCTAssertTrue(calls.contains { $0.text == "こんにちは" && $0.source == .japanese && $0.target == .chinese })
     }
 
+    func testLiveSpeechTranslationOnlySwitchesToDetectedLanguageWhenModelsAreReady() async throws {
+        let translationService = StubTranslationService(
+            streamEvents: [],
+            translatedText: "fallback"
+        )
+        translationService.setSupports(.english, target: .chinese, value: true)
+        translationService.setSupports(.japanese, target: .chinese, value: true)
+        let readinessProvider = StubTranslationModelAvailabilityProvider()
+        readinessProvider.setReady(.english, target: .chinese, value: true)
+        readinessProvider.setReady(.japanese, target: .chinese, value: false)
+
+        let speechService = StubSpeechStreamingService(
+            events: [
+                .started,
+                .completed(text: "こんにちは", detectedLanguage: .japanese)
+            ]
+        )
+        let coordinator = LocalConversationStreamingCoordinator(
+            translationService: translationService,
+            translationModelAvailabilityProvider: readinessProvider,
+            speechStreamingService: speechService
+        )
+
+        let stream = await coordinator.startLiveSpeechTranslation(
+            messageID: UUID(),
+            audioStream: emptyAudioStream(),
+            sourceLanguage: .english,
+            targetLanguage: .chinese
+        )
+
+        for try await _ in stream {}
+
+        let calls = await translationService.translationCalls()
+        XCTAssertTrue(calls.contains { $0.text == "こんにちは" && $0.source == .english && $0.target == .chinese })
+        XCTAssertFalse(calls.contains { $0.text == "こんにちは" && $0.source == .japanese && $0.target == .chinese })
+    }
+
+    func testLiveSpeechTranslationSkipsPreviewWhenNoInstalledRouteIsAvailable() async throws {
+        let translationService = StubTranslationService(
+            streamEvents: [],
+            translatedText: ""
+        )
+        translationService.setSupports(.english, target: .chinese, value: true)
+        translationService.setSupports(.japanese, target: .chinese, value: true)
+        let readinessProvider = StubTranslationModelAvailabilityProvider()
+        readinessProvider.setReady(.english, target: .chinese, value: false)
+        readinessProvider.setReady(.japanese, target: .chinese, value: false)
+
+        let speechService = StubSpeechStreamingService(
+            events: [
+                .started,
+                .partial(text: "こんにちは", revision: 1, isFinal: false, detectedLanguage: .japanese),
+                .completed(text: "こんにちは", detectedLanguage: .japanese)
+            ]
+        )
+        let coordinator = LocalConversationStreamingCoordinator(
+            translationService: translationService,
+            translationModelAvailabilityProvider: readinessProvider,
+            speechStreamingService: speechService
+        )
+
+        let stream = await coordinator.startLiveSpeechTranslation(
+            messageID: UUID(),
+            audioStream: emptyAudioStream(),
+            sourceLanguage: .english,
+            targetLanguage: .chinese
+        )
+
+        for try await _ in stream {}
+
+        let calls = await translationService.translationCalls()
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     func testLiveSpeechTranslationPreviewCanCorrectToShorterTranscript() async throws {
         let translationService = StubTranslationService(
             streamEvents: [],
@@ -457,7 +531,16 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
     }
 
     func route(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRoute {
-        TranslationRoute(source: source, target: target, steps: [])
+        lock.lock()
+        let value = supportsByPair["\(source.rawValue)->\(target.rawValue)"] ?? true
+        lock.unlock()
+
+        guard value else {
+            throw TranslationError.unsupportedLanguagePair(source: source, target: target)
+        }
+
+        let steps = source == target ? [] : [TranslationRouteStep(source: source, target: target)]
+        return TranslationRoute(source: source, target: target, steps: steps)
     }
 
     func translate(text: String, source: HomeLanguage, target: HomeLanguage) async throws -> String {
@@ -496,5 +579,61 @@ private final class StubTranslationService: TranslationService, @unchecked Senda
 
             continuation.finish()
         }
+    }
+}
+
+private final class StubTranslationModelAvailabilityProvider: TranslationModelAvailabilityProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var readinessByPair: [String: Bool] = [:]
+
+    func setReady(_ source: HomeLanguage, target: HomeLanguage, value: Bool) {
+        lock.lock()
+        readinessByPair["\(source.rawValue)->\(target.rawValue)"] = value
+        lock.unlock()
+    }
+
+    func translationModelDownloadRequirement(
+        for route: TranslationRoute
+    ) async throws -> TranslationModelDownloadRequirement {
+        guard !route.steps.isEmpty else {
+            return .ready
+        }
+
+        if try await areTranslationModelsReady(for: route) {
+            return .ready
+        }
+
+        return TranslationModelDownloadRequirement(
+            missingPackages: route.steps.map { step in
+                TranslationModelPackage(
+                    packageId: "\(step.source.rawValue)-\(step.target.rawValue)",
+                    version: "1.0.0",
+                    source: step.source.translationModelCode,
+                    target: step.target.translationModelCode,
+                    family: .marian,
+                    archiveURL: URL(string: "https://example.com/\(step.source.rawValue)-\(step.target.rawValue).zip")!,
+                    sha256: "",
+                    archiveSize: 1,
+                    installedSize: 1,
+                    manifestRelativePath: "translation-manifest.json",
+                    minAppVersion: "1.0.0"
+                )
+            }
+        )
+    }
+
+    func areTranslationModelsReady(
+        for route: TranslationRoute
+    ) async throws -> Bool {
+        guard !route.steps.isEmpty else {
+            return true
+        }
+
+        lock.lock()
+        let readiness = route.steps.allSatisfy {
+            readinessByPair["\($0.source.rawValue)->\($0.target.rawValue)"] ?? true
+        }
+        lock.unlock()
+        return readiness
     }
 }

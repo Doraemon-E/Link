@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum ModelStoragePaths {
+nonisolated enum ModelStoragePaths {
     static func applicationSupportDirectoryURL() throws -> URL {
         guard let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -46,7 +46,7 @@ enum ModelStoragePaths {
     }
 }
 
-enum ModelStoragePathError: LocalizedError {
+nonisolated enum ModelStoragePathError: LocalizedError {
     case applicationSupportUnavailable
 
     var errorDescription: String? {

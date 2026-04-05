@@ -73,6 +73,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     }
 
     private let translationService: TranslationService
+    private let translationModelAvailabilityProvider: (any TranslationModelAvailabilityProviding)?
     private let speechStreamingService: (any SpeechRecognitionStreamingService)?
     private var tasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var liveStatesByMessageID: [UUID: LiveUtteranceState] = [:]
@@ -86,9 +87,11 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     init(
         translationService: TranslationService,
+        translationModelAvailabilityProvider: (any TranslationModelAvailabilityProviding)? = nil,
         speechStreamingService: (any SpeechRecognitionStreamingService)? = nil
     ) {
         self.translationService = translationService
+        self.translationModelAvailabilityProvider = translationModelAvailabilityProvider
         self.speechStreamingService = speechStreamingService
     }
 
@@ -136,7 +139,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
             let producer = Task {
                 do {
-                    let initialState = await self.initializeLiveSpeechState(
+                    let initialState = self.initializeLiveSpeechState(
                         messageID: messageID,
                         sourceLanguage: sourceLanguage
                     )
@@ -176,7 +179,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         }
                     }
 
-                    let finalState = await self.currentLiveState(messageID: messageID)
+                    let finalState = self.currentLiveState(messageID: messageID)
                     continuation.yield(.completed(finalState))
                     continuation.finish()
                 } catch is CancellationError {
@@ -185,12 +188,12 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     continuation.finish(throwing: error)
                 }
 
-                await self.clearTask(messageID: messageID)
-                await self.teardownLiveSpeechState(messageID: messageID)
+                self.clearTask(messageID: messageID)
+                self.teardownLiveSpeechState(messageID: messageID)
             }
 
             Task {
-                await self.replaceTask(producer, messageID: messageID)
+                self.replaceTask(producer, messageID: messageID)
             }
 
             continuation.onTermination = { _ in
@@ -265,11 +268,11 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     continuation.finish(throwing: error)
                 }
 
-                await self.clearTask(messageID: messageID)
+                self.clearTask(messageID: messageID)
             }
 
             Task {
-                await self.replaceTask(producer, messageID: messageID)
+                self.replaceTask(producer, messageID: messageID)
             }
 
             continuation.onTermination = { _ in
@@ -299,9 +302,6 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         liveStatesByMessageID[messageID] = state
         liveTranscriptCandidatesByMessageID[messageID] = ""
         liveNextPreviewRequestIDsByMessageID[messageID] = 0
-        if let sourceLanguage {
-            liveResolvedSourceLanguagesByMessageID[messageID] = sourceLanguage
-        }
         return state
     }
 
@@ -414,7 +414,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         if let detectedLanguage {
             let currentResolvedLanguage = liveResolvedSourceLanguagesByMessageID[messageID]
             if currentResolvedLanguage != detectedLanguage,
-               try await translationService.supports(source: detectedLanguage, target: targetLanguage) {
+               try await hasReadyTranslation(source: detectedLanguage, target: targetLanguage) {
                 liveResolvedSourceLanguagesByMessageID[messageID] = detectedLanguage
                 return detectedLanguage
             }
@@ -424,18 +424,37 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
             return resolvedLanguage
         }
 
-        if let preferredSourceLanguage {
+        if let preferredSourceLanguage,
+           try await hasReadyTranslation(source: preferredSourceLanguage, target: targetLanguage) {
             liveResolvedSourceLanguagesByMessageID[messageID] = preferredSourceLanguage
             return preferredSourceLanguage
         }
 
         if let detectedLanguage,
-           try await translationService.supports(source: detectedLanguage, target: targetLanguage) {
+           try await hasReadyTranslation(source: detectedLanguage, target: targetLanguage) {
             liveResolvedSourceLanguagesByMessageID[messageID] = detectedLanguage
             return detectedLanguage
         }
 
         return nil
+    }
+
+    private func hasReadyTranslation(
+        source: HomeLanguage,
+        target: HomeLanguage
+    ) async throws -> Bool {
+        if let translationModelAvailabilityProvider {
+            do {
+                let route = try await translationService.route(source: source, target: target)
+                return try await translationModelAvailabilityProvider.areTranslationModelsReady(
+                    for: route
+                )
+            } catch is TranslationError {
+                return false
+            }
+        }
+
+        return try await translationService.supports(source: source, target: target)
     }
 
     private func scheduleStableTranslation(
@@ -468,7 +487,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                 )
                 try Task.checkCancellation()
 
-                if let state = await self.applyStableTranslation(
+                if let state = self.applyStableTranslation(
                     messageID: messageID,
                     translatedText: translatedText,
                     targetLanguage: targetLanguage

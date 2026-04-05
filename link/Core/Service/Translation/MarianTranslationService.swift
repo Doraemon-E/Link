@@ -31,16 +31,16 @@ actor MarianTranslationService: TranslationService {
         }
     }
 
-    private let installer: TranslationModelInstaller
+    private let modelAccess: any TranslationModelAccessing
     private var environment: ORTEnv?
     private var loadedState: LoadedState?
 
     init(
-        installer: TranslationModelInstaller = TranslationModelInstaller(
+        modelAccess: any TranslationModelAccessing = TranslationModelInstaller(
             catalogService: TranslationModelCatalogService(remoteCatalogURL: nil)
         )
     ) {
-        self.installer = installer
+        self.modelAccess = modelAccess
     }
 
     func supports(source: HomeLanguage, target: HomeLanguage) async throws -> Bool {
@@ -298,24 +298,19 @@ actor MarianTranslationService: TranslationService {
     }
 
     private func routeStep(source: HomeLanguage, target: HomeLanguage) async throws -> TranslationRouteStep? {
-        guard let package = try await installer.packageMetadata(source: source, target: target) else {
+        guard try await modelAccess.packageMetadata(source: source, target: target) != nil else {
             return nil
         }
 
-        let isInstalled = try await installer.isInstalled(source: source, target: target)
         return TranslationRouteStep(
             source: source,
-            target: target,
-            packageId: package.packageId,
-            archiveSize: package.archiveSize,
-            installedSize: package.installedSize,
-            isInstalled: isInstalled
+            target: target
         )
     }
 
     private func loadState(source: HomeLanguage, target: HomeLanguage) async throws -> LoadedState {
-        guard let installation = try await installer.installedPackage(for: source, target: target) else {
-            if try await installer.packageMetadata(source: source, target: target) != nil {
+        guard let installation = try await modelAccess.installedPackage(for: source, target: target) else {
+            if try await modelAccess.packageMetadata(source: source, target: target) != nil {
                 throw TranslationError.modelNotInstalled(source: source, target: target)
             }
 

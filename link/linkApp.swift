@@ -11,7 +11,6 @@ import SwiftData
 @main
 struct linkApp: App {
     private let appSettings: AppSettings
-    private let translationModelInstaller: TranslationModelInstaller
     private let translationService: TranslationService
     private let speechModelInstaller: SpeechModelInstaller
     private let speechRecognitionService: SpeechRecognitionService
@@ -29,8 +28,7 @@ struct linkApp: App {
             speechInstaller: speechInstaller
         )
         self.appSettings = AppSettings()
-        self.translationModelInstaller = installer
-        self.translationService = MarianTranslationService(installer: installer)
+        self.translationService = MarianTranslationService(modelAccess: installer)
         self.speechModelInstaller = speechInstaller
         self.speechRecognitionService = WhisperSpeechRecognitionService(installer: speechInstaller)
         self.textToSpeechService = SystemTextToSpeechService()
@@ -49,7 +47,6 @@ struct linkApp: App {
             ContentView(
                 appSettings: appSettings,
                 translationService: translationService,
-                translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
                 speechModelInstaller: speechModelInstaller,

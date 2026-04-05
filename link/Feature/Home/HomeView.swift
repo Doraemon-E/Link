@@ -17,7 +17,6 @@ struct HomeView: View {
     init(
         appSettings: AppSettings,
         translationService: TranslationService,
-        translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
         speechModelInstaller: SpeechModelInstaller,
@@ -28,7 +27,6 @@ struct HomeView: View {
             initialValue: HomeViewModel(
                 appSettings: appSettings,
                 translationService: translationService,
-                translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
                 speechModelInstaller: speechModelInstaller,
@@ -518,8 +516,7 @@ private struct HomeDownloadToolbarIcon: View {
     )
     HomeView(
         appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
-        translationService: MarianTranslationService(installer: installer),
-        translationModelInstaller: installer,
+        translationService: MarianTranslationService(modelAccess: installer),
         speechRecognitionService: WhisperSpeechRecognitionService(
             installer: speechInstaller
         ),
