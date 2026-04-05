@@ -50,9 +50,11 @@ final class HomeViewModel {
     var isTranscribingSpeech = false
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
     var speechErrorMessage: String?
+    var ttsErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
     var lastSpeechRecordingURL: URL?
     var isPlayingLastSpeechRecording = false
+    var speakingMessageID: UUID?
     var streamingStatesByMessageID: [UUID: StreamingMessageState] = [:]
     var downloadManagerItems: [ModelDownloadItem] = []
     var downloadManagerSummary: ModelDownloadManagerSummary = .empty
@@ -61,6 +63,7 @@ final class HomeViewModel {
     @ObservationIgnored private let translationService: TranslationService
     @ObservationIgnored private let translationModelInstaller: TranslationModelInstaller
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
+    @ObservationIgnored private let textToSpeechService: TextToSpeechService
     @ObservationIgnored private let speechModelInstaller: SpeechModelInstaller
     @ObservationIgnored private let modelDownloadCenter: ModelDownloadCenter
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
@@ -71,9 +74,11 @@ final class HomeViewModel {
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
     @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var textToSpeechObservationTask: Task<Void, Never>?
     @ObservationIgnored private var downloadMilestoneSignature = ""
     @ObservationIgnored private var pendingSpeechResumePackageID: String?
     @ObservationIgnored private var liveSpeechSession: LiveSpeechSession?
+    @ObservationIgnored private var requestedTextToSpeechMessageID: UUID?
 
     private enum TranslationRequestOrigin {
         case manual
@@ -85,6 +90,7 @@ final class HomeViewModel {
         translationService: TranslationService,
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
+        textToSpeechService: TextToSpeechService,
         speechModelInstaller: SpeechModelInstaller,
         modelDownloadCenter: ModelDownloadCenter,
         microphoneRecordingService: MicrophoneRecordingService
@@ -93,6 +99,7 @@ final class HomeViewModel {
         self.translationService = translationService
         self.translationModelInstaller = translationModelInstaller
         self.speechRecognitionService = speechRecognitionService
+        self.textToSpeechService = textToSpeechService
         self.speechModelInstaller = speechModelInstaller
         self.modelDownloadCenter = modelDownloadCenter
         self.microphoneRecordingService = microphoneRecordingService
@@ -102,6 +109,7 @@ final class HomeViewModel {
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
         startObservingDownloads()
+        startObservingTextToSpeech()
     }
 
     func onAppear(using modelContext: ModelContext, sessions: [ChatSession]) {
@@ -169,10 +177,12 @@ final class HomeViewModel {
 
     func startNewSession() {
         guard !isDraftSession else { return }
+        stopMessageSpeechPlayback()
         sessionPresentation = .draft
     }
 
     func selectSession(id sessionID: UUID) {
+        stopMessageSpeechPlayback()
         sessionPresentation = .persisted(sessionID)
         isChatInputFocused = false
 
@@ -320,14 +330,92 @@ final class HomeViewModel {
         }
     }
 
+    func shouldShowMessageSpeechButton(for message: ChatMessage) -> Bool {
+        guard message.sender == .assistant else {
+            return false
+        }
+
+        guard streamingState(for: message)?.isActive != true else {
+            return false
+        }
+
+        return !(message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    func isMessageSpeechPlaybackDisabled(for message: ChatMessage) -> Bool {
+        guard shouldShowMessageSpeechButton(for: message) else {
+            return true
+        }
+
+        return isRecordingSpeech || isTranscribingSpeech
+    }
+
+    func isSpeakingMessage(_ message: ChatMessage) -> Bool {
+        speakingMessageID == message.id
+    }
+
+    func toggleMessageSpeechPlayback(message: ChatMessage) {
+        guard shouldShowMessageSpeechButton(for: message) else {
+            return
+        }
+
+        if speakingMessageID == message.id {
+            stopMessageSpeechPlayback()
+            return
+        }
+
+        guard let language = playbackLanguage(for: message) else {
+            ttsErrorMessage = "无法确定这条消息的朗读语言。"
+            return
+        }
+
+        stopLastSpeechRecordingPlayback()
+        if speakingMessageID != nil {
+            textToSpeechService.stop()
+        }
+
+        let messageID = message.id
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        requestedTextToSpeechMessageID = messageID
+        speakingMessageID = messageID
+        ttsErrorMessage = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard self.requestedTextToSpeechMessageID == messageID else { return }
+
+            do {
+                try await self.textToSpeechService.speak(
+                    text: text,
+                    language: language,
+                    messageID: messageID
+                )
+            } catch let error as TextToSpeechError {
+                if self.requestedTextToSpeechMessageID == messageID {
+                    self.requestedTextToSpeechMessageID = nil
+                }
+                if self.speakingMessageID == messageID {
+                    self.speakingMessageID = nil
+                }
+                self.ttsErrorMessage = error.userFacingMessage
+            } catch {
+                if self.requestedTextToSpeechMessageID == messageID {
+                    self.requestedTextToSpeechMessageID = nil
+                }
+                if self.speakingMessageID == messageID {
+                    self.speakingMessageID = nil
+                }
+                self.ttsErrorMessage = "语音播放失败，请稍后再试。"
+            }
+        }
+    }
+
     func startSpeechRecording(using modelContext: ModelContext, sessions: [ChatSession]) async {
         guard !isRecordingSpeech, !isTranscribingSpeech, !isInstallingSpeechModel else {
             return
         }
 
-        stopLastSpeechRecordingPlayback()
-        speechErrorMessage = nil
-        pendingVoiceStartAfterInstall = false
+        prepareForSpeechRecording()
 
         do {
             let audioStream = try await microphoneRecordingService.startStreamingRecording()
@@ -396,6 +484,7 @@ final class HomeViewModel {
             finalizeLiveSpeechSession(
                 transcript: transcribedText,
                 translatedText: translatedText,
+                sourceLanguage: effectiveSourceLanguage,
                 audioURL: recordingResult.preservedRecordingURL?.absoluteString,
                 using: modelContext
             )
@@ -427,6 +516,8 @@ final class HomeViewModel {
             stopLastSpeechRecordingPlayback()
             return
         }
+
+        stopMessageSpeechPlayback()
 
         do {
             let player = try AVAudioPlayer(contentsOf: lastSpeechRecordingURL)
@@ -466,6 +557,14 @@ final class HomeViewModel {
 
     var hasLastSpeechRecording: Bool {
         lastSpeechRecordingURL != nil
+    }
+
+    func prepareForSpeechRecording() {
+        stopMessageSpeechPlayback()
+        stopLastSpeechRecordingPlayback()
+        speechErrorMessage = nil
+        ttsErrorMessage = nil
+        pendingVoiceStartAfterInstall = false
     }
 
     func installSpeechModelAndResumeIfNeeded(
@@ -648,6 +747,20 @@ final class HomeViewModel {
         }
     }
 
+    private func startObservingTextToSpeech() {
+        guard textToSpeechObservationTask == nil else {
+            return
+        }
+
+        let stream = textToSpeechService.playbackEvents()
+        textToSpeechObservationTask = Task { @MainActor [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                self.handleTextToSpeechPlaybackEvent(event)
+            }
+        }
+    }
+
     private func handleDownloadMilestones(for snapshot: ModelDownloadsSnapshot) {
         let milestoneSignature = snapshot.items
             .map { "\($0.id):\($0.progress.phase.rawValue):\($0.isInstalled)" }
@@ -693,6 +806,50 @@ final class HomeViewModel {
         }
     }
 
+    private func stopMessageSpeechPlayback() {
+        requestedTextToSpeechMessageID = nil
+        speakingMessageID = nil
+        textToSpeechService.stop()
+    }
+
+    private func playbackLanguage(for message: ChatMessage) -> HomeLanguage? {
+        if let language = message.language {
+            return language
+        }
+
+        switch message.sender {
+        case .assistant:
+            return message.session?.targetLanguage ?? selectedLanguage
+        case .user:
+            return message.session?.sourceLanguage ?? sourceLanguage
+        }
+    }
+
+    private func handleTextToSpeechPlaybackEvent(_ event: TextToSpeechPlaybackEvent) {
+        switch event {
+        case .started(let messageID):
+            guard requestedTextToSpeechMessageID == messageID || speakingMessageID == messageID else {
+                return
+            }
+            speakingMessageID = messageID
+        case .finished(let messageID), .cancelled(let messageID):
+            if requestedTextToSpeechMessageID == messageID {
+                requestedTextToSpeechMessageID = nil
+            }
+            if speakingMessageID == messageID {
+                speakingMessageID = nil
+            }
+        case .failed(let messageID, let message):
+            if requestedTextToSpeechMessageID == messageID {
+                requestedTextToSpeechMessageID = nil
+            }
+            if speakingMessageID == messageID {
+                speakingMessageID = nil
+            }
+            ttsErrorMessage = message
+        }
+    }
+
     private func scheduleAutoStopSpeechTask(using modelContext: ModelContext, sessions: [ChatSession]) {
         autoStopSpeechTask?.cancel()
         autoStopSpeechTask = Task { @MainActor [weak self] in
@@ -729,6 +886,8 @@ final class HomeViewModel {
         )
         let assistantMessageID = insertConversationExchange(
             text: trimmedText,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
             audioURL: audioURL,
             speechContent: speechContent,
             into: session,
@@ -788,6 +947,8 @@ final class HomeViewModel {
 
     private func insertConversationExchange(
         text: String,
+        sourceLanguage: HomeLanguage,
+        targetLanguage: HomeLanguage,
         audioURL: String?,
         speechContent: String?,
         into session: ChatSession,
@@ -798,6 +959,7 @@ final class HomeViewModel {
         let userMessage = ChatMessage(
             sender: .user,
             text: text,
+            language: sourceLanguage,
             audioURL: audioURL,
             speechContent: speechContent,
             createdAt: now,
@@ -807,6 +969,7 @@ final class HomeViewModel {
         let assistantMessage = ChatMessage(
             sender: .assistant,
             text: "",
+            language: targetLanguage,
             createdAt: now.addingTimeInterval(0.001),
             sequence: nextSequence + 1,
             session: session
@@ -837,6 +1000,7 @@ final class HomeViewModel {
         let userMessage = ChatMessage(
             sender: .user,
             text: "",
+            language: sourceLanguage,
             createdAt: now,
             sequence: nextSequence,
             session: session
@@ -844,6 +1008,7 @@ final class HomeViewModel {
         let assistantMessage = ChatMessage(
             sender: .assistant,
             text: "",
+            language: targetLanguage,
             createdAt: now.addingTimeInterval(0.001),
             sequence: nextSequence + 1,
             session: session
@@ -1073,6 +1238,7 @@ final class HomeViewModel {
     private func finalizeLiveSpeechSession(
         transcript: String,
         translatedText: String,
+        sourceLanguage: HomeLanguage,
         audioURL: String?,
         using modelContext: ModelContext
     ) {
@@ -1084,9 +1250,11 @@ final class HomeViewModel {
         let normalizedTranslation = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         liveSpeechSession.userMessage.text = normalizedTranscript
+        liveSpeechSession.userMessage.language = sourceLanguage
         liveSpeechSession.userMessage.speechContent = normalizedTranscript
         liveSpeechSession.userMessage.audioURL = audioURL
         liveSpeechSession.assistantMessage.text = normalizedTranslation
+        liveSpeechSession.assistantMessage.language = liveSpeechSession.targetLanguage
         liveSpeechSession.session.updatedAt = .now
 
         streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.userMessage.id)
@@ -1164,6 +1332,7 @@ final class HomeViewModel {
             finalizeLiveSpeechSession(
                 transcript: fallback.transcript,
                 translatedText: fallback.translation,
+                sourceLanguage: liveSpeechSession.latestState.detectedLanguage ?? liveSpeechSession.fallbackSourceLanguage,
                 audioURL: lastSpeechRecordingURL?.absoluteString,
                 using: modelContext
             )

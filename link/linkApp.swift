@@ -15,6 +15,7 @@ struct linkApp: App {
     private let translationService: TranslationService
     private let speechModelInstaller: SpeechModelInstaller
     private let speechRecognitionService: SpeechRecognitionService
+    private let textToSpeechService: TextToSpeechService
     private let modelDownloadCenter: ModelDownloadCenter
     private let microphoneRecordingService: MicrophoneRecordingService
 
@@ -32,6 +33,7 @@ struct linkApp: App {
         self.translationService = MarianTranslationService(installer: installer)
         self.speechModelInstaller = speechInstaller
         self.speechRecognitionService = WhisperSpeechRecognitionService(installer: speechInstaller)
+        self.textToSpeechService = SystemTextToSpeechService()
         self.modelDownloadCenter = downloadCenter
         self.microphoneRecordingService = MicrophoneRecordingService()
 
@@ -49,6 +51,7 @@ struct linkApp: App {
                 translationService: translationService,
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
+                textToSpeechService: textToSpeechService,
                 speechModelInstaller: speechModelInstaller,
                 modelDownloadCenter: modelDownloadCenter,
                 microphoneRecordingService: microphoneRecordingService

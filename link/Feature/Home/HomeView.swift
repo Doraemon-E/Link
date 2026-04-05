@@ -19,6 +19,7 @@ struct HomeView: View {
         translationService: TranslationService,
         translationModelInstaller: TranslationModelInstaller,
         speechRecognitionService: SpeechRecognitionService,
+        textToSpeechService: TextToSpeechService,
         speechModelInstaller: SpeechModelInstaller,
         modelDownloadCenter: ModelDownloadCenter,
         microphoneRecordingService: MicrophoneRecordingService
@@ -29,6 +30,7 @@ struct HomeView: View {
                 translationService: translationService,
                 translationModelInstaller: translationModelInstaller,
                 speechRecognitionService: speechRecognitionService,
+                textToSpeechService: textToSpeechService,
                 speechModelInstaller: speechModelInstaller,
                 modelDownloadCenter: modelDownloadCenter,
                 microphoneRecordingService: microphoneRecordingService
@@ -232,6 +234,21 @@ struct HomeView: View {
         } message: {
             Text(viewModel.speechErrorMessage ?? "")
         }
+        .alert(
+            "语音播放失败",
+            isPresented: Binding(
+                get: { viewModel.ttsErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.ttsErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(viewModel.ttsErrorMessage ?? "")
+        }
         .task {
             await viewModel.refreshDownloadAvailabilityForCurrentSelection()
         }
@@ -340,7 +357,13 @@ struct HomeView: View {
                 ForEach(displayedMessages, id: \.id) { message in
                     HomeChatMessageBubble(
                         message: message,
-                        streamingState: viewModel.streamingState(for: message)
+                        streamingState: viewModel.streamingState(for: message),
+                        showsSpeechPlaybackButton: viewModel.shouldShowMessageSpeechButton(for: message),
+                        isSpeakingMessage: viewModel.isSpeakingMessage(message),
+                        isSpeechPlaybackDisabled: viewModel.isMessageSpeechPlaybackDisabled(for: message),
+                        onSpeechPlayback: {
+                            viewModel.toggleMessageSpeechPlayback(message: message)
+                        }
                     )
                         .id(message.id)
                 }
@@ -500,6 +523,7 @@ private struct HomeDownloadToolbarIcon: View {
         speechRecognitionService: WhisperSpeechRecognitionService(
             installer: speechInstaller
         ),
+        textToSpeechService: SystemTextToSpeechService(),
         speechModelInstaller: speechInstaller,
         modelDownloadCenter: ModelDownloadCenter(
             translationInstaller: installer,

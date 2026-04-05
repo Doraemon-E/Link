@@ -135,6 +135,29 @@ enum HomeLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
+    var ttsLocaleIdentifier: String {
+        switch self {
+        case .chinese:
+            return "zh-CN"
+        case .english:
+            return "en-US"
+        case .japanese:
+            return "ja-JP"
+        case .korean:
+            return "ko-KR"
+        case .french:
+            return "fr-FR"
+        case .german:
+            return "de-DE"
+        case .russian:
+            return "ru-RU"
+        case .spanish:
+            return "es-ES"
+        case .italian:
+            return "it-IT"
+        }
+    }
+
     static func fromWhisperLanguageCode(_ code: String?) -> HomeLanguage? {
         guard let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !normalizedCode.isEmpty else {

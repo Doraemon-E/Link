@@ -10,6 +10,10 @@ import SwiftUI
 struct HomeChatMessageBubble: View {
     let message: ChatMessage
     let streamingState: StreamingMessageState?
+    let showsSpeechPlaybackButton: Bool
+    let isSpeakingMessage: Bool
+    let isSpeechPlaybackDisabled: Bool
+    let onSpeechPlayback: () -> Void
 
     var body: some View {
         HStack {
@@ -29,12 +33,7 @@ struct HomeChatMessageBubble: View {
                     )
                     .frame(maxWidth: 280, alignment: isUserMessage ? .trailing : .leading)
 
-                if let statusText, !isUserMessage {
-                    Text(statusText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                }
+                footer
             }
 
             if !isUserMessage {
@@ -78,6 +77,31 @@ struct HomeChatMessageBubble: View {
         }
 
         return streamingState.statusText
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if !isUserMessage, showsSpeechPlaybackButton || statusText != nil {
+            HStack(spacing: 8) {
+                if showsSpeechPlaybackButton {
+                    Button(action: onSpeechPlayback) {
+                        Image(systemName: isSpeakingMessage ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(isSpeakingMessage ? Color.accentColor : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSpeechPlaybackDisabled)
+                    .accessibilityLabel(isSpeakingMessage ? "停止语音播放" : "播放译文语音")
+                }
+
+                if let statusText {
+                    Text(statusText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
     }
 
     private var bubbleColor: Color {
