@@ -37,16 +37,7 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		55D53EC42F8016B3002A3BC9 /* link */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = link;
-			sourceTree = "<group>";
-		};
-		A1B2C3D4E5F6000000000013 /* link/Resource */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			path = link/Resource;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -68,7 +59,6 @@
 			isa = PBXGroup;
 			children = (
 				55D53EC42F8016B3002A3BC9 /* link */,
-				A1B2C3D4E5F6000000000013 /* link/Resource */,
 				55D53EC32F8016B3002A3BC9 /* Products */,
 				947C3C8CEAABE6A6EE64D87F /* Pods */,
 				CB7C70F44E136232AFD5BF0F /* Frameworks */,
@@ -202,9 +192,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
