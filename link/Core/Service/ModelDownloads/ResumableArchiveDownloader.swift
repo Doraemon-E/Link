@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct PersistedModelDownloadState: Codable, Equatable, Sendable {
+nonisolated struct PersistedModelDownloadState: Codable, Equatable, Sendable {
     let packageId: String
     let archiveURL: URL
     let archiveSize: Int64
@@ -17,14 +17,14 @@ struct PersistedModelDownloadState: Codable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-struct RemoteArchiveMetadata: Equatable, Sendable {
+nonisolated struct RemoteArchiveMetadata: Equatable, Sendable {
     let contentLength: Int64
     let etag: String?
     let lastModified: String?
     let acceptsByteRanges: Bool
 }
 
-enum ResumableArchiveDownloaderError: LocalizedError {
+nonisolated enum ResumableArchiveDownloaderError: LocalizedError {
     case invalidResponse(String)
     case missingContentLength
     case metadataMismatch(String)
@@ -50,14 +50,17 @@ enum ResumableArchiveDownloaderError: LocalizedError {
 actor ResumableArchiveDownloader {
     private let chunkSize: Int64
     private let retryDelays: [UInt64]
+    private let progressPollIntervalNanoseconds: UInt64
     private let session: URLSession
 
     init(
         chunkSize: Int64 = 8 * 1_024 * 1_024,
-        retryDelays: [UInt64] = [1, 2, 4, 8, 16]
+        retryDelays: [UInt64] = [1, 2, 4, 8, 16],
+        progressPollIntervalNanoseconds: UInt64 = 1_000_000_000
     ) {
         self.chunkSize = chunkSize
         self.retryDelays = retryDelays
+        self.progressPollIntervalNanoseconds = progressPollIntervalNanoseconds
 
         let configuration = URLSessionConfiguration.default
         configuration.allowsCellularAccess = true
@@ -163,6 +166,12 @@ actor ResumableArchiveDownloader {
             max(metadata.contentLength, descriptor.archiveSize)
         )
         var downloadedBytes = existingBytes
+        let progressReporter = DownloadProgressReporter(
+            initialDownloadedBytes: downloadedBytes,
+            totalBytes: metadata.contentLength,
+            minimumEmissionInterval: Double(progressPollIntervalNanoseconds) / 1_000_000_000,
+            progressHandler: progressHandler
+        )
 
         if let state = try loadPersistedState(for: descriptor),
            state.downloadedBytes != downloadedBytes {
@@ -200,7 +209,8 @@ actor ResumableArchiveDownloader {
                 metadata: metadata,
                 start: downloadedBytes,
                 end: rangeEnd,
-                allowAutomaticRestart: allowAutomaticRestart
+                allowAutomaticRestart: allowAutomaticRestart,
+                progressReporter: progressReporter
             )
 
             try append(chunkData, to: partialArchiveURL)
@@ -217,15 +227,6 @@ actor ResumableArchiveDownloader {
                     updatedAt: .now
                 ),
                 to: stateURL
-            )
-
-            await progressHandler(
-                ModelDownloadProgress(
-                    phase: .downloading,
-                    downloadedBytes: downloadedBytes,
-                    totalBytes: metadata.contentLength,
-                    isResumable: downloadedBytes > 0 && downloadedBytes < metadata.contentLength
-                )
             )
         }
 
@@ -294,7 +295,8 @@ actor ResumableArchiveDownloader {
         metadata: RemoteArchiveMetadata,
         start: Int64,
         end: Int64,
-        allowAutomaticRestart: Bool
+        allowAutomaticRestart: Bool,
+        progressReporter: DownloadProgressReporter
     ) async throws -> Data {
         for (index, delaySeconds) in retryDelays.enumerated() {
             do {
@@ -303,13 +305,17 @@ actor ResumableArchiveDownloader {
                     metadata: metadata,
                     start: start,
                     end: end,
-                    allowAutomaticRestart: allowAutomaticRestart
+                    allowAutomaticRestart: allowAutomaticRestart,
+                    progressHandler: { receivedBytes in
+                        await progressReporter.report(totalDownloadedBytes: start + receivedBytes)
+                    }
                 )
             } catch {
                 guard index < retryDelays.count - 1 else {
                     throw error
                 }
 
+                await progressReporter.resetToCommittedBaseline(totalDownloadedBytes: start)
                 try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
             }
         }
@@ -322,7 +328,8 @@ actor ResumableArchiveDownloader {
         metadata: RemoteArchiveMetadata,
         start: Int64,
         end: Int64,
-        allowAutomaticRestart: Bool
+        allowAutomaticRestart: Bool,
+        progressHandler: @escaping @Sendable (Int64) async -> Void
     ) async throws -> Data {
         var request = URLRequest(url: descriptor.archiveURL)
         request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
@@ -331,7 +338,7 @@ actor ResumableArchiveDownloader {
             request.setValue(etag, forHTTPHeaderField: "If-Range")
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ResumableArchiveDownloaderError.invalidResponse("The server returned an invalid chunk response.")
@@ -346,9 +353,38 @@ actor ResumableArchiveDownloader {
                 )
             }
 
+            let expectedLength = end - start + 1
+            let data = try await collectChunkData(
+                from: bytes,
+                expectedByteCount: expectedLength,
+                progressHandler: progressHandler
+            )
+            guard Int64(data.count) == expectedLength else {
+                throw ResumableArchiveDownloaderError.invalidResponse(
+                    "The server returned an incomplete byte range."
+                )
+            }
             return data
-        case 200 where start == 0 && Int64(data.count) == metadata.contentLength:
-            return data
+        case 200:
+            let data = try await collectChunkData(
+                from: bytes,
+                expectedByteCount: metadata.contentLength,
+                progressHandler: progressHandler
+            )
+            if start == 0 && Int64(data.count) == metadata.contentLength {
+                return data
+            }
+
+            if allowAutomaticRestart {
+                try resetPersistedDownload(for: descriptor)
+                throw ResumableArchiveDownloaderError.metadataMismatch(
+                    "The remote archive changed while downloading. Please retry."
+                )
+            }
+
+            throw ResumableArchiveDownloaderError.invalidResponse(
+                "The server returned an unexpected full archive response."
+            )
         case 416 where allowAutomaticRestart:
             try resetPersistedDownload(for: descriptor)
             throw ResumableArchiveDownloaderError.metadataMismatch(
@@ -366,6 +402,38 @@ actor ResumableArchiveDownloader {
                 "The server returned HTTP \(httpResponse.statusCode)."
             )
         }
+    }
+
+    private func collectChunkData(
+        from bytes: URLSession.AsyncBytes,
+        expectedByteCount: Int64,
+        progressHandler: @escaping @Sendable (Int64) async -> Void
+    ) async throws -> Data {
+        var data = Data()
+        if expectedByteCount > 0, expectedByteCount <= Int64(Int.max) {
+            data.reserveCapacity(Int(expectedByteCount))
+        }
+
+        let reportThreshold: Int64 = 64 * 1_024
+        var receivedBytes: Int64 = 0
+        var lastReportedBytes: Int64 = 0
+
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            data.append(byte)
+            receivedBytes += 1
+
+            if receivedBytes - lastReportedBytes >= reportThreshold {
+                lastReportedBytes = receivedBytes
+                await progressHandler(receivedBytes)
+            }
+        }
+
+        if receivedBytes != lastReportedBytes {
+            await progressHandler(receivedBytes)
+        }
+
+        return data
     }
 
     private func isPersistedStateValid(
@@ -490,5 +558,95 @@ actor ResumableArchiveDownloader {
         }
 
         return value
+    }
+}
+
+private nonisolated struct TransferSpeedTracker {
+    private let smoothingFactor: Double
+    private var lastSampleBytes: Int64
+    private var lastSampleDate: Date
+    private(set) var smoothedBytesPerSecond: Double?
+
+    init(
+        initialBytes: Int64,
+        initialDate: Date = .now,
+        previousSmoothedBytesPerSecond: Double? = nil,
+        smoothingFactor: Double = 0.35
+    ) {
+        self.smoothingFactor = smoothingFactor
+        self.lastSampleBytes = initialBytes
+        self.lastSampleDate = initialDate
+        self.smoothedBytesPerSecond = previousSmoothedBytesPerSecond
+    }
+
+    mutating func record(totalDownloadedBytes: Int64, at date: Date = .now) -> Double? {
+        let byteDelta = totalDownloadedBytes - lastSampleBytes
+        let timeDelta = max(date.timeIntervalSince(lastSampleDate), 0.001)
+
+        guard byteDelta > 0 else {
+            return smoothedBytesPerSecond
+        }
+
+        let instantaneousBytesPerSecond = Double(byteDelta) / timeDelta
+
+        if let smoothedBytesPerSecond {
+            self.smoothedBytesPerSecond =
+                (smoothedBytesPerSecond * (1 - smoothingFactor)) +
+                (instantaneousBytesPerSecond * smoothingFactor)
+        } else {
+            self.smoothedBytesPerSecond = instantaneousBytesPerSecond
+        }
+
+        lastSampleBytes = totalDownloadedBytes
+        lastSampleDate = date
+        return self.smoothedBytesPerSecond
+    }
+}
+
+private actor DownloadProgressReporter {
+    private let totalBytes: Int64
+    private let minimumEmissionInterval: TimeInterval
+    private let progressHandler: @Sendable (ModelDownloadProgress) async -> Void
+    private var speedTracker: TransferSpeedTracker
+    private var lastEmittedAt: Date?
+
+    init(
+        initialDownloadedBytes: Int64,
+        totalBytes: Int64,
+        minimumEmissionInterval: TimeInterval,
+        progressHandler: @escaping @Sendable (ModelDownloadProgress) async -> Void
+    ) {
+        self.totalBytes = totalBytes
+        self.minimumEmissionInterval = minimumEmissionInterval
+        self.progressHandler = progressHandler
+        self.speedTracker = TransferSpeedTracker(
+            initialBytes: initialDownloadedBytes
+        )
+    }
+
+    func report(totalDownloadedBytes: Int64, force: Bool = false) async {
+        let bytesPerSecond = speedTracker.record(totalDownloadedBytes: totalDownloadedBytes)
+        let now = Date()
+
+        if !force,
+           let lastEmittedAt,
+           now.timeIntervalSince(lastEmittedAt) < minimumEmissionInterval {
+            return
+        }
+
+        await progressHandler(
+            ModelDownloadProgress(
+                phase: .downloading,
+                downloadedBytes: totalDownloadedBytes,
+                totalBytes: totalBytes,
+                bytesPerSecond: bytesPerSecond ?? speedTracker.smoothedBytesPerSecond,
+                isResumable: totalDownloadedBytes > 0 && totalDownloadedBytes < totalBytes
+            )
+        )
+        lastEmittedAt = now
+    }
+
+    func resetToCommittedBaseline(totalDownloadedBytes: Int64) async {
+        await report(totalDownloadedBytes: totalDownloadedBytes, force: true)
     }
 }

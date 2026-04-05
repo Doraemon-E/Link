@@ -13,11 +13,26 @@ final class ModelDownloadTypesTests: XCTestCase {
         let progress = ModelDownloadProgress(
             phase: .downloading,
             downloadedBytes: 512,
-            totalBytes: 1024
+            totalBytes: 1024,
+            bytesPerSecond: 256
         )
 
         XCTAssertEqual(progress.fractionCompleted, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(progress.bytesPerSecond, 256, accuracy: 0.0001)
+        XCTAssertEqual(progress.estimatedRemainingTime, 2, accuracy: 0.0001)
         XCTAssertFalse(progress.isResumable)
+    }
+
+    func testDownloadProgressClearsInvalidTransferSpeed() {
+        let progress = ModelDownloadProgress(
+            phase: .downloading,
+            downloadedBytes: 512,
+            totalBytes: 1024,
+            bytesPerSecond: 0
+        )
+
+        XCTAssertNil(progress.bytesPerSecond)
+        XCTAssertNil(progress.estimatedRemainingTime)
     }
 
     func testDescriptorBuildsStableItemID() {

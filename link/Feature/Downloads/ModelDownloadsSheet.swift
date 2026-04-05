@@ -112,6 +112,14 @@ private struct ModelDownloadRow: View {
     let onRetry: () -> Void
     let onDelete: () -> Void
 
+    private var showsProgressBar: Bool {
+        !item.isInstalled && item.progress.phase != .failed && item.progress.phase != .idle
+    }
+
+    private var shouldShowTransferDetails: Bool {
+        item.progress.totalBytes > 0 && item.progress.phase != .idle
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -129,25 +137,49 @@ private struct ModelDownloadRow: View {
                 Text(item.kind.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.12))
+                    )
             }
 
-            HStack(spacing: 8) {
-                Text(item.progress.phase.displayName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusColor)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(item.progress.phase.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(statusColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(statusColor.opacity(0.12))
+                        )
 
-                if item.progress.totalBytes > 0 && item.progress.phase != .idle {
-                    Text("\(item.progress.downloadedBytes.formattedModelSize) / \(item.progress.totalBytes.formattedModelSize)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if shouldShowTransferDetails {
+                        Text("\(item.progress.downloadedBytes.formattedModelSize) / \(item.progress.totalBytes.formattedModelSize)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
-                    Text(item.progress.fractionCompleted.formattedPercent)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                if shouldShowTransferDetails {
+                    HStack(spacing: 12) {
+                        metricLabel(item.progress.fractionCompleted.formattedPercent)
+
+                        if let bytesPerSecond = item.progress.bytesPerSecond {
+                            metricLabel(bytesPerSecond.formattedTransferSpeed)
+                        }
+
+                        if let remaining = item.progress.estimatedRemainingTime?.formattedRemainingTime {
+                            metricLabel("约剩\(remaining)")
+                        }
+                    }
                 }
             }
 
-            if !item.isInstalled && item.progress.phase != .failed && item.progress.phase != .idle {
+            if showsProgressBar {
                 ProgressView(value: item.progress.fractionCompleted)
                     .tint(statusColor)
             }
@@ -184,6 +216,13 @@ private struct ModelDownloadRow: View {
         .padding(.vertical, 4)
     }
 
+    @ViewBuilder
+    private func metricLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+    }
+
     private var statusColor: Color {
         switch item.progress.phase {
         case .failed:
@@ -201,5 +240,20 @@ private struct ModelDownloadRow: View {
 private extension Double {
     var formattedPercent: String {
         "\(Int((self * 100).rounded()))%"
+    }
+
+    var formattedTransferSpeed: String {
+        "\(Int64(self.rounded()).formattedModelSize)/s"
+    }
+}
+
+private extension TimeInterval {
+    var formattedRemainingTime: String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = self >= 3600 ? [.hour, .minute] : [.minute, .second]
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.zeroFormattingBehavior = .dropLeading
+        return formatter.string(from: self) ?? "稍后"
     }
 }

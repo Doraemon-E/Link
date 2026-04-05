@@ -78,6 +78,7 @@ struct ModelDownloadProgress: Equatable, Sendable {
     let downloadedBytes: Int64
     let totalBytes: Int64
     let fractionCompleted: Double
+    let bytesPerSecond: Double?
     let isResumable: Bool
 
     init(
@@ -85,6 +86,7 @@ struct ModelDownloadProgress: Equatable, Sendable {
         downloadedBytes: Int64,
         totalBytes: Int64,
         fractionCompleted: Double? = nil,
+        bytesPerSecond: Double? = nil,
         isResumable: Bool = false
     ) {
         self.phase = phase
@@ -99,7 +101,24 @@ struct ModelDownloadProgress: Equatable, Sendable {
             self.fractionCompleted = 0
         }
 
+        if let bytesPerSecond, bytesPerSecond > 0 {
+            self.bytesPerSecond = bytesPerSecond
+        } else {
+            self.bytesPerSecond = nil
+        }
+
         self.isResumable = isResumable
+    }
+
+    var estimatedRemainingTime: TimeInterval? {
+        guard phase == .downloading,
+              let bytesPerSecond,
+              bytesPerSecond > 0,
+              totalBytes > downloadedBytes else {
+            return nil
+        }
+
+        return Double(totalBytes - downloadedBytes) / bytesPerSecond
     }
 
     static let idle = ModelDownloadProgress(
