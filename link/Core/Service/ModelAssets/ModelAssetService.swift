@@ -7,8 +7,7 @@
 
 import Foundation
 
-actor ModelAssetService: TranslationAssetReadinessProviding {
-    private let translationPackageManager: TranslationModelPackageManager
+actor ModelAssetService {
     private let translationAssetSource: TranslationModelAssetSource
     private let speechAssetSource: SpeechModelAssetSource
     private let archiveService: ResumableAssetArchiveService
@@ -21,7 +20,6 @@ actor ModelAssetService: TranslationAssetReadinessProviding {
         snapshotStore: ModelAssetSnapshotStore = ModelAssetSnapshotStore(),
         presentationMapper: ModelAssetPresentationMapper = ModelAssetPresentationMapper()
     ) {
-        self.translationPackageManager = translationPackageManager
         self.translationAssetSource = TranslationModelAssetSource(
             packageManager: translationPackageManager,
             presentationMapper: presentationMapper
@@ -48,14 +46,10 @@ actor ModelAssetService: TranslationAssetReadinessProviding {
         await snapshotStore.currentSnapshot()
     }
 
-    func startTranslationAssets(packageIDs: [String]) async {
+    func startAssets(kind: ModelAssetKind, packageIDs: [String]) async {
         for packageID in packageIDs {
-            await startAsset(kind: .translation, packageId: packageID)
+            await startAsset(kind: kind, packageId: packageID)
         }
-    }
-
-    func startSpeechAsset(packageId: String) async {
-        await startAsset(kind: .speech, packageId: packageId)
     }
 
     func retry(assetID: String) async {
@@ -82,18 +76,6 @@ actor ModelAssetService: TranslationAssetReadinessProviding {
         try await source(for: record.kind).removeInstalledAsset(packageId: record.asset.packageId)
         await reloadInstalledRecords()
         await reloadAvailableRecords()
-    }
-
-    func translationAssetRequirement(
-        for route: TranslationRoute
-    ) async throws -> TranslationAssetRequirement {
-        try await translationPackageManager.assetRequirement(for: route)
-    }
-
-    func areTranslationAssetsReady(
-        for route: TranslationRoute
-    ) async throws -> Bool {
-        try await translationPackageManager.areAssetsReady(for: route)
     }
 
     private func startAsset(kind: ModelAssetKind, packageId: String) async {

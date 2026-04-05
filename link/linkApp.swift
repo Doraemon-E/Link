@@ -13,6 +13,7 @@ struct linkApp: App {
     private let appSettings: AppSettings
     private let translationService: TranslationService
     private let speechPackageManager: SpeechModelPackageManager
+    private let translationAssetReadinessProvider: any TranslationAssetReadinessProviding
     private let speechRecognitionService: SpeechRecognitionService
     private let textToSpeechService: TextToSpeechService
     private let modelAssetService: ModelAssetService
@@ -31,6 +32,7 @@ struct linkApp: App {
         self.appSettings = AppSettings()
         self.translationService = MarianTranslationService(modelProvider: translationPackageManager)
         self.speechPackageManager = speechPackageManager
+        self.translationAssetReadinessProvider = translationPackageManager
         self.speechRecognitionService = WhisperSpeechRecognitionService(packageManager: speechPackageManager)
         self.textToSpeechService = SystemTextToSpeechService()
         self.modelAssetService = assetService
@@ -52,6 +54,7 @@ struct linkApp: App {
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
                 speechPackageManager: speechPackageManager,
+                translationAssetReadinessProvider: translationAssetReadinessProvider,
                 modelAssetService: modelAssetService,
                 microphoneRecordingService: microphoneRecordingService
             )

@@ -13,6 +13,7 @@ struct ContentView: View {
     let speechRecognitionService: SpeechRecognitionService
     let textToSpeechService: TextToSpeechService
     let speechPackageManager: SpeechModelPackageManager
+    let translationAssetReadinessProvider: any TranslationAssetReadinessProviding
     let modelAssetService: ModelAssetService
     let microphoneRecordingService: MicrophoneRecordingService
 
@@ -23,6 +24,7 @@ struct ContentView: View {
             speechRecognitionService: speechRecognitionService,
             textToSpeechService: textToSpeechService,
             speechPackageManager: speechPackageManager,
+            translationAssetReadinessProvider: translationAssetReadinessProvider,
             modelAssetService: modelAssetService,
             microphoneRecordingService: microphoneRecordingService
         )
@@ -45,6 +47,7 @@ struct ContentView: View {
         speechRecognitionService: WhisperSpeechRecognitionService(packageManager: speechPackageManager),
         textToSpeechService: textToSpeechService,
         speechPackageManager: speechPackageManager,
+        translationAssetReadinessProvider: translationPackageManager,
         modelAssetService: assetService,
         microphoneRecordingService: MicrophoneRecordingService()
     )

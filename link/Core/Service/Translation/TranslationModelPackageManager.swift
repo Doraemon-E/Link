@@ -15,7 +15,7 @@ nonisolated struct TranslationModelInstallation {
     let modelDirectoryURL: URL
 }
 
-actor TranslationModelPackageManager: TranslationModelProviding {
+actor TranslationModelPackageManager: TranslationModelProviding, TranslationAssetReadinessProviding {
     private struct RawMarianConfig: Decodable {
         let bosTokenId: Int?
         let eosTokenId: Int?
@@ -191,8 +191,20 @@ actor TranslationModelPackageManager: TranslationModelProviding {
         return TranslationAssetRequirement(missingPackages: missingPackages)
     }
 
+    func translationAssetRequirement(
+        for route: TranslationRoute
+    ) async throws -> TranslationAssetRequirement {
+        try await assetRequirement(for: route)
+    }
+
     func areAssetsReady(for route: TranslationRoute) async throws -> Bool {
         try await assetRequirement(for: route).isReady
+    }
+
+    func areTranslationAssetsReady(
+        for route: TranslationRoute
+    ) async throws -> Bool {
+        try await areAssetsReady(for: route)
     }
 
     func install(packageId: String) async throws -> TranslationModelInstallation {

@@ -63,6 +63,7 @@ final class HomeViewModel {
     @ObservationIgnored private let speechRecognitionService: SpeechRecognitionService
     @ObservationIgnored private let textToSpeechService: TextToSpeechService
     @ObservationIgnored private let speechPackageManager: SpeechModelPackageManager
+    @ObservationIgnored private let translationAssetReadinessProvider: any TranslationAssetReadinessProviding
     @ObservationIgnored private let modelAssetService: ModelAssetService
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
@@ -89,6 +90,7 @@ final class HomeViewModel {
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
         speechPackageManager: SpeechModelPackageManager,
+        translationAssetReadinessProvider: any TranslationAssetReadinessProviding,
         modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
@@ -97,11 +99,12 @@ final class HomeViewModel {
         self.speechRecognitionService = speechRecognitionService
         self.textToSpeechService = textToSpeechService
         self.speechPackageManager = speechPackageManager
+        self.translationAssetReadinessProvider = translationAssetReadinessProvider
         self.modelAssetService = modelAssetService
         self.microphoneRecordingService = microphoneRecordingService
         self.conversationStreamingCoordinator = LocalConversationStreamingCoordinator(
             translationService: translationService,
-            translationAssetReadinessProvider: modelAssetService,
+            translationAssetReadinessProvider: translationAssetReadinessProvider,
             speechStreamingService: speechRecognitionService as? any SpeechRecognitionStreamingService
         )
         self.selectedLanguage = appSettings.selectedTargetLanguage
@@ -322,7 +325,7 @@ final class HomeViewModel {
         downloadErrorMessage = nil
         activeDownloadPrompt = nil
         isDownloadManagerPresented = true
-        await modelAssetService.startTranslationAssets(packageIDs: packageIds)
+        await modelAssetService.startAssets(kind: .translation, packageIDs: packageIds)
         await refreshDownloadAvailabilityForCurrentSelection()
     }
 
@@ -611,7 +614,7 @@ final class HomeViewModel {
         isDownloadManagerPresented = true
         pendingVoiceStartAfterInstall = shouldResumeRecording
         pendingSpeechResumePackageID = packageId
-        await modelAssetService.startSpeechAsset(packageId: packageId)
+        await modelAssetService.startAssets(kind: .speech, packageIDs: [packageId])
     }
 
     var shouldShowDownloadToolbarButton: Bool {
@@ -677,12 +680,7 @@ final class HomeViewModel {
     }
 
     func startDownload(item: ModelAssetRecord) async {
-        switch item.kind {
-        case .translation:
-            await modelAssetService.startTranslationAssets(packageIDs: [item.asset.packageId])
-        case .speech:
-            await modelAssetService.startSpeechAsset(packageId: item.asset.packageId)
-        }
+        await modelAssetService.startAssets(kind: item.kind, packageIDs: [item.asset.packageId])
     }
 
     func deleteInstalledDownload(itemID: String) async {
@@ -1386,7 +1384,7 @@ final class HomeViewModel {
         target: SupportedLanguage
     ) async throws -> TranslationAssetRequirement {
         let route = try await translationService.route(source: source, target: target)
-        return try await modelAssetService.translationAssetRequirement(for: route)
+        return try await translationAssetReadinessProvider.translationAssetRequirement(for: route)
     }
 
     private func translationDownloadPrompt(
@@ -1425,7 +1423,7 @@ final class HomeViewModel {
     ) async -> Bool {
         do {
             let route = try await translationService.route(source: source, target: target)
-            return try await modelAssetService.areTranslationAssetsReady(for: route)
+            return try await translationAssetReadinessProvider.areTranslationAssetsReady(for: route)
         } catch {
             return false
         }

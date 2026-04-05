@@ -20,6 +20,7 @@ struct HomeView: View {
         speechRecognitionService: SpeechRecognitionService,
         textToSpeechService: TextToSpeechService,
         speechPackageManager: SpeechModelPackageManager,
+        translationAssetReadinessProvider: any TranslationAssetReadinessProviding,
         modelAssetService: ModelAssetService,
         microphoneRecordingService: MicrophoneRecordingService
     ) {
@@ -30,6 +31,7 @@ struct HomeView: View {
                 speechRecognitionService: speechRecognitionService,
                 textToSpeechService: textToSpeechService,
                 speechPackageManager: speechPackageManager,
+                translationAssetReadinessProvider: translationAssetReadinessProvider,
                 modelAssetService: modelAssetService,
                 microphoneRecordingService: microphoneRecordingService
             )
@@ -518,6 +520,7 @@ private struct HomeDownloadToolbarIcon: View {
         ),
         textToSpeechService: SystemTextToSpeechService(),
         speechPackageManager: speechPackageManager,
+        translationAssetReadinessProvider: translationPackageManager,
         modelAssetService: ModelAssetService(
             translationPackageManager: translationPackageManager,
             speechPackageManager: speechPackageManager
