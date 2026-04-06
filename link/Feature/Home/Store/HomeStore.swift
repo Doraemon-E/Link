@@ -28,8 +28,10 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         let sourceLanguage: SupportedLanguage
         let targetLanguage: SupportedLanguage
         let showsTranslatedPlaybackButton: Bool
+        let showsRetrySpeechTranslationButton: Bool
         let isPlayingTranslatedMessage: Bool
         let isTranslatedPlaybackDisabled: Bool
+        let isRetrySpeechTranslationDisabled: Bool
         let isSourcePlaybackDisabled: Bool
         let isPlayingSourceMessage: Bool
         let showsSpeechTranscript: Bool
@@ -422,6 +424,16 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         }
     }
 
+    func retrySpeechTranslation(
+        for message: ChatMessage,
+        in runtime: HomeRuntimeContext
+    ) {
+        messageLanguageWorkflow.retrySpeechTranslation(
+            forMessageID: message.id,
+            in: runtime
+        )
+    }
+
     func installSpeechModelAndResumeIfNeeded(
         packageId: String,
         shouldResumeRecording: Bool
@@ -481,6 +493,12 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         let isMessageSwitching = switchingSide != nil
         let isPlayingTranslatedMessage = playbackController.isPlayingTranslatedMessage(message)
         let isPlayingSourceMessage = playbackController.isPlayingSourceMessage(message)
+        let showsRetrySpeechTranslationButton = shouldShowRetrySpeechTranslationButton(
+            for: message,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            streamingState: streamingState
+        )
 
         return MessageItemState(
             message: message,
@@ -489,13 +507,17 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
                 for: message,
                 streamingState: streamingState,
                 isPlayingSourceMessage: isPlayingSourceMessage,
-                isPlayingTranslatedMessage: isPlayingTranslatedMessage
+                isPlayingTranslatedMessage: isPlayingTranslatedMessage,
+                showsRetrySpeechTranslationButton: showsRetrySpeechTranslationButton,
+                isRetrySpeechTranslationDisabled: isLanguageSwitchDisabled
             ),
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
             showsTranslatedPlaybackButton: playbackController.shouldShowTranslatedPlaybackButton(for: message),
+            showsRetrySpeechTranslationButton: showsRetrySpeechTranslationButton,
             isPlayingTranslatedMessage: isPlayingTranslatedMessage,
             isTranslatedPlaybackDisabled: playbackController.isTranslatedPlaybackDisabled(for: message) || isMessageSwitching,
+            isRetrySpeechTranslationDisabled: isLanguageSwitchDisabled,
             isSourcePlaybackDisabled: playbackController.isSourcePlaybackDisabled(for: message) || isMessageSwitching,
             isPlayingSourceMessage: isPlayingSourceMessage,
             showsSpeechTranscript: isSpeechTranscriptExpanded(for: message),
@@ -537,7 +559,9 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         for message: ChatMessage,
         streamingState: ExchangeStreamingState?,
         isPlayingSourceMessage: Bool,
-        isPlayingTranslatedMessage: Bool
+        isPlayingTranslatedMessage: Bool,
+        showsRetrySpeechTranslationButton: Bool,
+        isRetrySpeechTranslationDisabled: Bool
     ) -> String {
         let sourceRevision = streamingState?.sourceRevision ?? 0
         let translationRevision = streamingState?.translationRevision ?? 0
@@ -547,7 +571,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         let targetLanguage = resolvedLanguage(for: message, side: .target).rawValue
         let switchingSide = messageLanguageSwitchSideByMessageID[message.id]?.rawValue ?? ""
 
-        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceLanguage)-\(targetLanguage)-\(switchingSide)-\(isPlayingSourceMessage)-\(isPlayingTranslatedMessage)-\(sourceText)-\(translatedText)"
+        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceLanguage)-\(targetLanguage)-\(switchingSide)-\(isPlayingSourceMessage)-\(isPlayingTranslatedMessage)-\(showsRetrySpeechTranslationButton)-\(isRetrySpeechTranslationDisabled)-\(sourceText)-\(translatedText)"
     }
 
     private func isSpeechTranscriptExpanded(for message: ChatMessage) -> Bool {
@@ -556,6 +580,31 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         }
 
         return expandedSpeechTranscriptMessageIDs.contains(message.id)
+    }
+
+    private func shouldShowRetrySpeechTranslationButton(
+        for message: ChatMessage,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        streamingState: ExchangeStreamingState?
+    ) -> Bool {
+        guard message.inputType == .speech else {
+            return false
+        }
+
+        let normalizedTranscript = message.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            return false
+        }
+
+        guard streamingState?.translationPhase.isInProgress != true else {
+            return false
+        }
+
+        return message.translatedText == TranslationError.modelNotInstalled(
+            source: sourceLanguage,
+            target: targetLanguage
+        ).userFacingMessage
     }
 
     private func aggregatedProgress(for records: [ModelAssetRecord]) -> Double? {

@@ -15,6 +15,7 @@ struct HomeConversationContentView: View {
     let onOpenLanguagePicker: () -> Void
     let onDismissInputFocus: () -> Void
     let onTranslatedPlayback: (ChatMessage) -> Void
+    let onRetrySpeechTranslation: (ChatMessage) -> Void
     let onSourcePlayback: (ChatMessage) -> Void
     let onSpeechTranscriptToggle: (ChatMessage) -> Void
     let onSourceLanguageSelection: (ChatMessage) -> Void
@@ -33,6 +34,7 @@ struct HomeConversationContentView: View {
                     bottomAnchorID: messageListBottomAnchorID,
                     bottomSpacerHeight: messageListBottomSpacerHeight,
                     onTranslatedPlayback: onTranslatedPlayback,
+                    onRetrySpeechTranslation: onRetrySpeechTranslation,
                     onSourcePlayback: onSourcePlayback,
                     onSpeechTranscriptToggle: onSpeechTranscriptToggle,
                     onSourceLanguageSelection: onSourceLanguageSelection,

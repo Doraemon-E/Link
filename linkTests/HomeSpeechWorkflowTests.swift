@@ -82,6 +82,38 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         XCTAssertTrue(harness.messageWorkflow.calls.isEmpty)
     }
 
+    func testTranslationPromptPersistsDetectedSourceLanguageForRetry() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.speechRecognitionService.result = SpeechRecognitionResult(
+            text: "Prompt transcript",
+            detectedLanguage: "ja"
+        )
+        harness.downloadSupport.translationPrompt = makeTranslationPrompt(
+            source: .japanese,
+            target: .chinese
+        )
+        harness.store.sourceLanguage = .english
+        harness.store.selectedLanguage = .chinese
+
+        try await performSpeechRecording(harness)
+
+        let session = try fetchSingleSession(in: harness.modelContext)
+        let message = try XCTUnwrap(session.sortedMessages.first)
+        let audioURL = try fileURL(from: message.audioURL)
+
+        XCTAssertEqual(message.sourceLanguage, .japanese)
+        XCTAssertEqual(
+            message.translatedText,
+            TranslationError.modelNotInstalled(source: .japanese, target: .chinese).userFacingMessage
+        )
+        XCTAssertNotNil(harness.downloadSupport.presentedTranslationPrompt)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        XCTAssertTrue(harness.messageWorkflow.calls.isEmpty)
+        XCTAssertTrue(harness.store.streamingStatesByMessageID.isEmpty)
+    }
+
     func testSpeechRecognitionFailureRemovesPreservedRecordingAndDiscardsLiveMessage() async throws {
         let harness = try makeHarness()
         defer { harness.cleanup() }
@@ -479,7 +511,6 @@ private final class FakeSpeechDownloadSupport: HomeSpeechDownloadSupporting {
     var translationPrompt: HomeLanguageDownloadPrompt?
     var speechPrompt: SpeechModelDownloadPrompt?
     var presentedTranslationPrompt: HomeLanguageDownloadPrompt?
-    var translationReady = false
 
     func translationDownloadPrompt(
         source: SupportedLanguage,
@@ -496,15 +527,6 @@ private final class FakeSpeechDownloadSupport: HomeSpeechDownloadSupporting {
 
     func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt? {
         speechPrompt
-    }
-
-    func isTranslationReady(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) async -> Bool {
-        _ = source
-        _ = target
-        return translationReady
     }
 }
 

@@ -180,6 +180,60 @@ final class HomeMessageLanguageWorkflow {
         mutationTasksByMessageID[messageID] = task
     }
 
+    func retrySpeechTranslation(
+        forMessageID messageID: UUID,
+        in runtime: HomeRuntimeContext
+    ) {
+        guard let store else {
+            return
+        }
+
+        guard let message = sessionRepository.message(id: messageID, in: runtime),
+              message.inputType == .speech else {
+            return
+        }
+
+        guard !isMessageActivelyStreaming(messageID: messageID) else {
+            return
+        }
+
+        let targetLanguage = resolvedTargetLanguage(for: message)
+
+        playbackController.stop()
+        store.messageMutationErrorMessage = nil
+        mutationTasksByMessageID[messageID]?.cancel()
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                try await self.retranslateSpeechMessage(
+                    messageID: messageID,
+                    newTargetLanguage: targetLanguage,
+                    in: runtime
+                )
+            } catch is CancellationError {
+                self.clearStreamingState(for: messageID)
+            } catch let error as MessageLanguageWorkflowError {
+                self.clearStreamingState(for: messageID)
+                self.store?.messageMutationErrorMessage = error.userFacingMessage
+            } catch let error as TranslationError {
+                self.clearStreamingState(for: messageID)
+                self.store?.messageMutationErrorMessage = error.userFacingMessage
+            } catch let error as SpeechRecognitionError {
+                self.clearStreamingState(for: messageID)
+                self.store?.messageMutationErrorMessage = error.userFacingMessage
+            } catch {
+                self.clearStreamingState(for: messageID)
+                self.store?.messageMutationErrorMessage = "消息更新失败，请稍后再试。"
+            }
+
+            self.endMutation(for: messageID)
+        }
+
+        mutationTasksByMessageID[messageID] = task
+    }
+
     private func retranslateTextMessage(
         messageID: UUID,
         newTargetLanguage: SupportedLanguage,

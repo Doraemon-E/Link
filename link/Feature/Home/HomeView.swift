@@ -46,6 +46,12 @@ struct HomeView: View {
                     onTranslatedPlayback: { message in
                         store.toggleTranslatedPlayback(message: message)
                     },
+                    onRetrySpeechTranslation: { message in
+                        store.retrySpeechTranslation(
+                            for: message,
+                            in: runtimeContext
+                        )
+                    },
                     onSourcePlayback: { message in
                         store.toggleSourcePlayback(message: message)
                     },

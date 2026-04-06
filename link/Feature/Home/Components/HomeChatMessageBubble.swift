@@ -135,8 +135,10 @@ struct HomeChatMessageBubble: View {
     let sourceLanguage: SupportedLanguage
     let targetLanguage: SupportedLanguage
     let showsTranslatedPlaybackButton: Bool
+    let showsRetrySpeechTranslationButton: Bool
     let isPlayingTranslatedMessage: Bool
     let isTranslatedPlaybackDisabled: Bool
+    let isRetrySpeechTranslationDisabled: Bool
     let isSourcePlaybackDisabled: Bool
     let isPlayingSourceMessage: Bool
     let showsSpeechTranscript: Bool
@@ -147,6 +149,7 @@ struct HomeChatMessageBubble: View {
     let isSourceLanguageSwitching: Bool
     let isTargetLanguageSwitching: Bool
     let onTranslatedPlayback: () -> Void
+    let onRetrySpeechTranslation: () -> Void
     let onSourcePlayback: () -> Void
     let onSpeechTranscriptToggle: () -> Void
     let onSourceLanguageSelection: () -> Void
@@ -158,8 +161,10 @@ struct HomeChatMessageBubble: View {
         sourceLanguage: SupportedLanguage = .chinese,
         targetLanguage: SupportedLanguage = .english,
         showsTranslatedPlaybackButton: Bool,
+        showsRetrySpeechTranslationButton: Bool = false,
         isPlayingTranslatedMessage: Bool,
         isTranslatedPlaybackDisabled: Bool,
+        isRetrySpeechTranslationDisabled: Bool = false,
         isSourcePlaybackDisabled: Bool,
         isPlayingSourceMessage: Bool,
         showsSpeechTranscript: Bool,
@@ -170,6 +175,7 @@ struct HomeChatMessageBubble: View {
         isSourceLanguageSwitching: Bool = false,
         isTargetLanguageSwitching: Bool = false,
         onTranslatedPlayback: @escaping () -> Void,
+        onRetrySpeechTranslation: @escaping () -> Void = {},
         onSourcePlayback: @escaping () -> Void,
         onSpeechTranscriptToggle: @escaping () -> Void,
         onSourceLanguageSelection: @escaping () -> Void = {},
@@ -180,8 +186,10 @@ struct HomeChatMessageBubble: View {
         self.sourceLanguage = sourceLanguage
         self.targetLanguage = targetLanguage
         self.showsTranslatedPlaybackButton = showsTranslatedPlaybackButton
+        self.showsRetrySpeechTranslationButton = showsRetrySpeechTranslationButton
         self.isPlayingTranslatedMessage = isPlayingTranslatedMessage
         self.isTranslatedPlaybackDisabled = isTranslatedPlaybackDisabled
+        self.isRetrySpeechTranslationDisabled = isRetrySpeechTranslationDisabled
         self.isSourcePlaybackDisabled = isSourcePlaybackDisabled
         self.isPlayingSourceMessage = isPlayingSourceMessage
         self.showsSpeechTranscript = showsSpeechTranscript
@@ -192,6 +200,7 @@ struct HomeChatMessageBubble: View {
         self.isSourceLanguageSwitching = isSourceLanguageSwitching
         self.isTargetLanguageSwitching = isTargetLanguageSwitching
         self.onTranslatedPlayback = onTranslatedPlayback
+        self.onRetrySpeechTranslation = onRetrySpeechTranslation
         self.onSourcePlayback = onSourcePlayback
         self.onSpeechTranscriptToggle = onSpeechTranscriptToggle
         self.onSourceLanguageSelection = onSourceLanguageSelection
@@ -280,16 +289,29 @@ struct HomeChatMessageBubble: View {
                     translatedBubbleBody
                 }
 
-                if showsTranslatedPlaybackButton {
+                if showsTranslatedPlaybackButton || showsRetrySpeechTranslationButton {
                     actionRow(alignment: .leading) {
-                        bubbleActionButton(
-                            systemName: isPlayingTranslatedMessage ? "stop.fill" : "speaker.wave.2.fill",
-                            title: isPlayingTranslatedMessage ? "停止" : "朗读",
-                            tint: isPlayingTranslatedMessage ? Color.accentColor : Color.secondary,
-                            isDisabled: isTranslatedPlaybackDisabled,
-                            accessibilityLabel: isPlayingTranslatedMessage ? "停止播放译文语音" : "播放译文语音",
-                            action: onTranslatedPlayback
-                        )
+                        if showsTranslatedPlaybackButton {
+                            bubbleActionButton(
+                                systemName: isPlayingTranslatedMessage ? "stop.fill" : "speaker.wave.2.fill",
+                                title: isPlayingTranslatedMessage ? "停止" : "朗读",
+                                tint: isPlayingTranslatedMessage ? Color.accentColor : Color.secondary,
+                                isDisabled: isTranslatedPlaybackDisabled,
+                                accessibilityLabel: isPlayingTranslatedMessage ? "停止播放译文语音" : "播放译文语音",
+                                action: onTranslatedPlayback
+                            )
+                        }
+
+                        if showsRetrySpeechTranslationButton {
+                            bubbleActionButton(
+                                systemName: "arrow.clockwise",
+                                title: "重新翻译",
+                                tint: Color.secondary,
+                                isDisabled: isRetrySpeechTranslationDisabled,
+                                accessibilityLabel: "重新翻译这条语音消息",
+                                action: onRetrySpeechTranslation
+                            )
+                        }
                     }
                 }
             }

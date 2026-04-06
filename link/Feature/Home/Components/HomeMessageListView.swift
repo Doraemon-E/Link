@@ -12,6 +12,7 @@ struct HomeMessageListView: View {
     let bottomAnchorID: String
     let bottomSpacerHeight: CGFloat
     let onTranslatedPlayback: (ChatMessage) -> Void
+    let onRetrySpeechTranslation: (ChatMessage) -> Void
     let onSourcePlayback: (ChatMessage) -> Void
     let onSpeechTranscriptToggle: (ChatMessage) -> Void
     let onSourceLanguageSelection: (ChatMessage) -> Void
@@ -27,8 +28,10 @@ struct HomeMessageListView: View {
                         sourceLanguage: messageItem.sourceLanguage,
                         targetLanguage: messageItem.targetLanguage,
                         showsTranslatedPlaybackButton: messageItem.showsTranslatedPlaybackButton,
+                        showsRetrySpeechTranslationButton: messageItem.showsRetrySpeechTranslationButton,
                         isPlayingTranslatedMessage: messageItem.isPlayingTranslatedMessage,
                         isTranslatedPlaybackDisabled: messageItem.isTranslatedPlaybackDisabled,
+                        isRetrySpeechTranslationDisabled: messageItem.isRetrySpeechTranslationDisabled,
                         isSourcePlaybackDisabled: messageItem.isSourcePlaybackDisabled,
                         isPlayingSourceMessage: messageItem.isPlayingSourceMessage,
                         showsSpeechTranscript: messageItem.showsSpeechTranscript,
@@ -40,6 +43,9 @@ struct HomeMessageListView: View {
                         isTargetLanguageSwitching: messageItem.isTargetLanguageSwitching,
                         onTranslatedPlayback: {
                             onTranslatedPlayback(messageItem.message)
+                        },
+                        onRetrySpeechTranslation: {
+                            onRetrySpeechTranslation(messageItem.message)
                         },
                         onSourcePlayback: {
                             onSourcePlayback(messageItem.message)

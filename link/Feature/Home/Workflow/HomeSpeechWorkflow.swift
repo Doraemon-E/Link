@@ -35,11 +35,6 @@ protocol HomeSpeechDownloadSupporting: AnyObject {
     func presentTranslationDownloadPrompt(_ prompt: HomeLanguageDownloadPrompt)
 
     func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt?
-
-    func isTranslationReady(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) async -> Bool
 }
 
 @MainActor
@@ -201,10 +196,9 @@ final class HomeSpeechWorkflow {
                 throw SpeechRecognitionError.emptyTranscription
             }
 
-            let effectiveSourceLanguage = try await resolvedSpeechSourceLanguage(
+            let effectiveSourceLanguage = resolvedSpeechSourceLanguage(
                 detectedLanguageCode: recognitionResult.detectedLanguage,
-                fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage,
-                targetLanguage: liveSpeechSession.record.targetLanguage
+                fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage
             )
             let targetLanguage = liveSpeechSession.record.targetLanguage
 
@@ -484,14 +478,9 @@ final class HomeSpeechWorkflow {
 
     private func resolvedSpeechSourceLanguage(
         detectedLanguageCode: String?,
-        fallbackSourceLanguage: SupportedLanguage,
-        targetLanguage: SupportedLanguage
-    ) async throws -> SupportedLanguage {
-        if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode),
-           await downloadWorkflow.isTranslationReady(
-               source: detectedLanguage,
-               target: targetLanguage
-           ) {
+        fallbackSourceLanguage: SupportedLanguage
+    ) -> SupportedLanguage {
+        if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode) {
             return detectedLanguage
         }
 

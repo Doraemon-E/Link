@@ -120,7 +120,7 @@ struct HomeChatInputBar: View {
 
     private var waveformButton: some View {
         Button(action: {}) {
-            Image(systemName: "waveform")
+            Image(systemName: "waveform.mid")
                 .font(.headline.weight(.bold))
                 .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
                 .modifier(

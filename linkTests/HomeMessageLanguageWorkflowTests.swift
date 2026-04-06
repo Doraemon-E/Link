@@ -169,6 +169,71 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
         XCTAssertEqual(harness.coordinator.speechRequests.first?.text, "こんにちは")
     }
 
+    func testRetrySpeechTranslationRetranslatesUsingSavedTranscript() async throws {
+        let harness = try makeHarness(
+            inputType: .speech,
+            sourceText: "Hello there",
+            translatedText: TranslationError.modelNotInstalled(
+                source: .english,
+                target: .chinese
+            ).userFacingMessage,
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            audioURL: try makeTempAudioFileURL()
+        )
+        harness.coordinator.speechResult = "你好啊"
+
+        harness.workflow.retrySpeechTranslation(
+            forMessageID: harness.message.id,
+            in: harness.runtime
+        )
+
+        try await waitUntil {
+            harness.message.translatedText == "你好啊"
+        }
+
+        XCTAssertEqual(harness.coordinator.speechRequests.count, 1)
+        XCTAssertEqual(harness.coordinator.speechRequests.first?.text, "Hello there")
+        XCTAssertEqual(harness.coordinator.speechRequests.first?.sourceLanguage, .english)
+        XCTAssertEqual(harness.coordinator.speechRequests.first?.targetLanguage, .chinese)
+        XCTAssertTrue(harness.speechRecognitionService.calls.isEmpty)
+        XCTAssertEqual(harness.message.targetLanguage, .chinese)
+        XCTAssertEqual(harness.store.selectedLanguage, .chinese)
+        XCTAssertTrue(harness.store.streamingStatesByMessageID.isEmpty)
+    }
+
+    func testRetrySpeechTranslationWithMissingModelPresentsPromptWithoutOverwritingMessage() async throws {
+        let originalTranslatedText = TranslationError.modelNotInstalled(
+            source: .english,
+            target: .chinese
+        ).userFacingMessage
+        let harness = try makeHarness(
+            inputType: .speech,
+            sourceText: "Hello there",
+            translatedText: originalTranslatedText,
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            audioURL: try makeTempAudioFileURL()
+        )
+        harness.downloadSupport.translationPrompt = makeTranslationPrompt(
+            source: .english,
+            target: .chinese
+        )
+
+        harness.workflow.retrySpeechTranslation(
+            forMessageID: harness.message.id,
+            in: harness.runtime
+        )
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertNotNil(harness.downloadSupport.presentedTranslationPrompt)
+        XCTAssertEqual(harness.message.translatedText, originalTranslatedText)
+        XCTAssertTrue(harness.coordinator.speechRequests.isEmpty)
+        XCTAssertNil(harness.store.messageMutationErrorMessage)
+        XCTAssertTrue(harness.store.streamingStatesByMessageID.isEmpty)
+    }
+
     func testSwitchingToSameLanguageIsNoOp() async throws {
         let harness = try makeHarness(
             inputType: .text,
