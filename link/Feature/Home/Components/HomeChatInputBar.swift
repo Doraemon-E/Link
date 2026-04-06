@@ -12,13 +12,10 @@ struct HomeChatInputBar: View {
     @Binding var isFocused: Bool
     let isRecordingSpeech: Bool
     let isSpeechBusy: Bool
-    let hasLastSpeechRecording: Bool
-    let isPlayingLastSpeechRecording: Bool
 
     let onFocusActivated: () -> Void
     let onSend: () -> Void
     let onVoiceInput: () -> Void
-    let onPlayLastSpeechRecording: () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
 
@@ -34,7 +31,6 @@ struct HomeChatInputBar: View {
                 }
 
             speechButton
-            playbackButton
 
             Button(action: handleSend) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -96,20 +92,6 @@ struct HomeChatInputBar: View {
         }
     }
 
-    @ViewBuilder
-    private var playbackButton: some View {
-        if hasLastSpeechRecording {
-            Button(action: onPlayLastSpeechRecording) {
-                Image(systemName: isPlayingLastSpeechRecording ? "stop.circle" : "play.circle")
-                    .font(.title3)
-                    .foregroundStyle(Color.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isPlayingLastSpeechRecording ? "停止播放录音" : "播放最近一次录音")
-            .disabled(isRecordingSpeech)
-        }
-    }
-
     private func handleSend() {
         guard isSendEnabled else { return }
         onSend()
@@ -122,11 +104,8 @@ struct HomeChatInputBar: View {
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: false,
-        hasLastSpeechRecording: true,
-        isPlayingLastSpeechRecording: false,
         onFocusActivated: {},
         onSend: {},
-        onVoiceInput: {},
-        onPlayLastSpeechRecording: {}
+        onVoiceInput: {}
     )
 }

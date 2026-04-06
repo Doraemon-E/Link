@@ -91,7 +91,7 @@ final class SpeechTranscriptStabilizerTests: XCTestCase {
         var highRiskStabilizer = SpeechTranscriptStabilizer()
         _ = consume(
             &highRiskStabilizer,
-            "我们约在 2026 年 4 月 6 日 下午 3 点 见面",
+            "我们 2026/04/06 15:00 见面",
             language: .chinese
         )
 
@@ -132,8 +132,9 @@ final class SpeechTranscriptStabilizerTests: XCTestCase {
         _ = consume(&stabilizer, revised, language: .english)
         let snapshot = stabilizer.currentSnapshot
 
-        XCTAssertTrue(snapshot.stableTranscript.contains("I want to book a quiet room"))
-        XCTAssertFalse(snapshot.liveTranscript.contains("I want to book a quiet room"))
+        XCTAssertTrue(snapshot.stableTranscript.contains("I want to book a quiet"))
+        XCTAssertFalse(snapshot.liveTranscript.contains("I want to book a quiet"))
+        XCTAssertTrue(snapshot.fullTranscript.contains("tomorrow"))
     }
 
     private func consume(

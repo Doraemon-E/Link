@@ -5,7 +5,6 @@
 //  Created by Codex on 2026/4/4.
 //
 
-import AVFoundation
 import Foundation
 import Observation
 import SwiftData
@@ -52,7 +51,6 @@ final class HomeViewModel {
     var ttsErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
     var lastSpeechRecordingURL: URL?
-    var isPlayingLastSpeechRecording = false
     var speakingMessageID: UUID?
     var streamingStatesByMessageID: [UUID: ExchangeStreamingState] = [:]
     var assetRecords: [ModelAssetRecord] = []
@@ -69,8 +67,6 @@ final class HomeViewModel {
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
     @ObservationIgnored private let appSettings: AppSettings
     @ObservationIgnored private var silenceAutoStopTask: Task<Void, Never>?
-    @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
-    @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
     @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadObservationTask: Task<Void, Never>?
     @ObservationIgnored private var downloadMilestoneSignature = ""
@@ -390,7 +386,6 @@ final class HomeViewModel {
             return
         }
 
-        stopLastSpeechRecordingPlayback()
         if speakingMessageID != nil {
             textToSpeechService.stop()
         }
@@ -556,59 +551,8 @@ final class HomeViewModel {
         }
     }
 
-    func toggleLastSpeechRecordingPlayback() {
-        guard let lastSpeechRecordingURL else { return }
-
-        if isPlayingLastSpeechRecording {
-            stopLastSpeechRecordingPlayback()
-            return
-        }
-
-        stopMessageSpeechPlayback()
-
-        do {
-            let player = try AVAudioPlayer(contentsOf: lastSpeechRecordingURL)
-            player.prepareToPlay()
-            player.play()
-
-            speechPreviewPlayer = player
-            isPlayingLastSpeechRecording = true
-
-            speechPreviewTask?.cancel()
-            let durationNanoseconds = UInt64(max(player.duration, 0) * 1_000_000_000)
-            speechPreviewTask = Task { @MainActor [weak self] in
-                guard durationNanoseconds > 0 else {
-                    self?.isPlayingLastSpeechRecording = false
-                    return
-                }
-
-                try? await Task.sleep(nanoseconds: durationNanoseconds + 200_000_000)
-                guard let self else { return }
-                self.isPlayingLastSpeechRecording = self.speechPreviewPlayer?.isPlaying == true
-                if !self.isPlayingLastSpeechRecording {
-                    self.speechPreviewPlayer = nil
-                }
-            }
-        } catch {
-            speechErrorMessage = "无法播放刚才的录音，请稍后再试。"
-        }
-    }
-
-    func stopLastSpeechRecordingPlayback() {
-        speechPreviewTask?.cancel()
-        speechPreviewTask = nil
-        speechPreviewPlayer?.stop()
-        speechPreviewPlayer = nil
-        isPlayingLastSpeechRecording = false
-    }
-
-    var hasLastSpeechRecording: Bool {
-        lastSpeechRecordingURL != nil
-    }
-
     func prepareForSpeechRecording() {
         stopMessageSpeechPlayback()
-        stopLastSpeechRecordingPlayback()
         speechErrorMessage = nil
         ttsErrorMessage = nil
         pendingVoiceStartAfterInstall = false
