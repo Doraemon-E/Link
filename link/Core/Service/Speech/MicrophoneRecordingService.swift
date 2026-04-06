@@ -32,6 +32,10 @@ final class MicrophoneRecordingService {
         private let converter: AVAudioConverter
         private let lock = NSLock()
         private var continuation: AsyncStream<[Float]>.Continuation?
+        // Pre-allocated output buffer reused on every tap callback to avoid
+        // heap allocation in the audio hot path. Only accessed from the serial
+        // AVAudioEngine tap thread, so no additional locking is needed for it.
+        private var outputBuffer: AVAudioPCMBuffer
 
         init(
             inputFormat: AVAudioFormat,
@@ -50,9 +54,22 @@ final class MicrophoneRecordingService {
                 throw SpeechRecognitionError.audioProcessingFailed("Unable to create audio converter.")
             }
 
+            // Allocate for up to 8 192 input frames — 2× the requested tap
+            // bufferSize — to avoid reallocations under normal conditions.
+            let initialCapacity = AVAudioFrameCount(
+                (8_192.0 * outputFormat.sampleRate / inputFormat.sampleRate).rounded(.up)
+            ) + 128
+            guard let outputBuffer = AVAudioPCMBuffer(
+                pcmFormat: outputFormat,
+                frameCapacity: max(initialCapacity, 2048)
+            ) else {
+                throw SpeechRecognitionError.audioProcessingFailed("Unable to pre-allocate audio buffer.")
+            }
+
             self.outputFormat = outputFormat
             self.converter = converter
             self.continuation = continuation
+            self.outputBuffer = outputBuffer
         }
 
         func yieldConvertedChunk(from buffer: AVAudioPCMBuffer) {
@@ -65,11 +82,17 @@ final class MicrophoneRecordingService {
                     .rounded(.up)
             ) + 64
 
-            guard let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: outputFormat,
-                frameCapacity: max(estimatedFrameCount, 1024)
-            ) else {
-                return
+            // Reuse the pre-allocated buffer when capacity is sufficient;
+            // fall back to a fresh allocation only if the tap delivers an
+            // unexpectedly large buffer.
+            if outputBuffer.frameCapacity < estimatedFrameCount {
+                guard let newBuffer = AVAudioPCMBuffer(
+                    pcmFormat: outputFormat,
+                    frameCapacity: max(estimatedFrameCount, 1024)
+                ) else {
+                    return
+                }
+                outputBuffer = newBuffer
             }
 
             var didProvideInput = false
@@ -91,28 +114,23 @@ final class MicrophoneRecordingService {
                 return
             }
 
+            // frameLength > 0 already guarantees samples is non-empty.
             let samples = Array(
                 UnsafeBufferPointer(
                     start: channelData,
                     count: Int(outputBuffer.frameLength)
                 )
             )
-            guard !samples.isEmpty else {
-                return
-            }
 
-            lock.lock()
-            let continuation = continuation
-            lock.unlock()
-            continuation?.yield(samples)
+            lock.withLock { continuation }?.yield(samples)
         }
 
         func finish() {
-            lock.lock()
-            let continuation = continuation
-            self.continuation = nil
-            lock.unlock()
-            continuation?.finish()
+            lock.withLock {
+                let c = continuation
+                continuation = nil
+                return c
+            }?.finish()
         }
     }
 
