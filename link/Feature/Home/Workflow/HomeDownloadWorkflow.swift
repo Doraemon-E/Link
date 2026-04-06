@@ -8,17 +8,40 @@
 import Foundation
 
 @MainActor
+protocol HomeDownloadWorkflowStore: AnyObject {
+    var sourceLanguage: SupportedLanguage { get }
+    var selectedLanguage: SupportedLanguage { get }
+    var isShowingLanguageSheet: Bool { get }
+    var isDownloadManagerPresented: Bool { get set }
+    var isDownloadManagerLoading: Bool { get set }
+    var hasPreparedDownloadManager: Bool { get set }
+    var downloadableLanguagePrompt: HomeLanguageDownloadPrompt? { get set }
+    var deferredDownloadPrompt: HomeLanguageDownloadPrompt? { get set }
+    var activeDownloadPrompt: HomeLanguageDownloadPrompt? { get set }
+    var deferredTargetLanguageModelPrompt: HomeTargetLanguageModelPrompt? { get set }
+    var activeTargetLanguageModelPrompt: HomeTargetLanguageModelPrompt? { get set }
+    var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt? { get set }
+    var pendingVoiceStartAfterInstall: Bool { get set }
+    var downloadErrorMessage: String? { get set }
+    var speechErrorMessage: String? { get set }
+    var assetRecords: [ModelAssetRecord] { get set }
+    var assetSummary: ModelAssetSummary { get set }
+    var speechResumeRequestToken: Int { get set }
+}
+
+@MainActor
 final class HomeDownloadWorkflow {
     private static let minimumLoadingDuration: TimeInterval = 2.0
 
-    private weak var store: HomeStore?
+    private weak var store: (any HomeDownloadWorkflowStore)?
     private let dependencies: HomeDependencies
     private var downloadObservationTask: Task<Void, Never>?
     private var downloadMilestoneSignature = ""
     private var pendingSpeechResumePackageID: String?
     private var isPreparingDownloadManager = false
+    private var targetLanguagePromptRefreshToken = 0
 
-    init(store: HomeStore, dependencies: HomeDependencies) {
+    init(store: any HomeDownloadWorkflowStore, dependencies: HomeDependencies) {
         self.store = store
         self.dependencies = dependencies
     }
@@ -43,9 +66,21 @@ final class HomeDownloadWorkflow {
     }
 
     func presentDeferredDownloadPromptIfNeeded() {
-        guard let store,
+        guard let store = self.store,
               !store.isShowingLanguageSheet,
-              let deferredDownloadPrompt = store.deferredDownloadPrompt else {
+              store.activeTargetLanguageModelPrompt == nil,
+              store.activeDownloadPrompt == nil else {
+            return
+        }
+
+        if let deferredTargetLanguageModelPrompt = store.deferredTargetLanguageModelPrompt {
+            store.activeTargetLanguageModelPrompt = deferredTargetLanguageModelPrompt
+            store.deferredTargetLanguageModelPrompt = nil
+            store.deferredDownloadPrompt = nil
+            return
+        }
+
+        guard let deferredDownloadPrompt = store.deferredDownloadPrompt else {
             return
         }
 
@@ -58,7 +93,7 @@ final class HomeDownloadWorkflow {
     }
 
     func prepareDownloadManagerIfNeeded() async {
-        guard let store,
+        guard let store = self.store,
               !store.hasPreparedDownloadManager,
               !isPreparingDownloadManager else {
             return
@@ -81,7 +116,7 @@ final class HomeDownloadWorkflow {
     }
 
     func presentDownloadPrompt() {
-        guard let store else { return }
+        guard let store = self.store else { return }
         guard let downloadableLanguagePrompt = store.downloadableLanguagePrompt else {
             openDownloadManager()
             return
@@ -94,8 +129,12 @@ final class HomeDownloadWorkflow {
         store?.activeDownloadPrompt = nil
     }
 
+    func dismissTargetLanguageModelPrompt() {
+        store?.activeTargetLanguageModelPrompt = nil
+    }
+
     func presentTranslationDownloadPrompt(_ prompt: HomeLanguageDownloadPrompt) {
-        guard let store else { return }
+        guard let store = self.store else { return }
         store.downloadableLanguagePrompt = prompt
         store.deferredDownloadPrompt = nil
         store.activeDownloadPrompt = prompt
@@ -108,8 +147,14 @@ final class HomeDownloadWorkflow {
     }
 
     func openDownloadManagerForActiveTranslationPrompt() {
-        guard let store else { return }
+        guard let store = self.store else { return }
         store.activeDownloadPrompt = nil
+        presentDownloadManager()
+    }
+
+    func openDownloadManagerForActiveTargetLanguagePrompt() {
+        guard let store = self.store else { return }
+        store.activeTargetLanguageModelPrompt = nil
         presentDownloadManager()
     }
 
@@ -117,7 +162,7 @@ final class HomeDownloadWorkflow {
         packageId: String,
         shouldResumeRecording: Bool
     ) {
-        guard let store else { return }
+        guard let store = self.store else { return }
         store.activeSpeechDownloadPrompt = nil
         store.pendingVoiceStartAfterInstall = shouldResumeRecording
         pendingSpeechResumePackageID = shouldResumeRecording ? packageId : nil
@@ -125,7 +170,7 @@ final class HomeDownloadWorkflow {
     }
 
     func refreshDownloadAvailabilityForCurrentSelection() async {
-        guard let store else { return }
+        guard let store = self.store else { return }
         let source = store.sourceLanguage
         let target = store.selectedLanguage
         let prompt = await downloadPromptIfNeeded(source: source, target: target)
@@ -142,10 +187,41 @@ final class HomeDownloadWorkflow {
         }
     }
 
+    func refreshPromptsAfterGlobalTargetLanguageSelection() async {
+        guard let store = self.store else { return }
+
+        targetLanguagePromptRefreshToken += 1
+        let refreshToken = targetLanguagePromptRefreshToken
+        let source = store.sourceLanguage
+        let target = store.selectedLanguage
+
+        let targetLanguagePrompt = await targetLanguageModelPromptIfNeeded(targetLanguage: target)
+        let translationPrompt = await downloadPromptIfNeeded(source: source, target: target)
+
+        guard let store = self.store,
+              refreshToken == targetLanguagePromptRefreshToken,
+              source == store.sourceLanguage,
+              target == store.selectedLanguage else {
+            return
+        }
+
+        store.activeTargetLanguageModelPrompt = nil
+        store.deferredTargetLanguageModelPrompt = targetLanguagePrompt
+        store.activeDownloadPrompt = nil
+        store.downloadableLanguagePrompt = translationPrompt
+        store.deferredDownloadPrompt = translationPrompt
+
+        if translationPrompt == nil {
+            store.activeDownloadPrompt = nil
+        }
+
+        presentDeferredDownloadPromptIfNeeded()
+    }
+
     func installTranslationModel(packageIds: [String]) async {
         guard !packageIds.isEmpty else { return }
 
-        guard let store else { return }
+        guard let store = self.store else { return }
         store.downloadErrorMessage = nil
         store.activeDownloadPrompt = nil
         presentDownloadManager()
@@ -157,7 +233,7 @@ final class HomeDownloadWorkflow {
         packageId: String,
         shouldResumeRecording: Bool
     ) async {
-        guard let store else { return }
+        guard let store = self.store else { return }
         store.speechErrorMessage = nil
         store.activeSpeechDownloadPrompt = nil
         presentDownloadManager()
@@ -238,6 +314,29 @@ final class HomeDownloadWorkflow {
         }
     }
 
+    func targetLanguageModelPromptIfNeeded(
+        targetLanguage: SupportedLanguage
+    ) async -> HomeTargetLanguageModelPrompt? {
+        do {
+            let installedPackages = try await dependencies.translationModelInventoryProvider.installedPackages()
+            if installedPackages.contains(where: { $0.targetLanguage == targetLanguage }) {
+                return nil
+            }
+
+            let packages = try await dependencies.translationModelInventoryProvider.packages()
+            let hasAvailableTargetLanguageModel = packages.contains {
+                SupportedLanguage.fromTranslationModelCode($0.target) == targetLanguage
+            }
+            guard hasAvailableTargetLanguageModel else {
+                return nil
+            }
+
+            return HomeTargetLanguageModelPrompt(targetLanguage: targetLanguage)
+        } catch {
+            return nil
+        }
+    }
+
     func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt? {
         guard let package = try await dependencies.speechPackageManager.defaultPackageMetadata() else {
             throw SpeechRecognitionError.modelPackageUnavailable
@@ -264,7 +363,7 @@ final class HomeDownloadWorkflow {
             }
         }
 
-        guard let store,
+        guard let store = self.store,
               store.pendingVoiceStartAfterInstall,
               let packageID = pendingSpeechResumePackageID else {
             return
@@ -299,7 +398,7 @@ final class HomeDownloadWorkflow {
     }
 
     private func presentDownloadManager() {
-        guard let store else { return }
+        guard let store = self.store else { return }
         if !store.hasPreparedDownloadManager {
             store.isDownloadManagerLoading = true
         }

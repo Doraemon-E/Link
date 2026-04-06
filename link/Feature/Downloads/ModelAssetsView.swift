@@ -36,30 +36,36 @@ struct ModelAssetsView: View {
             } else if allItemsAreEmpty {
                 emptyState
             } else {
-                List {
-                    if !processingRecords.isEmpty {
-                        section(title: "正在处理", items: processingRecords)
-                    }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        if !processingRecords.isEmpty {
+                            section(title: "正在处理", items: processingRecords)
+                        }
 
-                    if !resumableRecords.isEmpty {
-                        section(title: "可继续下载", items: resumableRecords)
-                    }
+                        if !resumableRecords.isEmpty {
+                            section(title: "可继续下载", items: resumableRecords)
+                        }
 
-                    if !failedRecords.isEmpty {
-                        section(title: "下载失败", items: failedRecords)
-                    }
+                        if !failedRecords.isEmpty {
+                            section(title: "下载失败", items: failedRecords)
+                        }
 
-                    if !availableRecords.isEmpty {
-                        section(title: "可下载", items: availableRecords)
-                    }
+                        if !availableRecords.isEmpty {
+                            section(title: "可下载", items: availableRecords)
+                        }
 
-                    if !installedRecords.isEmpty {
-                        section(title: "已安装", items: installedRecords)
+                        if !installedRecords.isEmpty {
+                            section(title: "已安装", items: installedRecords)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 20)
                 }
-                .listStyle(.insetGrouped)
+                .scrollIndicators(.hidden)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("下载管理")
         .navigationBarTitleDisplayMode(.inline)
         .alert(
@@ -89,7 +95,12 @@ struct ModelAssetsView: View {
 
     @ViewBuilder
     private func section(title: String, items: [ModelAssetRecord]) -> some View {
-        Section(title) {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 4)
+
             ForEach(items) { item in
                 ModelAssetRow(
                     item: item,
@@ -105,8 +116,7 @@ struct ModelAssetsView: View {
     private var loadingState: some View {
         ProgressView()
             .controlSize(.large)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {
@@ -125,7 +135,6 @@ struct ModelAssetsView: View {
                 .padding(.horizontal, 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
     }
 }
 
@@ -175,10 +184,10 @@ private struct ModelAssetRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.asset.title)
+                    Text(trimmedTitle)
                         .font(.body.weight(.semibold))
                         .lineLimit(2)
 
@@ -259,11 +268,13 @@ private struct ModelAssetRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
     }
 
     private var kindBadge: some View {
-        Text(item.kind.displayName)
+        Text(trimmedKindDisplayName)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
@@ -272,6 +283,16 @@ private struct ModelAssetRow: View {
                 Capsule()
                     .fill(Color.secondary.opacity(0.12))
             )
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(Color(uiColor: .secondarySystemBackground))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 6)
     }
 
     @ViewBuilder

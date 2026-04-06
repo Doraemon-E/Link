@@ -478,12 +478,11 @@ private final class FakeConversationStreamingCoordinator: ConversationStreamingC
         )
     }
 
-    func startLiveSpeechTranslation(
+    func startLiveSpeechTranscription(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
-        sourceLanguage: SupportedLanguage?,
-        targetLanguage: SupportedLanguage
-    ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error> {
+        sourceLanguage: SupportedLanguage?
+    ) -> AsyncThrowingStream<LiveSpeechTranscriptionEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.finish()
         }

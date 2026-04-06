@@ -263,6 +263,7 @@ private struct HomeChatInputBarHeightPreferenceKey: PreferenceKey {
             audioFilePlaybackService: SystemAudioFilePlaybackService(),
             speechPackageManager: speechPackageManager,
             translationAssetReadinessProvider: translationPackageManager,
+            translationModelInventoryProvider: translationPackageManager,
             modelAssetService: ModelAssetService(
                 translationPackageManager: translationPackageManager,
                 speechPackageManager: speechPackageManager

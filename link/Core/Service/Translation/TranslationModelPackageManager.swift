@@ -15,7 +15,7 @@ nonisolated struct TranslationModelInstallation {
     let modelDirectoryURL: URL
 }
 
-actor TranslationModelPackageManager: TranslationModelProviding, TranslationAssetReadinessProviding {
+actor TranslationModelPackageManager: TranslationModelProviding, TranslationModelInventoryProviding, TranslationAssetReadinessProviding {
     private struct RawMarianConfig: Decodable {
         let bosTokenId: Int?
         let eosTokenId: Int?

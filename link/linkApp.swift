@@ -31,6 +31,7 @@ struct linkApp: App {
             audioFilePlaybackService: SystemAudioFilePlaybackService(),
             speechPackageManager: speechPackageManager,
             translationAssetReadinessProvider: translationPackageManager,
+            translationModelInventoryProvider: translationPackageManager,
             modelAssetService: assetService,
             microphoneRecordingService: MicrophoneRecordingService()
         )

@@ -10,7 +10,7 @@ import Observation
 
 @MainActor
 @Observable
-final class HomeStore: HomeMessageLanguageWorkflowStore {
+final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowStore {
     struct ViewState {
         let messageItems: [MessageItemState]
         let displayedMessageRenderKeys: [String]
@@ -82,6 +82,8 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
     var downloadableLanguagePrompt: HomeLanguageDownloadPrompt?
     var deferredDownloadPrompt: HomeLanguageDownloadPrompt?
     var activeDownloadPrompt: HomeLanguageDownloadPrompt?
+    var deferredTargetLanguageModelPrompt: HomeTargetLanguageModelPrompt?
+    var activeTargetLanguageModelPrompt: HomeTargetLanguageModelPrompt?
     var messageErrorMessage: String?
     var messageMutationErrorMessage: String?
     var downloadErrorMessage: String?
@@ -253,9 +255,11 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
         downloadableLanguagePrompt = nil
         deferredDownloadPrompt = nil
         activeDownloadPrompt = nil
+        deferredTargetLanguageModelPrompt = nil
+        activeTargetLanguageModelPrompt = nil
 
         Task {
-            await refreshDownloadAvailabilityForCurrentSelection()
+            await downloadWorkflow.refreshPromptsAfterGlobalTargetLanguageSelection()
         }
     }
 
@@ -306,8 +310,16 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
         downloadWorkflow.dismissDownloadPrompt()
     }
 
+    func dismissTargetLanguageModelPrompt() {
+        downloadWorkflow.dismissTargetLanguageModelPrompt()
+    }
+
     func openDownloadManagerForActiveTranslationPrompt() {
         downloadWorkflow.openDownloadManagerForActiveTranslationPrompt()
+    }
+
+    func openDownloadManagerForActiveTargetLanguagePrompt() {
+        downloadWorkflow.openDownloadManagerForActiveTargetLanguagePrompt()
     }
 
     func dismissSpeechDownloadPrompt() {

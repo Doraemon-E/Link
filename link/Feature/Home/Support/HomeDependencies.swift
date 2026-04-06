@@ -17,6 +17,7 @@ struct HomeDependencies {
     let audioFilePlaybackService: AudioFilePlaybackService
     let speechPackageManager: SpeechModelPackageManager
     let translationAssetReadinessProvider: any TranslationAssetReadinessProviding
+    let translationModelInventoryProvider: any TranslationModelInventoryProviding
     let modelAssetService: ModelAssetService
     let microphoneRecordingService: MicrophoneRecordingService
 }

@@ -42,6 +42,24 @@ struct HomePresentationModifier: ViewModifier {
                     isPresented: boolBinding(\.isSessionHistoryPresented)
                 )
             }
+            .alert(
+                store.activeTargetLanguageModelPrompt?.title ?? "",
+                isPresented: presenceBinding(
+                    for: \.activeTargetLanguageModelPrompt,
+                    onDismiss: store.dismissTargetLanguageModelPrompt
+                ),
+                presenting: store.activeTargetLanguageModelPrompt
+            ) { _ in
+                Button("前往下载模型") {
+                    store.openDownloadManagerForActiveTargetLanguagePrompt()
+                }
+
+                Button("暂不下载", role: .cancel) {
+                    store.dismissTargetLanguageModelPrompt()
+                }
+            } message: { prompt in
+                Text(prompt.message)
+            }
             .confirmationDialog(
                 store.activeDownloadPrompt?.title ?? "",
                 isPresented: presenceBinding(

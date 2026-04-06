@@ -41,6 +41,11 @@ nonisolated protocol TranslationModelProviding: Sendable {
     ) async throws -> TranslationModelInstallation?
 }
 
+nonisolated protocol TranslationModelInventoryProviding: Sendable {
+    func packages() async throws -> [TranslationModelPackage]
+    func installedPackages() async throws -> [TranslationInstalledPackageSummary]
+}
+
 nonisolated protocol TranslationAssetReadinessProviding: Sendable {
     func translationAssetRequirement(
         for route: TranslationRoute
