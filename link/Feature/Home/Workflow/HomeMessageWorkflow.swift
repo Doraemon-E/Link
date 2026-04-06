@@ -7,6 +7,11 @@
 
 import Foundation
 
+private enum HomeTranslationRequestOrigin {
+    case manual
+    case speech
+}
+
 @MainActor
 final class HomeMessageWorkflow {
     private unowned let store: HomeStore
@@ -55,6 +60,7 @@ final class HomeMessageWorkflow {
                 sourceLanguage: source,
                 targetLanguage: target,
                 audioURL: nil,
+                translationOrigin: .manual,
                 in: runtime,
                 clearInput: true
             )
@@ -66,6 +72,7 @@ final class HomeMessageWorkflow {
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
         audioURL: String?,
+        translationOrigin: HomeTranslationRequestOrigin,
         in runtime: HomeRuntimeContext,
         clearInput: Bool
     ) {
@@ -96,6 +103,7 @@ final class HomeMessageWorkflow {
             originalText: trimmedText,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
+            translationOrigin: translationOrigin,
             in: runtime
         )
     }
@@ -105,6 +113,7 @@ final class HomeMessageWorkflow {
         originalText: String,
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
+        translationOrigin: HomeTranslationRequestOrigin,
         in runtime: HomeRuntimeContext
     ) {
         translationTasksByMessageID[messageID]?.cancel()
@@ -129,12 +138,23 @@ final class HomeMessageWorkflow {
             }
 
             do {
-                let stream = self.conversationStreamingCoordinator.startManualTranslation(
-                    messageID: messageID,
-                    text: originalText,
-                    sourceLanguage: sourceLanguage,
-                    targetLanguage: targetLanguage
-                )
+                let stream: AsyncThrowingStream<ConversationStreamingEvent, Error>
+                switch translationOrigin {
+                case .manual:
+                    stream = self.conversationStreamingCoordinator.startManualTranslation(
+                        messageID: messageID,
+                        text: originalText,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage
+                    )
+                case .speech:
+                    stream = self.conversationStreamingCoordinator.startSpeechTranslation(
+                        messageID: messageID,
+                        text: originalText,
+                        sourceLanguage: sourceLanguage,
+                        targetLanguage: targetLanguage
+                    )
+                }
                 for try await event in stream {
                     self.handleStreamingConversationEvent(event, in: runtime)
                 }
