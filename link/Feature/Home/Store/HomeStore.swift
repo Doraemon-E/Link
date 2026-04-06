@@ -8,32 +8,6 @@
 import Foundation
 import Observation
 
-enum HomeSessionPresentation: Equatable {
-    case none
-    case draft
-    case persisted(UUID)
-}
-
-enum HomePlaybackKind: Equatable {
-    case translatedTTS
-    case sourceTTS
-    case sourceRecording
-
-    var isTextToSpeech: Bool {
-        switch self {
-        case .translatedTTS, .sourceTTS:
-            return true
-        case .sourceRecording:
-            return false
-        }
-    }
-}
-
-struct HomePlaybackState: Equatable {
-    let messageID: UUID
-    let kind: HomePlaybackKind
-}
-
 @MainActor
 @Observable
 final class HomeStore {

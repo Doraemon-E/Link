@@ -9,9 +9,14 @@ import SwiftUI
 import SwiftData
 
 struct HomeView: View {
+    private static let messageListBottomAnchorID = "home-message-list-bottom-anchor"
+    private static let messageListBottomSpacing: CGFloat = 16
+    private static let messageListBottomActionClearance: CGFloat = 44
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
     @State private var store: HomeStore
+    @State private var chatInputBarHeight: CGFloat = 0
 
     init(dependencies: HomeDependencies) {
         _store = State(
@@ -27,7 +32,7 @@ struct HomeView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 Group {
-                    if displayedMessages.isEmpty && !store.isChatInputFocused {
+                    if shouldShowEmptyState {
                         emptyState
                     } else {
                         messageList
@@ -65,6 +70,10 @@ struct HomeView: View {
                 }
                 .onChange(of: displayedMessageRenderKeys) { _, _ in
                     scrollToBottom(with: proxy)
+                }
+                .onChange(of: chatInputBarHeight) { oldValue, newValue in
+                    guard !shouldShowEmptyState, oldValue != newValue else { return }
+                    scrollToBottom(with: proxy, animated: false)
                 }
             }
             .navigationDestination(isPresented: $store.isDownloadManagerPresented) {
@@ -219,7 +228,10 @@ struct HomeView: View {
                 await store.handlePendingSpeechResumeIfNeeded(in: runtimeContext)
             }
         }
-        .safeAreaInset(edge: .bottom) {
+        .onPreferenceChange(HomeChatInputBarHeightPreferenceKey.self) { height in
+            chatInputBarHeight = height
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if !store.isDownloadManagerPresented {
                 HomeChatInputBar(
                     text: $store.messageText,
@@ -236,6 +248,15 @@ struct HomeView: View {
                         }
                     }
                 )
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .preference(
+                                key: HomeChatInputBarHeightPreferenceKey.self,
+                                value: proxy.size.height
+                            )
+                    }
+                }
             }
         }
     }
@@ -251,12 +272,19 @@ struct HomeView: View {
         store.displayedMessages(in: runtimeContext)
     }
 
-    private var displayedMessageIDs: [UUID] {
-        store.displayedMessageIDs(in: runtimeContext)
-    }
-
     private var displayedMessageRenderKeys: [String] {
         store.displayedMessageRenderKeys(in: runtimeContext)
+    }
+
+    private var shouldShowEmptyState: Bool {
+        displayedMessages.isEmpty && !store.isChatInputFocused
+    }
+
+    private var messageListBottomSpacerHeight: CGFloat {
+        guard !store.isDownloadManagerPresented else { return 0 }
+        return chatInputBarHeight
+            + Self.messageListBottomSpacing
+            + Self.messageListBottomActionClearance
     }
 
     private var historySessions: [ChatSession] {
@@ -328,10 +356,13 @@ struct HomeView: View {
                     )
                         .id(message.id)
                 }
+
+                Color.clear
+                    .frame(height: messageListBottomSpacerHeight)
+                    .id(Self.messageListBottomAnchorID)
             }
             .padding(.horizontal, 14)
             .padding(.top, 18)
-            .padding(.bottom, 16)
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
@@ -389,8 +420,8 @@ struct HomeView: View {
             isEnabled: shouldShowNewSessionButton,
             action: store.startNewSession
         ) {
-            Image(systemName: "square.and.pencil")
-                .font(.body.weight(.semibold))
+            Image(systemName: "plus.circle")
+                .font(.system(size: 17, weight: .semibold))
         }
     }
 
@@ -424,10 +455,10 @@ struct HomeView: View {
     }
 
     private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool = true) {
-        guard let lastMessageID = displayedMessageIDs.last else { return }
+        guard !shouldShowEmptyState else { return }
 
         let action = {
-            proxy.scrollTo(lastMessageID, anchor: .bottom)
+            proxy.scrollTo(Self.messageListBottomAnchorID, anchor: .bottom)
         }
 
         if animated {
@@ -437,6 +468,14 @@ struct HomeView: View {
         } else {
             action()
         }
+    }
+}
+
+private struct HomeChatInputBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

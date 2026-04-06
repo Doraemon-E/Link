@@ -1,5 +1,5 @@
 //
-//  HomeMessageStreaming.swift
+//  ConversationStreamingState.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.

@@ -8,13 +8,6 @@
 import Foundation
 import SwiftData
 
-struct HomeLiveSpeechSessionRecord {
-    let session: ChatSession
-    let message: ChatMessage
-    let fallbackSourceLanguage: SupportedLanguage
-    let targetLanguage: SupportedLanguage
-}
-
 @MainActor
 final class HomeSessionRepository {
     func displayedMessages(
