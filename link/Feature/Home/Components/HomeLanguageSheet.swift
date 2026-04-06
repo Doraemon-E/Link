@@ -74,7 +74,7 @@ struct HomeLanguageSheet: View {
         return Button {
             draftSelectedLanguage = language
         } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: 2) {
                 Text(language.flagEmoji)
                     .font(.system(size: 40))
                     .frame(maxWidth: .infinity)
@@ -86,7 +86,7 @@ struct HomeLanguageSheet: View {
                     .frame(maxWidth: .infinity)
             }
             .padding()
-            .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
+            .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
             .background(cardBackground(isSelected: isSelected))
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
