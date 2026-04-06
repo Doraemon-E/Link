@@ -14,7 +14,14 @@ struct MicrophoneRecordingResult {
 }
 
 @MainActor
-final class MicrophoneRecordingService {
+protocol SpeechRecordingService: AnyObject {
+    func startStreamingRecording() async throws -> AsyncStream<[Float]>
+    func stopRecording(for messageID: UUID) async throws -> MicrophoneRecordingResult
+    func cancelRecording()
+}
+
+@MainActor
+final class MicrophoneRecordingService: SpeechRecordingService {
     private final class OutputFileWriter: @unchecked Sendable {
         private let outputFile: AVAudioFile
 
@@ -165,7 +172,7 @@ final class MicrophoneRecordingService {
         return stream
     }
 
-    func stopRecording() async throws -> MicrophoneRecordingResult {
+    func stopRecording(for messageID: UUID) async throws -> MicrophoneRecordingResult {
         guard let recordingFileURL = activeSession?.fileURL else {
             throw SpeechRecognitionError.recordingNotActive
         }
@@ -175,11 +182,14 @@ final class MicrophoneRecordingService {
             try? FileManager.default.removeItem(at: recordingFileURL)
         }
 
-        let preservedRecordingURL = try preserveRecording(at: recordingFileURL)
         let samples = try loadWhisperSamples(from: recordingFileURL)
         guard samples.count >= 1600 else {
             throw SpeechRecognitionError.recordingTooShort
         }
+        let preservedRecordingURL = try preserveRecording(
+            at: recordingFileURL,
+            for: messageID
+        )
 
         return MicrophoneRecordingResult(
             samples: samples,
@@ -299,23 +309,29 @@ final class MicrophoneRecordingService {
         }
     }
 
-    // TODO: 注意，这里的路径感觉不是很规范，后面优化一下
-    private func preserveRecording(at url: URL) throws -> URL {
-        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        try? FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
-        let preservedURL = appSupportURL
-            .appendingPathComponent("last-speech-recording", isDirectory: false)
-            .appendingPathExtension(url.pathExtension.isEmpty ? "caf" : url.pathExtension)
+    private func preserveRecording(
+        at url: URL,
+        for messageID: UUID
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let pathExtension = url.pathExtension.isEmpty ? "caf" : url.pathExtension
+        try SpeechRecordingStoragePaths.ensureRecordingsDirectoryExists(fileManager: fileManager)
+        let preservedURL = try SpeechRecordingStoragePaths.recordingFileURL(
+            for: messageID,
+            pathExtension: pathExtension,
+            fileManager: fileManager
+        )
 
-        if FileManager.default.fileExists(atPath: preservedURL.path) {
-            try? FileManager.default.removeItem(at: preservedURL)
+        if fileManager.fileExists(atPath: preservedURL.path) {
+            try? fileManager.removeItem(at: preservedURL)
         }
 
         do {
-            try FileManager.default.copyItem(at: url, to: preservedURL)
+            try fileManager.copyItem(at: url, to: preservedURL)
             print("[MicrophoneRecordingService] Preserved recording at \(preservedURL.path)")
             return preservedURL
         } catch {
+            try? fileManager.removeItem(at: preservedURL)
             throw SpeechRecognitionError.audioProcessingFailed("Unable to preserve recorded audio: \(error.localizedDescription)")
         }
     }

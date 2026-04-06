@@ -8,6 +8,54 @@
 import Foundation
 
 @MainActor
+protocol HomeSpeechWorkflowStore: AnyObject {
+    var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt? { get set }
+    var isChatInputFocused: Bool { get set }
+    var isInstallingSpeechModel: Bool { get }
+    var isRecordingSpeech: Bool { get set }
+    var isTranscribingSpeech: Bool { get set }
+    var lastSpeechRecordingURL: URL? { get set }
+    var pendingVoiceStartAfterInstall: Bool { get set }
+    var playbackErrorMessage: String? { get set }
+    var selectedLanguage: SupportedLanguage { get set }
+    var sessionPresentation: HomeSessionPresentation { get set }
+    var sourceLanguage: SupportedLanguage { get set }
+    var speechErrorMessage: String? { get set }
+    var speechResumeRequestToken: Int { get set }
+    var streamingStatesByMessageID: [UUID: ExchangeStreamingState] { get set }
+}
+
+@MainActor
+protocol HomeSpeechDownloadSupporting: AnyObject {
+    func translationDownloadPrompt(
+        source: SupportedLanguage,
+        target: SupportedLanguage
+    ) async throws -> HomeLanguageDownloadPrompt?
+
+    func presentTranslationDownloadPrompt(_ prompt: HomeLanguageDownloadPrompt)
+
+    func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt?
+
+    func isTranslationReady(
+        source: SupportedLanguage,
+        target: SupportedLanguage
+    ) async -> Bool
+}
+
+@MainActor
+protocol HomeSpeechTranslationStarting: AnyObject {
+    func startSpeechTranslation(
+        for messageID: UUID,
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        in runtime: HomeRuntimeContext
+    )
+}
+
+extension HomeDownloadWorkflow: HomeSpeechDownloadSupporting {}
+
+@MainActor
 final class HomeSpeechWorkflow {
     private struct LiveSpeechSession {
         let record: HomeLiveSpeechSessionRecord
@@ -15,26 +63,26 @@ final class HomeSpeechWorkflow {
         var liveTask: Task<Void, Never>?
     }
 
-    private unowned let store: HomeStore
+    private weak var store: (any HomeSpeechWorkflowStore)?
     private let sessionRepository: HomeSessionRepository
     private let conversationStreamingCoordinator: any ConversationStreamingCoordinator
-    private let messageWorkflow: HomeMessageWorkflow
+    private let messageWorkflow: any HomeSpeechTranslationStarting
     private let speechRecognitionService: SpeechRecognitionService
-    private let microphoneRecordingService: MicrophoneRecordingService
-    private let downloadWorkflow: HomeDownloadWorkflow
-    private let playbackController: HomePlaybackController
+    private let microphoneRecordingService: any SpeechRecordingService
+    private let downloadWorkflow: any HomeSpeechDownloadSupporting
+    private let playbackController: any HomePlaybackControlling
     private var silenceAutoStopTask: Task<Void, Never>?
     private var liveSpeechSession: LiveSpeechSession?
 
     init(
-        store: HomeStore,
+        store: any HomeSpeechWorkflowStore,
         sessionRepository: HomeSessionRepository,
         conversationStreamingCoordinator: any ConversationStreamingCoordinator,
-        messageWorkflow: HomeMessageWorkflow,
+        messageWorkflow: any HomeSpeechTranslationStarting,
         speechRecognitionService: SpeechRecognitionService,
-        microphoneRecordingService: MicrophoneRecordingService,
-        downloadWorkflow: HomeDownloadWorkflow,
-        playbackController: HomePlaybackController
+        microphoneRecordingService: any SpeechRecordingService,
+        downloadWorkflow: any HomeSpeechDownloadSupporting,
+        playbackController: any HomePlaybackControlling
     ) {
         self.store = store
         self.sessionRepository = sessionRepository
@@ -47,6 +95,8 @@ final class HomeSpeechWorkflow {
     }
 
     func toggleSpeechRecording(in runtime: HomeRuntimeContext) async {
+        guard let store else { return }
+
         guard !store.isTranscribingSpeech, !store.isInstallingSpeechModel else {
             return
         }
@@ -72,6 +122,8 @@ final class HomeSpeechWorkflow {
     }
 
     func handlePendingSpeechResumeIfNeeded(in runtime: HomeRuntimeContext) async {
+        guard let store else { return }
+
         guard store.speechResumeRequestToken > 0 else {
             return
         }
@@ -81,6 +133,8 @@ final class HomeSpeechWorkflow {
     }
 
     private func startSpeechRecording(in runtime: HomeRuntimeContext) async {
+        guard let store else { return }
+
         guard !store.isRecordingSpeech, !store.isTranscribingSpeech, !store.isInstallingSpeechModel else {
             return
         }
@@ -111,12 +165,14 @@ final class HomeSpeechWorkflow {
     }
 
     private func stopSpeechRecordingAndTranslate(in runtime: HomeRuntimeContext) async {
+        guard let store else { return }
         guard store.isRecordingSpeech else { return }
 
         cancelSilenceAutoStop()
         store.isRecordingSpeech = false
         store.isTranscribingSpeech = true
         store.speechErrorMessage = nil
+        var preservedRecordingURL: URL?
 
         defer {
             store.isTranscribingSpeech = false
@@ -126,8 +182,10 @@ final class HomeSpeechWorkflow {
             guard let liveSpeechSession else {
                 throw SpeechRecognitionError.recordingNotActive
             }
+            let messageID = liveSpeechSession.record.message.id
 
-            let recordingResult = try await microphoneRecordingService.stopRecording()
+            let recordingResult = try await microphoneRecordingService.stopRecording(for: messageID)
+            preservedRecordingURL = recordingResult.preservedRecordingURL
             store.lastSpeechRecordingURL = recordingResult.preservedRecordingURL
             if let liveTask = self.liveSpeechSession?.liveTask {
                 await liveTask.value
@@ -148,14 +206,13 @@ final class HomeSpeechWorkflow {
                 fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage,
                 targetLanguage: liveSpeechSession.record.targetLanguage
             )
-            let messageID = liveSpeechSession.record.message.id
             let targetLanguage = liveSpeechSession.record.targetLanguage
 
             sessionRepository.finalizeLiveSpeechTranscript(
                 liveSpeechSession.record,
                 transcript: transcribedText,
                 sourceLanguage: effectiveSourceLanguage,
-                audioURL: recordingResult.preservedRecordingURL?.absoluteString,
+                audioURL: preservedRecordingURL?.absoluteString,
                 in: runtime
             )
             self.liveSpeechSession = nil
@@ -202,12 +259,14 @@ final class HomeSpeechWorkflow {
             }
         } catch let error as SpeechRecognitionError {
             microphoneRecordingService.cancelRecording()
+            cleanupFailedPreservedRecording(at: preservedRecordingURL)
             handleSpeechRecognitionFailure(
                 message: error.userFacingMessage,
                 in: runtime
             )
         } catch {
             microphoneRecordingService.cancelRecording()
+            cleanupFailedPreservedRecording(at: preservedRecordingURL)
             handleSpeechRecognitionFailure(
                 message: "语音识别失败了，请稍后再试。",
                 in: runtime
@@ -216,6 +275,8 @@ final class HomeSpeechWorkflow {
     }
 
     private func prepareForSpeechRecording() {
+        guard let store else { return }
+
         playbackController.stop()
         store.speechErrorMessage = nil
         store.playbackErrorMessage = nil
@@ -250,11 +311,11 @@ final class HomeSpeechWorkflow {
             } catch is CancellationError {
                 return
             } catch let error as SpeechRecognitionError {
-                self.store.speechErrorMessage = error.userFacingMessage
+                self.store?.speechErrorMessage = error.userFacingMessage
             } catch let error as ConversationStreamingCoordinatorError {
-                self.store.speechErrorMessage = error.localizedDescription
+                self.store?.speechErrorMessage = error.localizedDescription
             } catch {
-                self.store.speechErrorMessage = "实时语音识别暂时不可用，请稍后再试。"
+                self.store?.speechErrorMessage = "实时语音识别暂时不可用，请稍后再试。"
             }
         }
 
@@ -294,7 +355,9 @@ final class HomeSpeechWorkflow {
                 return
             }
 
-            guard let self, self.store.isRecordingSpeech else { return }
+            guard let self,
+                  let store = self.store,
+                  store.isRecordingSpeech else { return }
             await self.stopSpeechRecordingAndTranslate(in: runtime)
         }
     }
@@ -309,6 +372,11 @@ final class HomeSpeechWorkflow {
         currentState: LiveUtteranceState,
         in runtime: HomeRuntimeContext
     ) {
+        guard let store else {
+            cancelSilenceAutoStop()
+            return
+        }
+
         guard store.isRecordingSpeech else {
             cancelSilenceAutoStop()
             return
@@ -338,6 +406,10 @@ final class HomeSpeechWorkflow {
         _ state: LiveUtteranceState,
         to liveSpeechSession: HomeLiveSpeechSessionRecord
     ) {
+        guard let store else {
+            return
+        }
+
         let transcriptText = state.fullTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -366,7 +438,8 @@ final class HomeSpeechWorkflow {
     }
 
     private func discardLiveSpeechSession(in runtime: HomeRuntimeContext) {
-        guard let liveSpeechSession else {
+        guard let liveSpeechSession,
+              let store else {
             return
         }
 
@@ -392,7 +465,7 @@ final class HomeSpeechWorkflow {
             discardLiveSpeechSession(in: runtime)
         }
 
-        store.speechErrorMessage = message
+        store?.speechErrorMessage = message
     }
 
     private func handleSpeechTranslationFailure(
@@ -400,13 +473,13 @@ final class HomeSpeechWorkflow {
         message: String,
         in runtime: HomeRuntimeContext
     ) {
-        store.streamingStatesByMessageID.removeValue(forKey: messageID)
+        store?.streamingStatesByMessageID.removeValue(forKey: messageID)
         sessionRepository.updateTranslatedMessage(
             id: messageID,
             text: message,
             in: runtime
         )
-        store.speechErrorMessage = nil
+        store?.speechErrorMessage = nil
     }
 
     private func resolvedSpeechSourceLanguage(
@@ -423,5 +496,16 @@ final class HomeSpeechWorkflow {
         }
 
         return fallbackSourceLanguage
+    }
+
+    private func cleanupFailedPreservedRecording(at url: URL?) {
+        guard let url else {
+            return
+        }
+
+        try? FileManager.default.removeItem(at: url)
+        if store?.lastSpeechRecordingURL == url {
+            store?.lastSpeechRecordingURL = nil
+        }
     }
 }

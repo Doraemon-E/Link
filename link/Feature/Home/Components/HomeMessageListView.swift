@@ -54,7 +54,7 @@ struct HomeMessageListView: View {
                             onTargetLanguageSelection(messageItem.message)
                         }
                     )
-                    .id(messageItem.id)
+                    .id(messageItem.renderKey)
                 }
 
                 Color.clear

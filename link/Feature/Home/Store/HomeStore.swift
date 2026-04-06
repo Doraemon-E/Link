@@ -10,10 +10,9 @@ import Observation
 
 @MainActor
 @Observable
-final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowStore {
+final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowStore, HomeSpeechWorkflowStore {
     struct ViewState {
         let messageItems: [MessageItemState]
-        let displayedMessageRenderKeys: [String]
         let shouldShowEmptyState: Bool
         let historySessions: [ChatSession]
         let currentSessionID: UUID?
@@ -24,6 +23,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
     struct MessageItemState: Identifiable {
         let message: ChatMessage
         let streamingState: ExchangeStreamingState?
+        let renderKey: String
         let sourceLanguage: SupportedLanguage
         let targetLanguage: SupportedLanguage
         let showsTranslatedPlaybackButton: Bool
@@ -174,12 +174,6 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
 
         return ViewState(
             messageItems: messageItems,
-            displayedMessageRenderKeys: messageItems.map { messageItem in
-                messageRenderKey(
-                    for: messageItem.message,
-                    streamingState: messageItem.streamingState
-                )
-            },
             shouldShowEmptyState: messageItems.isEmpty && !isChatInputFocused,
             historySessions: runtime.historySessions,
             currentSessionID: currentSessionID(in: runtime),
@@ -425,17 +419,25 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         let isLanguageSwitchDisabled = isMessageLanguageSwitchDisabled(for: message)
         let switchingSide = messageLanguageSwitchSideByMessageID[message.id]
         let isMessageSwitching = switchingSide != nil
+        let isPlayingTranslatedMessage = playbackController.isPlayingTranslatedMessage(message)
+        let isPlayingSourceMessage = playbackController.isPlayingSourceMessage(message)
 
         return MessageItemState(
             message: message,
             streamingState: streamingState,
+            renderKey: messageRenderKey(
+                for: message,
+                streamingState: streamingState,
+                isPlayingSourceMessage: isPlayingSourceMessage,
+                isPlayingTranslatedMessage: isPlayingTranslatedMessage
+            ),
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
             showsTranslatedPlaybackButton: playbackController.shouldShowTranslatedPlaybackButton(for: message),
-            isPlayingTranslatedMessage: playbackController.isPlayingTranslatedMessage(message),
+            isPlayingTranslatedMessage: isPlayingTranslatedMessage,
             isTranslatedPlaybackDisabled: playbackController.isTranslatedPlaybackDisabled(for: message) || isMessageSwitching,
             isSourcePlaybackDisabled: playbackController.isSourcePlaybackDisabled(for: message) || isMessageSwitching,
-            isPlayingSourceMessage: playbackController.isPlayingSourceMessage(message),
+            isPlayingSourceMessage: isPlayingSourceMessage,
             showsSpeechTranscript: isSpeechTranscriptExpanded(for: message),
             isSpeechTranscriptToggleDisabled: isMessageSwitching,
             hasPlayableSourceRecording: playbackController.hasPlayableSourceRecording(for: message),
@@ -473,7 +475,9 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
 
     private func messageRenderKey(
         for message: ChatMessage,
-        streamingState: ExchangeStreamingState?
+        streamingState: ExchangeStreamingState?,
+        isPlayingSourceMessage: Bool,
+        isPlayingTranslatedMessage: Bool
     ) -> String {
         let sourceRevision = streamingState?.sourceRevision ?? 0
         let translationRevision = streamingState?.translationRevision ?? 0
@@ -483,7 +487,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         let targetLanguage = resolvedLanguage(for: message, side: .target).rawValue
         let switchingSide = messageLanguageSwitchSideByMessageID[message.id]?.rawValue ?? ""
 
-        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceLanguage)-\(targetLanguage)-\(switchingSide)-\(sourceText)-\(translatedText)"
+        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceLanguage)-\(targetLanguage)-\(switchingSide)-\(isPlayingSourceMessage)-\(isPlayingTranslatedMessage)-\(sourceText)-\(translatedText)"
     }
 
     private func isSpeechTranscriptExpanded(for message: ChatMessage) -> Bool {

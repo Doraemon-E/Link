@@ -289,3 +289,5 @@ final class HomeMessageWorkflow {
         store.streamingStatesByMessageID.removeValue(forKey: messageID)
     }
 }
+
+extension HomeMessageWorkflow: HomeSpeechTranslationStarting {}
