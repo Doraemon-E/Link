@@ -11,35 +11,19 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
-    @State private var viewModel: HomeViewModel
+    @State private var store: HomeStore
     @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
-    init(
-        appSettings: AppSettings,
-        translationService: TranslationService,
-        speechRecognitionService: SpeechRecognitionService,
-        textToSpeechService: TextToSpeechService,
-        speechPackageManager: SpeechModelPackageManager,
-        translationAssetReadinessProvider: any TranslationAssetReadinessProviding,
-        modelAssetService: ModelAssetService,
-        microphoneRecordingService: MicrophoneRecordingService
-    ) {
-        _viewModel = State(
-            initialValue: HomeViewModel(
-                appSettings: appSettings,
-                translationService: translationService,
-                speechRecognitionService: speechRecognitionService,
-                textToSpeechService: textToSpeechService,
-                speechPackageManager: speechPackageManager,
-                translationAssetReadinessProvider: translationAssetReadinessProvider,
-                modelAssetService: modelAssetService,
-                microphoneRecordingService: microphoneRecordingService
+    init(dependencies: HomeDependencies) {
+        _store = State(
+            initialValue: HomeStore(
+                dependencies: dependencies
             )
         )
     }
 
     var body: some View {
-        @Bindable var viewModel = viewModel
+        @Bindable var store = store
 
         NavigationStack {
             ScrollViewReader { proxy in
@@ -54,9 +38,9 @@ struct HomeView: View {
                 .contentShape(Rectangle())
                 .navigationBarTitleDisplayMode(.inline)
                 .onTapGesture {
-                    if viewModel.isChatInputFocused {
+                    if store.isChatInputFocused {
                         withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                            viewModel.isChatInputFocused = false
+                            store.isChatInputFocused = false
                         }
                     }
                 }
@@ -72,7 +56,7 @@ struct HomeView: View {
                     ToolbarSpacer()
 
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        if viewModel.shouldShowDownloadToolbarButton {
+                        if store.shouldShowDownloadToolbarButton {
                             downloadToolbarButton
                         }
 
@@ -82,31 +66,31 @@ struct HomeView: View {
                     }
                 }
                 .onAppear {
-                    viewModel.onAppear(using: modelContext, sessions: sessions)
+                    store.onAppear(in: runtimeContext)
                     scrollToBottom(with: proxy, animated: false)
                 }
                 .onChange(of: displayedMessageRenderKeys) { _, _ in
                     scrollToBottom(with: proxy)
                 }
             }
-            .navigationDestination(isPresented: $viewModel.isDownloadManagerPresented) {
+            .navigationDestination(isPresented: $store.isDownloadManagerPresented) {
                 downloadManagerView
             }
         }
-        .sheet(isPresented: $viewModel.isLanguageSheetPresented) {
+        .sheet(isPresented: $store.isLanguageSheetPresented) {
             HomeLanguageSheet(
-                sourceLanguage: $viewModel.sourceLanguage,
-                selectedLanguage: $viewModel.selectedLanguage,
-                isPresented: $viewModel.isLanguageSheetPresented,
+                sourceLanguage: $store.sourceLanguage,
+                selectedLanguage: $store.selectedLanguage,
+                isPresented: $store.isLanguageSheetPresented,
                 mode: languageSheetMode,
                 onResolveSelection: { source, target in
-                    await viewModel.resolveLanguageSelection(source: source, target: target)
+                    await store.resolveLanguageSelection(source: source, target: target)
                 },
                 onCommitSelection: { source, target in
-                    viewModel.commitLanguageSelection(source: source, target: target)
+                    store.commitLanguageSelection(source: source, target: target)
                 },
                 onCommitSelectionRequiringDownload: { source, target, prompt in
-                    viewModel.commitLanguageSelectionRequiringDownload(
+                    store.commitLanguageSelectionRequiringDownload(
                         source: source,
                         target: target,
                         prompt: prompt
@@ -114,58 +98,58 @@ struct HomeView: View {
                 }
             )
         }
-        .sheet(isPresented: $viewModel.isSessionHistoryPresented) {
+        .sheet(isPresented: $store.isSessionHistoryPresented) {
             HomeSessionHistorySheet(
                 sessions: historySessions,
                 currentSessionID: currentSessionID,
                 onSelect: { sessionID in
-                    viewModel.selectSession(id: sessionID)
+                    store.selectSession(id: sessionID)
                 },
-                isPresented: $viewModel.isSessionHistoryPresented
+                isPresented: $store.isSessionHistoryPresented
             )
         }
         .confirmationDialog(
-            viewModel.activeDownloadPrompt?.title ?? "",
+            store.activeDownloadPrompt?.title ?? "",
             isPresented: Binding(
-                get: { viewModel.activeDownloadPrompt != nil },
+                get: { store.activeDownloadPrompt != nil },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.dismissDownloadPrompt()
+                        store.dismissDownloadPrompt()
                     }
                 }
             ),
-            presenting: viewModel.activeDownloadPrompt
+            presenting: store.activeDownloadPrompt
         ) { prompt in
             Button("下载并安装") {
                 Task {
-                    await viewModel.installTranslationModel(packageIds: prompt.packageIds)
+                    await store.installTranslationModel(packageIds: prompt.packageIds)
                 }
             }
 
             Button("取消", role: .cancel) {
-                viewModel.dismissDownloadPrompt()
+                store.dismissDownloadPrompt()
             }
         } message: { prompt in
             Text(prompt.message)
         }
         .confirmationDialog(
-            viewModel.activeSpeechDownloadPrompt?.title ?? "",
+            store.activeSpeechDownloadPrompt?.title ?? "",
             isPresented: Binding(
-                get: { viewModel.activeSpeechDownloadPrompt != nil },
+                get: { store.activeSpeechDownloadPrompt != nil },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.dismissSpeechDownloadPrompt()
+                        store.dismissSpeechDownloadPrompt()
                     }
                 }
             ),
-            presenting: viewModel.activeSpeechDownloadPrompt
+            presenting: store.activeSpeechDownloadPrompt
         ) { prompt in
             Button("下载并安装") {
                 let packageId = prompt.packageId
-                let shouldResumeRecording = viewModel.pendingVoiceStartAfterInstall
+                let shouldResumeRecording = store.pendingVoiceStartAfterInstall
 
                 Task {
-                    await viewModel.installSpeechModelAndResumeIfNeeded(
+                    await store.installSpeechModelAndResumeIfNeeded(
                         packageId: packageId,
                         shouldResumeRecording: shouldResumeRecording
                     )
@@ -173,7 +157,7 @@ struct HomeView: View {
             }
 
             Button("取消", role: .cancel) {
-                viewModel.dismissSpeechDownloadPrompt()
+                store.dismissSpeechDownloadPrompt()
             }
         } message: { prompt in
             Text(prompt.message)
@@ -181,83 +165,77 @@ struct HomeView: View {
         .alert(
             "模型下载失败",
             isPresented: Binding(
-                get: { viewModel.downloadErrorMessage != nil },
+                get: { store.downloadErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.downloadErrorMessage = nil
+                        store.downloadErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text(viewModel.downloadErrorMessage ?? "")
+            Text(store.downloadErrorMessage ?? "")
         }
         .alert(
             "语音识别失败",
             isPresented: Binding(
-                get: { viewModel.speechErrorMessage != nil },
+                get: { store.speechErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.speechErrorMessage = nil
+                        store.speechErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text(viewModel.speechErrorMessage ?? "")
+            Text(store.speechErrorMessage ?? "")
         }
         .alert(
             "语音播放失败",
             isPresented: Binding(
-                get: { viewModel.ttsErrorMessage != nil },
+                get: { store.ttsErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.ttsErrorMessage = nil
+                        store.ttsErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text(viewModel.ttsErrorMessage ?? "")
+            Text(store.ttsErrorMessage ?? "")
         }
         .task {
-            await viewModel.refreshDownloadAvailabilityForCurrentSelection()
+            await store.refreshDownloadAvailabilityForCurrentSelection()
         }
-        .onChange(of: viewModel.isLanguageSheetPresented) { _, isPresented in
+        .onChange(of: store.isLanguageSheetPresented) { _, isPresented in
             if !isPresented {
-                viewModel.presentDeferredDownloadPromptIfNeeded()
+                store.presentDeferredDownloadPromptIfNeeded()
             }
         }
-        .onChange(of: viewModel.speechResumeRequestToken) { _, token in
+        .onChange(of: store.speechResumeRequestToken) { _, token in
             guard token > 0 else { return }
 
             Task {
-                await viewModel.handlePendingSpeechResumeIfNeeded(
-                    using: modelContext,
-                    sessions: sessions
-                )
+                await store.handlePendingSpeechResumeIfNeeded(in: runtimeContext)
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if !viewModel.isDownloadManagerPresented {
+            if !store.isDownloadManagerPresented {
                 HomeChatInputBar(
-                    text: $viewModel.messageText,
-                    isFocused: $viewModel.isChatInputFocused,
-                    isRecordingSpeech: viewModel.isRecordingSpeech,
-                    isSpeechBusy: viewModel.isTranscribingSpeech || viewModel.isInstallingSpeechModel,
-                    onFocusActivated: viewModel.handleInputFocusActivated,
+                    text: $store.messageText,
+                    isFocused: $store.isChatInputFocused,
+                    isRecordingSpeech: store.isRecordingSpeech,
+                    isSpeechBusy: store.isTranscribingSpeech || store.isInstallingSpeechModel,
+                    onFocusActivated: store.handleInputFocusActivated,
                     onSend: {
-                        viewModel.sendCurrentMessage(using: modelContext, sessions: sessions)
+                        store.sendCurrentMessage(in: runtimeContext)
                     },
                     onVoiceInput: {
                         Task {
-                            await viewModel.toggleSpeechRecording(
-                                using: modelContext,
-                                sessions: sessions
-                            )
+                            await store.toggleSpeechRecording(in: runtimeContext)
                         }
                     }
                 )
@@ -265,36 +243,43 @@ struct HomeView: View {
         }
     }
 
+    private var runtimeContext: HomeRuntimeContext {
+        HomeRuntimeContext(
+            modelContext: modelContext,
+            sessions: sessions
+        )
+    }
+
     private var displayedMessages: [ChatMessage] {
-        viewModel.displayedMessages(in: sessions)
+        store.displayedMessages(in: runtimeContext)
     }
 
     private var displayedMessageIDs: [UUID] {
-        viewModel.displayedMessageIDs(in: sessions)
+        store.displayedMessageIDs(in: runtimeContext)
     }
 
     private var displayedMessageRenderKeys: [String] {
-        viewModel.displayedMessageRenderKeys(in: sessions)
+        store.displayedMessageRenderKeys(in: runtimeContext)
     }
 
     private var historySessions: [ChatSession] {
-        sessions.filter(\.hasMessages)
+        runtimeContext.historySessions
     }
 
     private var currentSessionID: UUID? {
-        viewModel.currentSessionID(in: sessions)
+        store.currentSessionID(in: runtimeContext)
     }
 
     private var shouldShowSessionHistoryButton: Bool {
-        viewModel.shouldShowSessionHistoryButton(in: sessions)
+        store.shouldShowSessionHistoryButton(in: runtimeContext)
     }
 
     private var shouldShowLanguagePickerHero: Bool {
-        viewModel.shouldShowLanguagePickerHero(in: sessions)
+        store.shouldShowLanguagePickerHero(in: runtimeContext)
     }
 
     private var shouldShowNewSessionButton: Bool {
-        viewModel.shouldShowNewSessionButton(in: sessions)
+        store.shouldShowNewSessionButton(in: runtimeContext)
     }
 
     private var emptyState: some View {
@@ -304,10 +289,10 @@ struct HomeView: View {
             if shouldShowLanguagePickerHero {
                 Button {
                     languageSheetMode = .targetOnly
-                    viewModel.isLanguageSheetPresented = true
+                    store.isLanguageSheetPresented = true
                 } label: {
                     HomeHeroLanguageChip(
-                        title: viewModel.selectedLanguage.displayName
+                        title: store.selectedLanguage.displayName
                     )
                 }
                 .buttonStyle(.plain)
@@ -324,12 +309,12 @@ struct HomeView: View {
                 ForEach(displayedMessages, id: \.id) { message in
                     HomeChatMessageBubble(
                         message: message,
-                        streamingState: viewModel.streamingState(for: message),
-                        showsSpeechPlaybackButton: viewModel.shouldShowMessageSpeechButton(for: message),
-                        isSpeakingMessage: viewModel.isSpeakingMessage(message),
-                        isSpeechPlaybackDisabled: viewModel.isMessageSpeechPlaybackDisabled(for: message),
+                        streamingState: store.streamingState(for: message),
+                        showsSpeechPlaybackButton: store.shouldShowMessageSpeechButton(for: message),
+                        isSpeakingMessage: store.isSpeakingMessage(message),
+                        isSpeechPlaybackDisabled: store.isMessageSpeechPlaybackDisabled(for: message),
                         onSpeechPlayback: {
-                            viewModel.toggleMessageSpeechPlayback(message: message)
+                            store.toggleMessageSpeechPlayback(message: message)
                         }
                     )
                         .id(message.id)
@@ -348,29 +333,29 @@ struct HomeView: View {
 
     private var downloadManagerView: some View {
         ModelAssetsView(
-            processingRecords: viewModel.processingAssetRecords,
-            resumableRecords: viewModel.resumableAssetRecords,
-            failedRecords: viewModel.failedAssetRecords,
-            installedRecords: viewModel.installedAssetRecords,
-            availableRecords: viewModel.availableAssetRecords,
+            processingRecords: store.processingAssetRecords,
+            resumableRecords: store.resumableAssetRecords,
+            failedRecords: store.failedAssetRecords,
+            installedRecords: store.installedAssetRecords,
+            availableRecords: store.availableAssetRecords,
             onDownload: { item in
                 Task {
-                    await viewModel.startDownload(item: item)
+                    await store.startDownload(item: item)
                 }
             },
             onResume: { itemID in
                 Task {
-                    await viewModel.resumeDownload(itemID: itemID)
+                    await store.resumeDownload(itemID: itemID)
                 }
             },
             onRetry: { itemID in
                 Task {
-                    await viewModel.retryDownload(itemID: itemID)
+                    await store.retryDownload(itemID: itemID)
                 }
             },
             onDelete: { itemID in
                 Task {
-                    await viewModel.deleteInstalledDownload(itemID: itemID)
+                    await store.deleteInstalledDownload(itemID: itemID)
                 }
             }
         )
@@ -380,7 +365,7 @@ struct HomeView: View {
         toolbarIconButton(
             accessibilityLabel: "历史会话",
             isEnabled: shouldShowSessionHistoryButton,
-            action: viewModel.openSessionHistory
+            action: store.openSessionHistory
         ) {
             Image(systemName: "line.3.horizontal")
                 .font(.body.weight(.semibold))
@@ -391,7 +376,7 @@ struct HomeView: View {
         toolbarIconButton(
             accessibilityLabel: "新增会话",
             isEnabled: shouldShowNewSessionButton,
-            action: viewModel.startNewSession
+            action: store.startNewSession
         ) {
             Image(systemName: "square.and.pencil")
                 .font(.body.weight(.semibold))
@@ -401,12 +386,12 @@ struct HomeView: View {
     private var downloadToolbarButton: some View {
         toolbarIconButton(
             accessibilityLabel: "下载管理",
-            isEnabled: viewModel.canStartDownloadFromToolbar,
-            action: viewModel.openDownloadManager
+            isEnabled: store.canStartDownloadFromToolbar,
+            action: store.openDownloadManager
         ) {
             HomeDownloadToolbarIcon(
-                isDownloading: viewModel.assetManagerIsBusy,
-                hasAttention: viewModel.assetManagerHasAttention
+                isDownloading: store.assetManagerIsBusy,
+                hasAttention: store.assetManagerHasAttention
             )
         }
     }
@@ -414,17 +399,17 @@ struct HomeView: View {
     private var toolbarLanguagePickerButton: some View {
         Button {
             languageSheetMode = .full
-            viewModel.isLanguageSheetPresented = true
+            store.isLanguageSheetPresented = true
         } label: {
             HomeToolbarTranslationItem(
-                sourceTitle: viewModel.sourceLanguage.displayName,
-                targetTitle: viewModel.selectedLanguage.displayName
+                sourceTitle: store.sourceLanguage.displayName,
+                targetTitle: store.selectedLanguage.displayName
             )
             .frame(maxWidth: 250)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("翻译语言")
-        .accessibilityValue("\(viewModel.sourceLanguage.displayName)到\(viewModel.selectedLanguage.displayName)")
+        .accessibilityValue("\(store.sourceLanguage.displayName)到\(store.selectedLanguage.displayName)")
     }
 
     private func toolbarIconButton<Label: View>(
@@ -514,19 +499,23 @@ private struct HomeDownloadToolbarIcon: View {
         catalogRepository: SpeechModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
     )
     HomeView(
-        appSettings: AppSettings(userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard),
-        translationService: MarianTranslationService(modelProvider: translationPackageManager),
-        speechRecognitionService: WhisperSpeechRecognitionService(
-            packageManager: speechPackageManager
-        ),
-        textToSpeechService: SystemTextToSpeechService(),
-        speechPackageManager: speechPackageManager,
-        translationAssetReadinessProvider: translationPackageManager,
-        modelAssetService: ModelAssetService(
-            translationPackageManager: translationPackageManager,
-            speechPackageManager: speechPackageManager
-        ),
-        microphoneRecordingService: MicrophoneRecordingService()
+        dependencies: HomeDependencies(
+            appSettings: AppSettings(
+                userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard
+            ),
+            translationService: MarianTranslationService(modelProvider: translationPackageManager),
+            speechRecognitionService: WhisperSpeechRecognitionService(
+                packageManager: speechPackageManager
+            ),
+            textToSpeechService: SystemTextToSpeechService(),
+            speechPackageManager: speechPackageManager,
+            translationAssetReadinessProvider: translationPackageManager,
+            modelAssetService: ModelAssetService(
+                translationPackageManager: translationPackageManager,
+                speechPackageManager: speechPackageManager
+            ),
+            microphoneRecordingService: MicrophoneRecordingService()
+        )
     )
         .modelContainer(for: [ChatSession.self, ChatMessage.self], inMemory: true)
 }

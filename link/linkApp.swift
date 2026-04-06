@@ -10,14 +10,7 @@ import SwiftData
 
 @main
 struct linkApp: App {
-    private let appSettings: AppSettings
-    private let translationService: TranslationService
-    private let speechPackageManager: SpeechModelPackageManager
-    private let translationAssetReadinessProvider: any TranslationAssetReadinessProviding
-    private let speechRecognitionService: SpeechRecognitionService
-    private let textToSpeechService: TextToSpeechService
-    private let modelAssetService: ModelAssetService
-    private let microphoneRecordingService: MicrophoneRecordingService
+    private let dependencies: HomeDependencies
     private let modelContainer: ModelContainer
 
     init() {
@@ -29,14 +22,16 @@ struct linkApp: App {
             translationPackageManager: translationPackageManager,
             speechPackageManager: speechPackageManager
         )
-        self.appSettings = AppSettings()
-        self.translationService = MarianTranslationService(modelProvider: translationPackageManager)
-        self.speechPackageManager = speechPackageManager
-        self.translationAssetReadinessProvider = translationPackageManager
-        self.speechRecognitionService = WhisperSpeechRecognitionService(packageManager: speechPackageManager)
-        self.textToSpeechService = SystemTextToSpeechService()
-        self.modelAssetService = assetService
-        self.microphoneRecordingService = MicrophoneRecordingService()
+        self.dependencies = HomeDependencies(
+            appSettings: AppSettings(),
+            translationService: MarianTranslationService(modelProvider: translationPackageManager),
+            speechRecognitionService: WhisperSpeechRecognitionService(packageManager: speechPackageManager),
+            textToSpeechService: SystemTextToSpeechService(),
+            speechPackageManager: speechPackageManager,
+            translationAssetReadinessProvider: translationPackageManager,
+            modelAssetService: assetService,
+            microphoneRecordingService: MicrophoneRecordingService()
+        )
         self.modelContainer = Self.makeModelContainer()
 
         Task.detached(priority: .utility) {
@@ -48,16 +43,7 @@ struct linkApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(
-                appSettings: appSettings,
-                translationService: translationService,
-                speechRecognitionService: speechRecognitionService,
-                textToSpeechService: textToSpeechService,
-                speechPackageManager: speechPackageManager,
-                translationAssetReadinessProvider: translationAssetReadinessProvider,
-                modelAssetService: modelAssetService,
-                microphoneRecordingService: microphoneRecordingService
-            )
+            ContentView(dependencies: dependencies)
         }
         .modelContainer(modelContainer)
     }
