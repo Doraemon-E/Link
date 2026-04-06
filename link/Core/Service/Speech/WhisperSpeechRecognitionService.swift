@@ -346,7 +346,12 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                     continue
                 }
 
-                let text = String(cString: segmentText)
+                let rawText = String(cString: segmentText)
+                let text = sanitizeSegmentText(rawText)
+                guard !text.isEmpty else {
+                    continue
+                }
+
                 log("Segment[\(index)]=\(summarize(text))")
                 textParts.append(text)
             }
@@ -446,6 +451,27 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         let endIndex = normalized.index(normalized.startIndex, offsetBy: maxLength)
         return String(normalized[..<endIndex]) + "..."
     }
+
+    private func sanitizeSegmentText(_ text: String) -> String {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return ""
+        }
+
+        guard !Self.whisperNonSpeechPlaceholders.contains(normalized.uppercased()) else {
+            return ""
+        }
+
+        return text
+    }
+
+    private static let whisperNonSpeechPlaceholders: Set<String> = [
+        "[BLANK_AUDIO]",
+        "[MUSIC]",
+        "[NOISE]",
+        "[LAUGHTER]",
+        "[APPLAUSE]"
+    ]
 
     private func log(_ message: String) {
         print("[WhisperSpeechRecognitionService] \(message)")

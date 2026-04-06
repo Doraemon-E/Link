@@ -29,6 +29,7 @@ nonisolated struct SpeechTranscriptStabilizer: Sendable {
         }
 
         let previousSnapshot = makeSnapshot(isEndpoint: false)
+        let previousMergedTranscript = mergedActiveTranscript
         self.detectedLanguage = detectedLanguage ?? self.detectedLanguage
 
         let mergedTranscript = mergeAccumulatedTranscript(
@@ -48,6 +49,7 @@ nonisolated struct SpeechTranscriptStabilizer: Sendable {
         } else {
             let committedPortion = committedPortion(
                 of: mergedTranscript,
+                previousText: previousMergedTranscript,
                 language: self.detectedLanguage,
                 minimumCommittedLength: activeCommittedTranscript.count
             )
@@ -68,6 +70,10 @@ nonisolated struct SpeechTranscriptStabilizer: Sendable {
 
         revision += 1
         return makeSnapshot(isEndpoint: isEndpoint)
+    }
+
+    private var mergedActiveTranscript: String {
+        activeCommittedTranscript + activeUnstableTranscript
     }
 
     mutating func finalizeCurrentUtterance() -> SpeechTranscriptionSnapshot? {
@@ -159,15 +165,39 @@ nonisolated struct SpeechTranscriptStabilizer: Sendable {
 
     private func committedPortion(
         of text: String,
+        previousText: String,
         language: SupportedLanguage?,
         minimumCommittedLength: Int
     ) -> String {
-        committedPortion(
+        let baseCommittedPortion = committedPortion(
             of: text,
             language: language,
             minimumCommittedLength: minimumCommittedLength,
             reserveCount: transcriptTailReserveCharacterCount(for: language)
         )
+
+        guard !previousText.isEmpty else {
+            return baseCommittedPortion
+        }
+
+        let confirmedPrefixLength = commonPrefixLength(previousText, text)
+        guard confirmedPrefixLength > minimumCommittedLength else {
+            return baseCommittedPortion
+        }
+
+        // If the same prefix survives into the next streaming decode, promote more of it into
+        // the stable region while still keeping a short editable tail for later corrections.
+        let confirmedPrefix = String(text.prefix(confirmedPrefixLength))
+        let promotedCommittedPortion = committedPortion(
+            of: confirmedPrefix,
+            language: language,
+            minimumCommittedLength: minimumCommittedLength,
+            reserveCount: confirmedTranscriptTailReserveCharacterCount(for: language)
+        )
+
+        return promotedCommittedPortion.count > baseCommittedPortion.count
+            ? promotedCommittedPortion
+            : baseCommittedPortion
     }
 
     private func committedPortion(
@@ -233,6 +263,34 @@ nonisolated struct SpeechTranscriptStabilizer: Sendable {
         }
 
         return 20
+    }
+
+    private func confirmedTranscriptTailReserveCharacterCount(
+        for language: SupportedLanguage?
+    ) -> Int {
+        guard let language else {
+            return 4
+        }
+
+        if [.chinese, .japanese, .korean].contains(language) {
+            return 2
+        }
+
+        return 4
+    }
+
+    private func commonPrefixLength(_ lhs: String, _ rhs: String) -> Int {
+        var count = 0
+
+        for (leftCharacter, rightCharacter) in zip(lhs, rhs) {
+            guard leftCharacter == rightCharacter else {
+                break
+            }
+
+            count += 1
+        }
+
+        return count
     }
 
     private func appendTranscriptSegment(
