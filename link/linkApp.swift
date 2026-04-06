@@ -28,6 +28,7 @@ struct linkApp: App {
             translationService: MarianTranslationService(modelProvider: translationPackageManager),
             speechRecognitionService: WhisperSpeechRecognitionService(packageManager: speechPackageManager),
             textToSpeechService: SystemTextToSpeechService(),
+            audioFilePlaybackService: SystemAudioFilePlaybackService(),
             speechPackageManager: speechPackageManager,
             translationAssetReadinessProvider: translationPackageManager,
             modelAssetService: assetService,
@@ -38,7 +39,6 @@ struct linkApp: App {
         Task.detached(priority: .utility) {
             await catalogRepository.warmUpCatalog()
             await speechCatalogRepository.warmUpCatalog()
-            await assetService.warmUp()
         }
     }
 

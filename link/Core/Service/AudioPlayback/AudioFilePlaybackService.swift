@@ -1,13 +1,13 @@
 //
-//  TextToSpeechService.swift
+//  AudioFilePlaybackService.swift
 //  link
 //
-//  Created by Codex on 2026/4/5.
+//  Created by Codex on 2026/4/6.
 //
 
 import Foundation
 
-nonisolated enum TextToSpeechPlaybackEvent: Sendable, Equatable {
+nonisolated enum AudioFilePlaybackEvent: Sendable, Equatable {
     case started(playbackID: UUID)
     case finished(playbackID: UUID)
     case cancelled(playbackID: UUID)
@@ -15,41 +15,41 @@ nonisolated enum TextToSpeechPlaybackEvent: Sendable, Equatable {
 }
 
 @MainActor
-protocol TextToSpeechService: AnyObject {
-    var playbackEventHandler: ((TextToSpeechPlaybackEvent) -> Void)? { get set }
-    func speak(text: String, language: SupportedLanguage, playbackID: UUID) async throws
+protocol AudioFilePlaybackService: AnyObject {
+    var playbackEventHandler: ((AudioFilePlaybackEvent) -> Void)? { get set }
+    func play(url: URL, playbackID: UUID) async throws
     func stop()
 }
 
-nonisolated enum TextToSpeechError: LocalizedError {
-    case emptyText
+nonisolated enum AudioFilePlaybackError: LocalizedError {
+    case fileNotFound
     case audioSessionUnavailable(String)
     case playbackUnavailable(String)
 
     var errorDescription: String? {
         switch self {
-        case .emptyText:
-            return "Cannot synthesize speech from empty text."
+        case .fileNotFound:
+            return "The audio file could not be found."
         case .audioSessionUnavailable(let detail):
             return "Unable to configure the audio session: \(detail)"
         case .playbackUnavailable(let detail):
-            return "Unable to start text-to-speech playback: \(detail)"
+            return "Unable to start audio playback: \(detail)"
         }
     }
 
     var userFacingMessage: String {
         switch self {
-        case .emptyText:
-            return "这条消息还没有可播放的内容。"
+        case .fileNotFound:
+            return "这条语音的录音文件找不到了。"
         case .audioSessionUnavailable(let detail):
             return userFacingFailureMessage(
-                prefix: "语音播放暂时不可用",
+                prefix: "原始语音暂时无法播放",
                 detail: detail,
                 fallback: "请稍后再试。"
             )
         case .playbackUnavailable(let detail):
             return userFacingFailureMessage(
-                prefix: "无法开始语音播放",
+                prefix: "无法播放原始语音",
                 detail: detail,
                 fallback: "请稍后再试。"
             )
@@ -57,7 +57,7 @@ nonisolated enum TextToSpeechError: LocalizedError {
     }
 }
 
-private extension TextToSpeechError {
+private extension AudioFilePlaybackError {
     func userFacingFailureMessage(
         prefix: String,
         detail: String,

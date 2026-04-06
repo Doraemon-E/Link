@@ -11,7 +11,7 @@ import Foundation
 @MainActor
 final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     private let synthesizer: AVSpeechSynthesizer
-    private var utteranceMessageIDs: [ObjectIdentifier: UUID] = [:]
+    private var utterancePlaybackIDs: [ObjectIdentifier: UUID] = [:]
     var playbackEventHandler: ((TextToSpeechPlaybackEvent) -> Void)?
 
     init(synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()) {
@@ -20,22 +20,22 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
         self.synthesizer.delegate = self
     }
 
-    func speak(text: String, language: SupportedLanguage, messageID: UUID) async throws {
+    func speak(text: String, language: SupportedLanguage, playbackID: UUID) async throws {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
             let error = TextToSpeechError.emptyText
-            emit(.failed(messageID: messageID, message: error.userFacingMessage))
+            emit(.failed(playbackID: playbackID, message: error.userFacingMessage))
             throw error
         }
 
         do {
             try configureAudioSession()
         } catch let error as TextToSpeechError {
-            emit(.failed(messageID: messageID, message: error.userFacingMessage))
+            emit(.failed(playbackID: playbackID, message: error.userFacingMessage))
             throw error
         } catch {
             let wrappedError = TextToSpeechError.playbackUnavailable(error.localizedDescription)
-            emit(.failed(messageID: messageID, message: wrappedError.userFacingMessage))
+            emit(.failed(playbackID: playbackID, message: wrappedError.userFacingMessage))
             throw wrappedError
         }
 
@@ -47,7 +47,7 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
         utterance.voice = AVSpeechSynthesisVoice(language: language.ttsLocaleIdentifier)
         // TODO: 后面可以根据需要调整语速和语调
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        utteranceMessageIDs[ObjectIdentifier(utterance)] = messageID
+        utterancePlaybackIDs[ObjectIdentifier(utterance)] = playbackID
         synthesizer.speak(utterance)
     }
 
@@ -73,12 +73,12 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func messageID(for utterance: AVSpeechUtterance) -> UUID? {
-        utteranceMessageIDs[ObjectIdentifier(utterance)]
+    private func playbackID(for utterance: AVSpeechUtterance) -> UUID? {
+        utterancePlaybackIDs[ObjectIdentifier(utterance)]
     }
 
-    private func removeMessageID(for utterance: AVSpeechUtterance) -> UUID? {
-        utteranceMessageIDs.removeValue(forKey: ObjectIdentifier(utterance))
+    private func removePlaybackID(for utterance: AVSpeechUtterance) -> UUID? {
+        utterancePlaybackIDs.removeValue(forKey: ObjectIdentifier(utterance))
     }
 
     private func emit(_ event: TextToSpeechPlaybackEvent) {
@@ -94,11 +94,11 @@ extension SystemTextToSpeechService: @preconcurrency AVSpeechSynthesizerDelegate
     ) {
         _ = synthesizer
 
-        guard let messageID = messageID(for: utterance) else {
+        guard let playbackID = playbackID(for: utterance) else {
             return
         }
 
-        emit(.started(messageID: messageID))
+        emit(.started(playbackID: playbackID))
     }
 
     func speechSynthesizer(
@@ -107,12 +107,12 @@ extension SystemTextToSpeechService: @preconcurrency AVSpeechSynthesizerDelegate
     ) {
         _ = synthesizer
 
-        guard let messageID = removeMessageID(for: utterance) else {
+        guard let playbackID = removePlaybackID(for: utterance) else {
             finishAudioSessionIfNeeded()
             return
         }
 
-        emit(.finished(messageID: messageID))
+        emit(.finished(playbackID: playbackID))
         finishAudioSessionIfNeeded()
     }
 
@@ -122,12 +122,12 @@ extension SystemTextToSpeechService: @preconcurrency AVSpeechSynthesizerDelegate
     ) {
         _ = synthesizer
 
-        guard let messageID = removeMessageID(for: utterance) else {
+        guard let playbackID = removePlaybackID(for: utterance) else {
             finishAudioSessionIfNeeded()
             return
         }
 
-        emit(.cancelled(messageID: messageID))
+        emit(.cancelled(playbackID: playbackID))
         finishAudioSessionIfNeeded()
     }
 }

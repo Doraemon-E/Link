@@ -27,13 +27,14 @@ struct HomeView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 Group {
-                    if displayedMessages.isEmpty {
+                    if displayedMessages.isEmpty && shouldShowLanguagePickerHero {
                         emptyState
                     } else {
                         messageList
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(uiColor: .systemGroupedBackground))
                 .contentShape(Rectangle())
                 .navigationBarTitleDisplayMode(.inline)
                 .onTapGesture {
@@ -191,17 +192,17 @@ struct HomeView: View {
         .alert(
             "语音播放失败",
             isPresented: Binding(
-                get: { store.ttsErrorMessage != nil },
+                get: { store.playbackErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        store.ttsErrorMessage = nil
+                        store.playbackErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text(store.ttsErrorMessage ?? "")
+            Text(store.playbackErrorMessage ?? "")
         }
         .task {
             await store.refreshDownloadAvailabilityForCurrentSelection()
@@ -279,52 +280,75 @@ struct HomeView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 22) {
-            Spacer()
+        VStack(spacing: 18) {
+            Spacer(minLength: 72)
 
-            if shouldShowLanguagePickerHero {
-                Button {
-                    store.isLanguageSheetPresented = true
-                } label: {
-                    HomeHeroLanguageChip(
-                        flagEmoji: store.selectedLanguage.flagEmoji,
-                        title: store.selectedLanguage.displayName
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 24)
+            Text("开始新的翻译对话")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Text("选择当前想要输出的语言，消息会以聊天的方式逐条呈现。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Button {
+                store.isLanguageSheetPresented = true
+            } label: {
+                HomeHeroLanguageChip(
+                    flagEmoji: store.selectedLanguage.flagEmoji,
+                    title: store.selectedLanguage.displayName
+                )
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
 
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var messageList: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 18) {
                 ForEach(displayedMessages, id: \.id) { message in
                     HomeChatMessageBubble(
                         message: message,
                         streamingState: store.streamingState(for: message),
-                        showsSpeechPlaybackButton: store.shouldShowMessageSpeechButton(for: message),
-                        isSpeakingMessage: store.isSpeakingMessage(message),
-                        isSpeechPlaybackDisabled: store.isMessageSpeechPlaybackDisabled(for: message),
-                        onSpeechPlayback: {
-                            store.toggleMessageSpeechPlayback(message: message)
+                        showsTranslatedPlaybackButton: store.shouldShowTranslatedPlaybackButton(for: message),
+                        isPlayingTranslatedMessage: store.isPlayingTranslatedMessage(message),
+                        isTranslatedPlaybackDisabled: store.isTranslatedPlaybackDisabled(for: message),
+                        isSourcePlaybackDisabled: store.isSourcePlaybackDisabled(for: message),
+                        isPlayingSourceMessage: store.isPlayingSourceMessage(message),
+                        showsSpeechTranscript: store.isSpeechTranscriptExpanded(for: message),
+                        isSpeechTranscriptToggleDisabled: store.isSpeechTranscriptToggleDisabled(for: message),
+                        hasPlayableSourceRecording: store.hasPlayableSourceRecording(for: message),
+                        onTranslatedPlayback: {
+                            store.toggleTranslatedPlayback(message: message)
+                        },
+                        onSourcePlayback: {
+                            store.toggleSourcePlayback(message: message)
+                        },
+                        onSpeechTranscriptToggle: {
+                            store.toggleSpeechTranscript(for: message)
                         }
                     )
                         .id(message.id)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
     }
 
     private var downloadManagerView: some View {
         ModelAssetsView(
+            isLoading: store.isDownloadManagerLoading,
             processingRecords: store.processingAssetRecords,
             resumableRecords: store.resumableAssetRecords,
             failedRecords: store.failedAssetRecords,
@@ -351,6 +375,9 @@ struct HomeView: View {
                 }
             }
         )
+        .task {
+            await store.prepareDownloadManagerIfNeeded()
+        }
     }
 
     private var sessionHistoryToolbarButton: some View {
@@ -383,7 +410,9 @@ struct HomeView: View {
         ) {
             HomeDownloadToolbarIcon(
                 isDownloading: store.assetManagerIsBusy,
-                hasAttention: store.assetManagerHasAttention
+                hasAttention: store.assetManagerHasAttention,
+                progress: store.assetManagerProgress,
+                resumableProgress: store.assetManagerResumableProgress
             )
         }
     }
@@ -422,50 +451,116 @@ struct HomeView: View {
 private struct HomeDownloadToolbarIcon: View {
     let isDownloading: Bool
     let hasAttention: Bool
-    @State private var isAnimating = false
+    let progress: Double?
+    let resumableProgress: Double?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            ZStack {
+                Circle()
+                    .fill(Color(uiColor: .secondarySystemBackground))
+
+                // Circle()
+                //     .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(
+                        Color.primary.opacity(isDownloading ? 0.86 : 0.8),
+                        Color.primary.opacity(isDownloading ? 0.16 : 0.12)
+                    )
+            }
+            .frame(width: 32, height: 32)
+            .overlay {
+                if isDownloading {
+                    HomeDownloadProgressRing(progress: clampedProgress, isActive: true)
+                } else if hasAttention {
+                    HomeDownloadProgressRing(progress: clampedResumableProgress, isActive: false)
+                }
+            }
+            .contentShape(Circle())
+        }
+        .frame(width: 32, height: 32)
+        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDownloading)
+        .animation(.easeInOut(duration: 0.24), value: clampedProgress)
+        .animation(.easeInOut(duration: 0.24), value: clampedResumableProgress)
+    }
+
+    private var clampedProgress: Double {
+        min(max(progress ?? 0, 0), 1)
+    }
+
+    private var clampedResumableProgress: Double {
+        min(max(resumableProgress ?? 0, 0), 1)
+    }
+}
+
+private struct HomeDownloadProgressRing: View {
+    let progress: Double
+    var isActive: Bool = true
+
+    private var arcColor: Color {
+        isActive ? Color.accentColor : Color(red: 0.95, green: 0.46, blue: 0.34)
+    }
+
+    private var trackColor: Color {
+        isActive
+            ? Color.primary.opacity(0.08)
+            : Color(red: 0.95, green: 0.46, blue: 0.34).opacity(0.25)
+    }
 
     var body: some View {
         ZStack {
-            Image(systemName: isDownloading ? "arrow.down.circle.fill" : "tray.and.arrow.down")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(isDownloading ? Color.accentColor : Color.primary)
+            Circle()
+                .stroke(trackColor, lineWidth: 2)
 
-            if isDownloading {
-                ZStack {
-                    animatedArrow(delay: 0)
-                    animatedArrow(delay: 0.45)
-                }
-                .frame(width: 18, height: 18)
-                .clipped()
-            } else if hasAttention {
+            if progress > 0 {
                 Circle()
-                    .fill(.red)
-                    .frame(width: 8, height: 8)
-                    .offset(x: 8, y: -8)
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        arcColor,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
             }
         }
-        .onAppear {
-            guard isDownloading else { return }
-            isAnimating = true
-        }
-        .onChange(of: isDownloading) { _, downloading in
-            isAnimating = downloading
-        }
+        .padding(0.5)
     }
+}
 
-    private func animatedArrow(delay: Double) -> some View {
-        Image(systemName: "arrow.down")
-            .font(.system(size: 7, weight: .bold))
-            .foregroundStyle(.white.opacity(0.95))
-            .offset(y: isAnimating ? 6 : -5)
-            .opacity(isAnimating ? 0 : 1)
-            .animation(
-                .linear(duration: 0.9)
-                    .delay(delay)
-                    .repeatForever(autoreverses: false),
-                value: isAnimating
-            )
+#Preview("Download Toolbar Icon States") {
+    HStack(spacing: 16) {
+        HomeDownloadToolbarIcon(
+            isDownloading: false,
+            hasAttention: false,
+            progress: nil,
+            resumableProgress: nil
+        )
+
+        HomeDownloadToolbarIcon(
+            isDownloading: false,
+            hasAttention: true,
+            progress: nil,
+            resumableProgress: 0.6
+        )
+
+        HomeDownloadToolbarIcon(
+            isDownloading: true,
+            hasAttention: false,
+            progress: 0.42,
+            resumableProgress: nil
+        )
+
+        HomeDownloadToolbarIcon(
+            isDownloading: true,
+            hasAttention: false,
+            progress: 1,
+            resumableProgress: nil
+        )
     }
+    .padding()
+    .background(Color(uiColor: .systemGroupedBackground))
 }
 
 #Preview {
@@ -485,6 +580,7 @@ private struct HomeDownloadToolbarIcon: View {
                 packageManager: speechPackageManager
             ),
             textToSpeechService: SystemTextToSpeechService(),
+            audioFilePlaybackService: SystemAudioFilePlaybackService(),
             speechPackageManager: speechPackageManager,
             translationAssetReadinessProvider: translationPackageManager,
             modelAssetService: ModelAssetService(

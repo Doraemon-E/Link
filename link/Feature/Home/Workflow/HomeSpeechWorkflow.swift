@@ -212,7 +212,7 @@ final class HomeSpeechWorkflow {
     private func prepareForSpeechRecording() {
         playbackController.stop()
         store.speechErrorMessage = nil
-        store.ttsErrorMessage = nil
+        store.playbackErrorMessage = nil
         store.pendingVoiceStartAfterInstall = false
     }
 

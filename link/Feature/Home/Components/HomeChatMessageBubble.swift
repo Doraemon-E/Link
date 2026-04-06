@@ -26,42 +26,239 @@ struct HomeChatMessageBubble: View {
         }
     }
 
-    let message: ChatMessage
-    let streamingState: ExchangeStreamingState?
-    let showsSpeechPlaybackButton: Bool
-    let isSpeakingMessage: Bool
-    let isSpeechPlaybackDisabled: Bool
-    let onSpeechPlayback: () -> Void
+    private enum BubbleRole {
+        case outgoingSource
+        case incomingTranslation
+        case speechCapsule
+        case speechTranscript
 
-    var body: some View {
-        HStack {
-            Spacer(minLength: 52)
-
-            VStack(alignment: .trailing, spacing: 6) {
-                VStack(alignment: .leading, spacing: 14) {
-                    sourceMessageSection
-
-                    Divider()
-
-                    messageSection(
-                        title: "译文",
-                        content: translatedContent,
-                        textColor: .primary,
-                        font: .body
-                    )
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                )
-                .frame(maxWidth: 320, alignment: .trailing)
-
-                footer
+        var alignment: Alignment {
+            switch self {
+            case .outgoingSource, .speechCapsule, .speechTranscript:
+                return .trailing
+            case .incomingTranslation:
+                return .leading
             }
         }
+
+        var horizontalAlignment: HorizontalAlignment {
+            switch self {
+            case .outgoingSource, .speechCapsule, .speechTranscript:
+                return .trailing
+            case .incomingTranslation:
+                return .leading
+            }
+        }
+
+        var fillStyle: AnyShapeStyle {
+            switch self {
+            case .outgoingSource, .speechCapsule, .speechTranscript:
+                return AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground))
+            case .incomingTranslation:
+                return AnyShapeStyle(Color.accentColor)
+            }
+        }
+
+        var cornerRadii: RectangleCornerRadii {
+            switch self {
+            case .outgoingSource, .speechCapsule:
+                return RectangleCornerRadii(
+                    topLeading: 24,
+                    bottomLeading: 24,
+                    bottomTrailing: 8,
+                    topTrailing: 24
+                )
+            case .incomingTranslation:
+                return RectangleCornerRadii(
+                    topLeading: 24,
+                    bottomLeading: 8,
+                    bottomTrailing: 24,
+                    topTrailing: 24
+                )
+            case .speechTranscript:
+                return RectangleCornerRadii(
+                    topLeading: 22,
+                    bottomLeading: 22,
+                    bottomTrailing: 8,
+                    topTrailing: 22
+                )
+            }
+        }
+    }
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    let message: ChatMessage
+    let streamingState: ExchangeStreamingState?
+    let showsTranslatedPlaybackButton: Bool
+    let isPlayingTranslatedMessage: Bool
+    let isTranslatedPlaybackDisabled: Bool
+    let isSourcePlaybackDisabled: Bool
+    let isPlayingSourceMessage: Bool
+    let showsSpeechTranscript: Bool
+    let isSpeechTranscriptToggleDisabled: Bool
+    let hasPlayableSourceRecording: Bool
+    let onTranslatedPlayback: () -> Void
+    let onSourcePlayback: () -> Void
+    let onSpeechTranscriptToggle: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            sourceSection
+            translatedSection
+        }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var sourceSection: some View {
+        alignedGroup(alignment: .trailing, horizontalAlignment: .trailing) {
+            switch message.inputType {
+            case .text:
+                bubble(role: .outgoingSource) {
+                    sourceTranscriptBody(
+                        primaryColor: .primary,
+                        placeholderColor: .secondary
+                    )
+                }
+
+                actionRow(alignment: .trailing) {
+                    bubbleActionButton(
+                        systemName: isPlayingSourceMessage ? "stop.fill" : "speaker.wave.2.fill",
+                        title: isPlayingSourceMessage ? "停止" : "朗读",
+                        tint: isPlayingSourceMessage ? Color.accentColor : Color.secondary,
+                        isDisabled: isSourcePlaybackDisabled,
+                        accessibilityLabel: isPlayingSourceMessage ? "停止播放原文语音" : "播放原文语音",
+                        action: onSourcePlayback
+                    )
+                }
+            case .speech:
+                speechCapsuleButton
+
+                actionRow(alignment: .trailing) {
+                    bubbleActionButton(
+                        systemName: "text.justify",
+                        title: speechTranscriptButtonTitle,
+                        tint: showsSpeechTranscript ? Color.accentColor : Color.secondary,
+                        isDisabled: isSpeechTranscriptToggleDisabled,
+                        accessibilityLabel: showsSpeechTranscript ? "收起转换文字" : "查看转换文字",
+                        action: onSpeechTranscriptToggle
+                    )
+                }
+
+                if showsSpeechTranscript {
+                    bubble(role: .speechTranscript) {
+                        sourceTranscriptBody(
+                            primaryColor: .primary,
+                            placeholderColor: .secondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var translatedSection: some View {
+        alignedGroup(alignment: .leading, horizontalAlignment: .leading) {
+            bubble(role: .incomingTranslation) {
+                translatedBubbleBody
+            }
+
+            if showsTranslatedPlaybackButton {
+                actionRow(alignment: .leading) {
+                    bubbleActionButton(
+                        systemName: isPlayingTranslatedMessage ? "stop.fill" : "speaker.wave.2.fill",
+                        title: isPlayingTranslatedMessage ? "停止" : "朗读",
+                        tint: isPlayingTranslatedMessage ? Color.accentColor : Color.secondary,
+                        isDisabled: isTranslatedPlaybackDisabled,
+                        accessibilityLabel: isPlayingTranslatedMessage ? "停止播放译文语音" : "播放译文语音",
+                        action: onTranslatedPlayback
+                    )
+                }
+            }
+        }
+    }
+
+    private var translatedBubbleBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let statusText = translatedStatusText {
+                HStack(spacing: 6) {
+                    if isTranslationActive {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(translatedStatusIndicatorColor)
+                    } else if isTranslationFailed {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(translatedFailureAccentColor)
+                    }
+
+                    Text(statusText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(translatedStatusColor)
+                }
+            }
+
+            Text(translatedContent.text)
+                .font(.body)
+                .foregroundStyle(translatedTextColor)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var speechCapsuleButton: some View {
+        Button(action: onSourcePlayback) {
+            bubble(
+                role: .speechCapsule,
+                borderColor: hasPlayableSourceRecording ? Color.primary.opacity(0.06) : Color.clear
+            ) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.primary.opacity(0.08))
+                            .frame(width: 34, height: 34)
+
+                        Image(systemName: isPlayingSourceMessage ? "stop.fill" : "waveform")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(sourcePlaybackGlyphColor)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("原始语音")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+
+                        waveformRow
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: isPlayingSourceMessage ? "stop.fill" : "play.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(sourcePlaybackGlyphColor)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isSourcePlaybackDisabled)
+        .accessibilityLabel(isPlayingSourceMessage ? "停止播放原始语音" : "播放原始语音")
+    }
+
+    private var waveformRow: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(Array(waveHeights.enumerated()), id: \.offset) { _, height in
+                Capsule(style: .continuous)
+                    .fill(sourceWaveformColor)
+                    .frame(width: 3, height: height)
+            }
+        }
+        .frame(height: 16, alignment: .center)
+    }
+
+    private var waveHeights: [CGFloat] {
+        [8, 12, 6, 14, 10, 16, 9, 13, 7, 11, 5]
     }
 
     private var sourceContent: SourceBlockContent {
@@ -111,6 +308,74 @@ struct HomeChatMessageBubble: View {
         )
     }
 
+    private var translatedStatusText: String? {
+        let statusText = streamingState?.translationStatusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let statusText, !statusText.isEmpty else { return nil }
+        return statusText
+    }
+
+    private var translatedStatusColor: Color {
+        if isTranslationFailed {
+            return Color.white.opacity(0.94)
+        }
+
+        return translatedContent.isPlaceholder ? Color.white.opacity(0.78) : Color.white.opacity(0.84)
+    }
+
+    private var translatedStatusIndicatorColor: Color {
+        Color.white.opacity(0.92)
+    }
+
+    private var translatedFailureAccentColor: Color {
+        Color.white.opacity(0.94)
+    }
+
+    private var translatedTextColor: Color {
+        if isTranslationFailed {
+            return .white
+        }
+
+        return translatedContent.isPlaceholder ? Color.white.opacity(0.84) : .white
+    }
+
+    private var isTranslationActive: Bool {
+        streamingState?.isTranslationActive == true
+    }
+
+    private var isTranslationFailed: Bool {
+        guard let streamingState else { return false }
+
+        if case .failed = streamingState.translationPhase {
+            return true
+        }
+
+        return false
+    }
+
+    private var sourceWaveformColor: Color {
+        if isSourcePlaybackDisabled {
+            return Color.secondary.opacity(0.45)
+        }
+
+        return isPlayingSourceMessage ? Color.accentColor.opacity(0.92) : Color.secondary.opacity(0.88)
+    }
+
+    private var sourcePlaybackGlyphColor: Color {
+        if isSourcePlaybackDisabled {
+            return Color.secondary.opacity(0.55)
+        }
+
+        return isPlayingSourceMessage ? Color.accentColor : Color.primary.opacity(0.88)
+    }
+
+    private var speechTranscriptButtonTitle: String {
+        if isSpeechTranscriptToggleDisabled {
+            return "转写中"
+        }
+
+        return showsSpeechTranscript ? "收起转写" : "查看转写"
+    }
+
     private func content(
         persistedText: String,
         liveText: String?,
@@ -139,68 +404,295 @@ struct HomeChatMessageBubble: View {
     }
 
     @ViewBuilder
-    private var sourceMessageSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("原文")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-
-            if sourceContent.hasLayeredText {
-                layeredSourceText(
-                    stableText: sourceContent.stableText,
-                    provisionalText: sourceContent.provisionalText,
-                    liveText: sourceContent.liveText
-                )
-                .font(.subheadline)
+    private func sourceTranscriptBody(
+        primaryColor: Color,
+        placeholderColor: Color
+    ) -> some View {
+        if sourceContent.hasLayeredText {
+            layeredSourceText(
+                stableText: sourceContent.stableText,
+                provisionalText: sourceContent.provisionalText,
+                liveText: sourceContent.liveText,
+                baseColor: primaryColor
+            )
+            .font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(sourceContent.fallbackText ?? "…")
+                .font(.body)
+                .foregroundStyle(sourceContent.isPlaceholder ? placeholderColor : primaryColor)
+                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(sourceContent.fallbackText ?? "…")
-                    .font(.subheadline)
-                    .foregroundStyle(sourceContent.isPlaceholder ? Color.secondary : Color.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 
     private func layeredSourceText(
         stableText: String,
         provisionalText: String,
-        liveText: String
+        liveText: String,
+        baseColor: Color
     ) -> Text {
-        Text("\(Text(stableText).foregroundStyle(Color.secondary))\(Text(provisionalText).foregroundStyle(Color.secondary.opacity(0.72)))\(Text(liveText).foregroundStyle(Color.secondary.opacity(0.45)))")
+        Text(stableText).foregroundColor(baseColor) +
+        Text(provisionalText).foregroundColor(baseColor.opacity(0.72)) +
+        Text(liveText).foregroundColor(baseColor.opacity(0.48))
     }
 
-    @ViewBuilder
-    private func messageSection(
-        title: String,
-        content: MessageBlockContent,
-        textColor: Color,
-        font: Font
+    private func alignedGroup<Content: View>(
+        alignment: Alignment,
+        horizontalAlignment: HorizontalAlignment,
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-
-            Text(content.text)
-                .font(font)
-                .foregroundStyle(content.isPlaceholder ? Color.secondary : textColor)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: horizontalAlignment, spacing: 6) {
+            content()
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 
-    @ViewBuilder
-    private var footer: some View {
-        if showsSpeechPlaybackButton {
-            Button(action: onSpeechPlayback) {
-                Image(systemName: isSpeakingMessage ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(isSpeakingMessage ? Color.accentColor : Color.secondary)
+    private func bubble<Content: View>(
+        role: BubbleRole,
+        borderColor: Color = .clear,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, role == .speechCapsule ? 14 : 12)
+            .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
+            .background {
+                bubbleShape(for: role)
+                    .fill(role.fillStyle)
             }
-            .buttonStyle(.plain)
-            .disabled(isSpeechPlaybackDisabled)
-            .accessibilityLabel(isSpeakingMessage ? "停止语音播放" : "播放译文语音")
-            .padding(.horizontal, 4)
+            .overlay {
+                bubbleShape(for: role)
+                    .stroke(borderColor, lineWidth: borderColor == .clear ? 0 : 1)
+            }
+            .frame(maxWidth: .infinity, alignment: role.alignment)
+    }
+
+    private func bubbleShape(for role: BubbleRole) -> some InsettableShape {
+        UnevenRoundedRectangle(
+            cornerRadii: role.cornerRadii,
+            style: .continuous
+        )
+    }
+
+    private func actionRow<Content: View>(
+        alignment: Alignment,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 8) {
+            content()
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
+    }
+
+    private func bubbleActionButton(
+        systemName: String,
+        title: String,
+        tint: Color,
+        isDisabled: Bool,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemName)
+                    .font(.caption.weight(.semibold))
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(isDisabled ? Color.secondary.opacity(0.72) : tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(uiColor: .systemBackground).opacity(0.92))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var bubbleMaxWidth: CGFloat {
+        let screenWidth = UIScreen.main.bounds.width
+        let widthRatio: CGFloat = horizontalSizeClass == .regular ? 0.58 : 0.72
+        let maxWidth = screenWidth * widthRatio
+        return min(maxWidth, horizontalSizeClass == .regular ? 520 : 320)
+    }
+}
+
+#Preview("Text Exchange") {
+    ScrollView {
+        VStack(spacing: 18) {
+            HomeChatMessageBubble(
+                message: PreviewFactory.textMessage(
+                    sourceText: "今晚七点的会议能提前到六点半吗？",
+                    translatedText: "Could we move tonight's meeting up to 6:30?"
+                ),
+                streamingState: nil,
+                showsTranslatedPlaybackButton: true,
+                isPlayingTranslatedMessage: false,
+                isTranslatedPlaybackDisabled: false,
+                isSourcePlaybackDisabled: false,
+                isPlayingSourceMessage: false,
+                showsSpeechTranscript: false,
+                isSpeechTranscriptToggleDisabled: false,
+                hasPlayableSourceRecording: false,
+                onTranslatedPlayback: {},
+                onSourcePlayback: {},
+                onSpeechTranscriptToggle: {}
+            )
+        }
+        .padding()
+    }
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+#Preview("Speech Exchange") {
+    ScrollView {
+        VStack(spacing: 18) {
+            HomeChatMessageBubble(
+                message: PreviewFactory.speechMessage(
+                    sourceText: "我大概二十分钟后到。",
+                    translatedText: "I'll arrive in about twenty minutes."
+                ),
+                streamingState: nil,
+                showsTranslatedPlaybackButton: true,
+                isPlayingTranslatedMessage: false,
+                isTranslatedPlaybackDisabled: false,
+                isSourcePlaybackDisabled: false,
+                isPlayingSourceMessage: false,
+                showsSpeechTranscript: true,
+                isSpeechTranscriptToggleDisabled: false,
+                hasPlayableSourceRecording: true,
+                onTranslatedPlayback: {},
+                onSourcePlayback: {},
+                onSpeechTranscriptToggle: {}
+            )
+        }
+        .padding()
+    }
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+#Preview("Streaming Translation") {
+    ScrollView {
+        VStack(spacing: 18) {
+            let message = PreviewFactory.textMessage(
+                sourceText: "请帮我预订两张周五晚上的电影票。",
+                translatedText: ""
+            )
+
+            HomeChatMessageBubble(
+                message: message,
+                streamingState: ExchangeStreamingState(
+                    messageID: message.id,
+                    sourceStableText: message.sourceText,
+                    sourceProvisionalText: "",
+                    sourceLiveText: "",
+                    sourcePhase: .completed,
+                    sourceRevision: 0,
+                    translatedCommittedText: "Please help me book two tickets",
+                    translatedLiveText: "Please help me book two tickets for Friday night.",
+                    translationPhase: .typing,
+                    translationRevision: 2
+                ),
+                showsTranslatedPlaybackButton: false,
+                isPlayingTranslatedMessage: false,
+                isTranslatedPlaybackDisabled: true,
+                isSourcePlaybackDisabled: false,
+                isPlayingSourceMessage: false,
+                showsSpeechTranscript: false,
+                isSpeechTranscriptToggleDisabled: false,
+                hasPlayableSourceRecording: false,
+                onTranslatedPlayback: {},
+                onSourcePlayback: {},
+                onSpeechTranscriptToggle: {}
+            )
+        }
+        .padding()
+    }
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+#Preview("Failure State") {
+    ScrollView {
+        VStack(spacing: 18) {
+            let message = PreviewFactory.textMessage(
+                sourceText: "请把这个地址发给司机。",
+                translatedText: ""
+            )
+
+            HomeChatMessageBubble(
+                message: message,
+                streamingState: ExchangeStreamingState(
+                    messageID: message.id,
+                    sourceStableText: message.sourceText,
+                    sourceProvisionalText: "",
+                    sourceLiveText: "",
+                    sourcePhase: .completed,
+                    sourceRevision: 0,
+                    translatedCommittedText: "翻译失败了，请稍后再试。",
+                    translatedLiveText: nil,
+                    translationPhase: .failed("翻译失败了，请稍后再试。"),
+                    translationRevision: 1
+                ),
+                showsTranslatedPlaybackButton: false,
+                isPlayingTranslatedMessage: false,
+                isTranslatedPlaybackDisabled: true,
+                isSourcePlaybackDisabled: false,
+                isPlayingSourceMessage: false,
+                showsSpeechTranscript: false,
+                isSpeechTranscriptToggleDisabled: false,
+                hasPlayableSourceRecording: false,
+                onTranslatedPlayback: {},
+                onSourcePlayback: {},
+                onSpeechTranscriptToggle: {}
+            )
+        }
+        .padding()
+    }
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+private enum PreviewFactory {
+    static func textMessage(
+        sourceText: String,
+        translatedText: String
+    ) -> ChatMessage {
+        let session = ChatSession(
+            sourceLanguage: .chinese,
+            targetLanguage: .english
+        )
+        return ChatMessage(
+            inputType: .text,
+            sourceText: sourceText,
+            translatedText: translatedText,
+            sourceLanguage: .chinese,
+            targetLanguage: .english,
+            sequence: 0,
+            session: session
+        )
+    }
+
+    static func speechMessage(
+        sourceText: String,
+        translatedText: String
+    ) -> ChatMessage {
+        let session = ChatSession(
+            sourceLanguage: .chinese,
+            targetLanguage: .english
+        )
+        return ChatMessage(
+            inputType: .speech,
+            sourceText: sourceText,
+            translatedText: translatedText,
+            sourceLanguage: .chinese,
+            targetLanguage: .english,
+            audioURL: URL(fileURLWithPath: "/tmp/preview-audio.m4a").absoluteString,
+            sequence: 0,
+            session: session
+        )
     }
 }

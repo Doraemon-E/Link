@@ -14,6 +14,26 @@ enum HomeSessionPresentation: Equatable {
     case persisted(UUID)
 }
 
+enum HomePlaybackKind: Equatable {
+    case translatedTTS
+    case sourceTTS
+    case sourceRecording
+
+    var isTextToSpeech: Bool {
+        switch self {
+        case .translatedTTS, .sourceTTS:
+            return true
+        case .sourceRecording:
+            return false
+        }
+    }
+}
+
+struct HomePlaybackState: Equatable {
+    let messageID: UUID
+    let kind: HomePlaybackKind
+}
+
 @MainActor
 @Observable
 final class HomeStore {
@@ -27,6 +47,8 @@ final class HomeStore {
     var isLanguageSheetPresented = false
     var isSessionHistoryPresented = false
     var isDownloadManagerPresented = false
+    var isDownloadManagerLoading = false
+    var hasPreparedDownloadManager = false
     var messageText = ""
     var isChatInputFocused = false
     var sessionPresentation: HomeSessionPresentation = .none
@@ -39,10 +61,11 @@ final class HomeStore {
     var isTranscribingSpeech = false
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
     var speechErrorMessage: String?
-    var ttsErrorMessage: String?
+    var playbackErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
     var lastSpeechRecordingURL: URL?
-    var speakingMessageID: UUID?
+    var activePlaybackState: HomePlaybackState?
+    var expandedSpeechTranscriptMessageIDs: Set<UUID> = []
     var streamingStatesByMessageID: [UUID: ExchangeStreamingState] = [:]
     var assetRecords: [ModelAssetRecord] = []
     var assetSummary: ModelAssetSummary = .empty
@@ -57,7 +80,8 @@ final class HomeStore {
     )
     @ObservationIgnored private lazy var playbackController = HomePlaybackController(
         store: self,
-        textToSpeechService: dependencies.textToSpeechService
+        textToSpeechService: dependencies.textToSpeechService,
+        audioFilePlaybackService: dependencies.audioFilePlaybackService
     )
     @ObservationIgnored private lazy var messageWorkflow = HomeMessageWorkflow(
         store: self,
@@ -101,9 +125,6 @@ final class HomeStore {
             dependencies.appSettings.hasShownInitialTargetLanguagePicker = true
             isLanguageSheetPresented = true
         }
-        Task {
-            await dependencies.modelAssetService.warmUp()
-        }
     }
 
     func displayedMessages(in runtime: HomeRuntimeContext) -> [ChatMessage] {
@@ -144,7 +165,8 @@ final class HomeStore {
     }
 
     func shouldShowLanguagePickerHero(in runtime: HomeRuntimeContext) -> Bool {
-        !isChatInputFocused &&
+        !isDraftSession &&
+            !isChatInputFocused &&
             sessionRepository.currentSession(in: runtime, presentation: sessionPresentation) == nil
     }
 
@@ -201,6 +223,10 @@ final class HomeStore {
         downloadWorkflow.openDownloadManager()
     }
 
+    func prepareDownloadManagerIfNeeded() async {
+        await downloadWorkflow.prepareDownloadManagerIfNeeded()
+    }
+
     func presentDownloadPrompt() {
         downloadWorkflow.presentDownloadPrompt()
     }
@@ -225,20 +251,72 @@ final class HomeStore {
         await speechWorkflow.toggleSpeechRecording(in: runtime)
     }
 
-    func shouldShowMessageSpeechButton(for message: ChatMessage) -> Bool {
-        playbackController.shouldShowMessageSpeechButton(for: message)
+    func shouldShowTranslatedPlaybackButton(for message: ChatMessage) -> Bool {
+        playbackController.shouldShowTranslatedPlaybackButton(for: message)
     }
 
-    func isMessageSpeechPlaybackDisabled(for message: ChatMessage) -> Bool {
-        playbackController.isMessageSpeechPlaybackDisabled(for: message)
+    func isTranslatedPlaybackDisabled(for message: ChatMessage) -> Bool {
+        playbackController.isTranslatedPlaybackDisabled(for: message)
     }
 
-    func isSpeakingMessage(_ message: ChatMessage) -> Bool {
-        playbackController.isSpeakingMessage(message)
+    func isPlayingTranslatedMessage(_ message: ChatMessage) -> Bool {
+        playbackController.isPlayingTranslatedMessage(message)
     }
 
-    func toggleMessageSpeechPlayback(message: ChatMessage) {
-        playbackController.toggleMessageSpeechPlayback(message: message)
+    func toggleTranslatedPlayback(message: ChatMessage) {
+        playbackController.toggleTranslatedPlayback(message: message)
+    }
+
+    func isSourcePlaybackDisabled(for message: ChatMessage) -> Bool {
+        playbackController.isSourcePlaybackDisabled(for: message)
+    }
+
+    func isPlayingSourceMessage(_ message: ChatMessage) -> Bool {
+        playbackController.isPlayingSourceMessage(message)
+    }
+
+    func hasPlayableSourceRecording(for message: ChatMessage) -> Bool {
+        playbackController.hasPlayableSourceRecording(for: message)
+    }
+
+    func toggleSourcePlayback(message: ChatMessage) {
+        playbackController.toggleSourcePlayback(message: message)
+    }
+
+    func isSpeechTranscriptExpanded(for message: ChatMessage) -> Bool {
+        guard message.inputType == .speech else {
+            return false
+        }
+
+        if playbackController.shouldAutoExpandSpeechTranscript(for: message) {
+            return true
+        }
+
+        return expandedSpeechTranscriptMessageIDs.contains(message.id)
+    }
+
+    func canToggleSpeechTranscript(for message: ChatMessage) -> Bool {
+        message.inputType == .speech
+    }
+
+    func isSpeechTranscriptToggleDisabled(for message: ChatMessage) -> Bool {
+        playbackController.shouldAutoExpandSpeechTranscript(for: message)
+    }
+
+    func toggleSpeechTranscript(for message: ChatMessage) {
+        guard message.inputType == .speech else {
+            return
+        }
+
+        guard !playbackController.shouldAutoExpandSpeechTranscript(for: message) else {
+            return
+        }
+
+        if expandedSpeechTranscriptMessageIDs.contains(message.id) {
+            expandedSpeechTranscriptMessageIDs.remove(message.id)
+        } else {
+            expandedSpeechTranscriptMessageIDs.insert(message.id)
+        }
     }
 
     func installSpeechModelAndResumeIfNeeded(
@@ -275,6 +353,31 @@ final class HomeStore {
         assetSummary.hasActiveTasks
     }
 
+    var assetManagerProgress: Double? {
+        let records = activeAssetRecords
+        guard !records.isEmpty else { return nil }
+
+        let totalBytes = records.reduce(Int64(0)) { partialResult, record in
+            partialResult + max(record.status.totalBytes, 0)
+        }
+
+        if totalBytes > 0 {
+            let downloadedBytes = records.reduce(Int64(0)) { partialResult, record in
+                let total = max(record.status.totalBytes, 0)
+                let downloaded = max(record.status.downloadedBytes, 0)
+                return partialResult + min(downloaded, total)
+            }
+
+            return min(max(Double(downloadedBytes) / Double(totalBytes), 0), 1)
+        }
+
+        let averageProgress = records.reduce(0.0) { partialResult, record in
+            partialResult + record.status.fractionCompleted
+        } / Double(records.count)
+
+        return min(max(averageProgress, 0), 1)
+    }
+
     var activeAssetRecords: [ModelAssetRecord] {
         assetRecords.filter {
             [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
@@ -285,6 +388,31 @@ final class HomeStore {
         assetRecords.filter {
             [.preparing, .downloading, .verifying, .installing].contains($0.status.state)
         }
+    }
+
+    var assetManagerResumableProgress: Double? {
+        let records = resumableAssetRecords
+        guard !records.isEmpty else { return nil }
+
+        let totalBytes = records.reduce(Int64(0)) { partialResult, record in
+            partialResult + max(record.status.totalBytes, 0)
+        }
+
+        if totalBytes > 0 {
+            let downloadedBytes = records.reduce(Int64(0)) { partialResult, record in
+                let total = max(record.status.totalBytes, 0)
+                let downloaded = max(record.status.downloadedBytes, 0)
+                return partialResult + min(downloaded, total)
+            }
+
+            return min(max(Double(downloadedBytes) / Double(totalBytes), 0), 1)
+        }
+
+        let averageProgress = records.reduce(0.0) { partialResult, record in
+            partialResult + record.status.fractionCompleted
+        } / Double(records.count)
+
+        return min(max(averageProgress, 0), 1)
     }
 
     var resumableAssetRecords: [ModelAssetRecord] {

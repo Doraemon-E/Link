@@ -30,6 +30,7 @@ final class HomeDownloadWorkflow {
 
         downloadObservationTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.dependencies.modelAssetService.warmUp()
             let stream = await self.dependencies.modelAssetService.snapshotStream()
 
             for await snapshot in stream {
