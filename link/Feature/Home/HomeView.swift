@@ -89,6 +89,9 @@ struct HomeView: View {
                     scrollToBottom(with: proxy)
                 }
             }
+            .navigationDestination(isPresented: $viewModel.isDownloadManagerPresented) {
+                downloadManagerView
+            }
         }
         .sheet(isPresented: $viewModel.isLanguageSheetPresented) {
             HomeLanguageSheet(
@@ -119,35 +122,6 @@ struct HomeView: View {
                     viewModel.selectSession(id: sessionID)
                 },
                 isPresented: $viewModel.isSessionHistoryPresented
-            )
-        }
-        .sheet(isPresented: $viewModel.isDownloadManagerPresented) {
-            ModelAssetsSheet(
-                processingRecords: viewModel.processingAssetRecords,
-                resumableRecords: viewModel.resumableAssetRecords,
-                failedRecords: viewModel.failedAssetRecords,
-                installedRecords: viewModel.installedAssetRecords,
-                availableRecords: viewModel.availableAssetRecords,
-                onDownload: { item in
-                    Task {
-                        await viewModel.startDownload(item: item)
-                    }
-                },
-                onResume: { itemID in
-                    Task {
-                        await viewModel.resumeDownload(itemID: itemID)
-                    }
-                },
-                onRetry: { itemID in
-                    Task {
-                        await viewModel.retryDownload(itemID: itemID)
-                    }
-                },
-                onDelete: { itemID in
-                    Task {
-                        await viewModel.deleteInstalledDownload(itemID: itemID)
-                    }
-                }
             )
         }
         .confirmationDialog(
@@ -268,24 +242,26 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            HomeChatInputBar(
-                text: $viewModel.messageText,
-                isFocused: $viewModel.isChatInputFocused,
-                isRecordingSpeech: viewModel.isRecordingSpeech,
-                isSpeechBusy: viewModel.isTranscribingSpeech || viewModel.isInstallingSpeechModel,
-                onFocusActivated: viewModel.handleInputFocusActivated,
-                onSend: {
-                    viewModel.sendCurrentMessage(using: modelContext, sessions: sessions)
-                },
-                onVoiceInput: {
-                    Task {
-                        await viewModel.toggleSpeechRecording(
-                            using: modelContext,
-                            sessions: sessions
-                        )
+            if !viewModel.isDownloadManagerPresented {
+                HomeChatInputBar(
+                    text: $viewModel.messageText,
+                    isFocused: $viewModel.isChatInputFocused,
+                    isRecordingSpeech: viewModel.isRecordingSpeech,
+                    isSpeechBusy: viewModel.isTranscribingSpeech || viewModel.isInstallingSpeechModel,
+                    onFocusActivated: viewModel.handleInputFocusActivated,
+                    onSend: {
+                        viewModel.sendCurrentMessage(using: modelContext, sessions: sessions)
+                    },
+                    onVoiceInput: {
+                        Task {
+                            await viewModel.toggleSpeechRecording(
+                                using: modelContext,
+                                sessions: sessions
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 
@@ -368,6 +344,36 @@ struct HomeView: View {
 
     private var toolbarContent: some View {
         toolbarLanguagePickerButton
+    }
+
+    private var downloadManagerView: some View {
+        ModelAssetsView(
+            processingRecords: viewModel.processingAssetRecords,
+            resumableRecords: viewModel.resumableAssetRecords,
+            failedRecords: viewModel.failedAssetRecords,
+            installedRecords: viewModel.installedAssetRecords,
+            availableRecords: viewModel.availableAssetRecords,
+            onDownload: { item in
+                Task {
+                    await viewModel.startDownload(item: item)
+                }
+            },
+            onResume: { itemID in
+                Task {
+                    await viewModel.resumeDownload(itemID: itemID)
+                }
+            },
+            onRetry: { itemID in
+                Task {
+                    await viewModel.retryDownload(itemID: itemID)
+                }
+            },
+            onDelete: { itemID in
+                Task {
+                    await viewModel.deleteInstalledDownload(itemID: itemID)
+                }
+            }
+        )
     }
 
     private var sessionHistoryToolbarButton: some View {

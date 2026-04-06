@@ -272,6 +272,7 @@ final class HomeViewModel {
     }
 
     func openDownloadManager() {
+        isChatInputFocused = false
         isDownloadManagerPresented = true
     }
 
@@ -321,7 +322,7 @@ final class HomeViewModel {
 
         downloadErrorMessage = nil
         activeDownloadPrompt = nil
-        isDownloadManagerPresented = true
+        openDownloadManager()
         await modelAssetService.startAssets(kind: .translation, packageIDs: packageIds)
         await refreshDownloadAvailabilityForCurrentSelection()
     }
@@ -564,7 +565,7 @@ final class HomeViewModel {
     ) async {
         speechErrorMessage = nil
         activeSpeechDownloadPrompt = nil
-        isDownloadManagerPresented = true
+        openDownloadManager()
         pendingVoiceStartAfterInstall = shouldResumeRecording
         pendingSpeechResumePackageID = packageId
         await modelAssetService.startAssets(kind: .speech, packageIDs: [packageId])

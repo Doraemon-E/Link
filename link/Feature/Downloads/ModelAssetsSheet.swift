@@ -1,5 +1,5 @@
 //
-//  ModelAssetsSheet.swift
+//  ModelAssetsView.swift
 //  link
 //
 //  Created by Codex on 2026/4/4.
@@ -7,8 +7,8 @@
 
 import SwiftUI
 
-struct ModelAssetsSheet: View {
-    @Environment(\.dismiss) private var dismiss
+struct ModelAssetsView: View {
+    @State private var pendingDeleteItem: ModelAssetRecord?
 
     let processingRecords: [ModelAssetRecord]
     let resumableRecords: [ModelAssetRecord]
@@ -29,44 +29,58 @@ struct ModelAssetsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if allItemsAreEmpty {
-                    emptyState
-                } else {
-                    List {
-                        if !processingRecords.isEmpty {
-                            section(title: "正在处理", items: processingRecords)
-                        }
-
-                        if !resumableRecords.isEmpty {
-                            section(title: "可继续下载", items: resumableRecords)
-                        }
-
-                        if !failedRecords.isEmpty {
-                            section(title: "下载失败", items: failedRecords)
-                        }
-
-                        if !availableRecords.isEmpty {
-                            section(title: "可下载", items: availableRecords)
-                        }
-
-                        if !installedRecords.isEmpty {
-                            section(title: "已安装", items: installedRecords)
-                        }
+        Group {
+            if allItemsAreEmpty {
+                emptyState
+            } else {
+                List {
+                    if !processingRecords.isEmpty {
+                        section(title: "正在处理", items: processingRecords)
                     }
-                    .listStyle(.insetGrouped)
-                }
-            }
-            .navigationTitle("下载管理")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
+
+                    if !resumableRecords.isEmpty {
+                        section(title: "可继续下载", items: resumableRecords)
+                    }
+
+                    if !failedRecords.isEmpty {
+                        section(title: "下载失败", items: failedRecords)
+                    }
+
+                    if !availableRecords.isEmpty {
+                        section(title: "可下载", items: availableRecords)
+                    }
+
+                    if !installedRecords.isEmpty {
+                        section(title: "已安装", items: installedRecords)
                     }
                 }
+                .listStyle(.insetGrouped)
             }
+        }
+        .navigationTitle("下载管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(
+            "删除已安装模型？",
+            isPresented: Binding(
+                get: { pendingDeleteItem != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDeleteItem = nil
+                    }
+                }
+            ),
+            presenting: pendingDeleteItem
+        ) { item in
+            Button("删除", role: .destructive) {
+                onDelete(item.id)
+                pendingDeleteItem = nil
+            }
+
+            Button("取消", role: .cancel) {
+                pendingDeleteItem = nil
+            }
+        } message: { item in
+            Text("删除“\(item.asset.title)”后，如需再次使用，需要重新下载并安装。")
         }
     }
 
@@ -79,7 +93,7 @@ struct ModelAssetsSheet: View {
                     onDownload: { onDownload(item) },
                     onResume: { onResume(item.id) },
                     onRetry: { onRetry(item.id) },
-                    onDelete: { onDelete(item.id) }
+                    onDelete: { pendingDeleteItem = item }
                 )
             }
         }
@@ -116,55 +130,77 @@ private struct ModelAssetRow: View {
         !item.isInstalled && item.status.state != .failed && item.status.state != .idle
     }
 
+    private var trimmedTitle: String {
+        item.asset.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedSubtitle: String {
+        item.asset.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedKindDisplayName: String {
+        item.kind.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displaySubtitle: String? {
+        guard !trimmedSubtitle.isEmpty,
+              trimmedSubtitle != trimmedKindDisplayName,
+              trimmedSubtitle != trimmedTitle else {
+            return nil
+        }
+
+        return trimmedSubtitle
+    }
+
+    private var showsKindBadge: Bool {
+        !trimmedKindDisplayName.isEmpty && trimmedKindDisplayName != trimmedTitle
+    }
+
     private var shouldShowTransferDetails: Bool {
         item.status.totalBytes > 0 && item.status.state != .idle
     }
 
+    private var shouldShowTransferMetrics: Bool {
+        shouldShowTransferDetails && item.status.state == .downloading
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.asset.title)
                         .font(.body.weight(.semibold))
+                        .lineLimit(2)
 
-                    Text(item.asset.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let displaySubtitle {
+                        Text(displaySubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 12)
 
-                Text(item.kind.displayName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.12))
-                    )
+                if showsKindBadge {
+                    kindBadge
+                }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(item.status.state.displayName)
-                        .font(.caption.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(statusColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(statusColor.opacity(0.12))
-                        )
 
                     if shouldShowTransferDetails {
                         Text("\(item.status.downloadedBytes.formattedModelSize) / \(item.status.totalBytes.formattedModelSize)")
-                            .font(.caption.monospacedDigit())
+                            .font(.footnote.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                 }
 
-                if shouldShowTransferDetails {
+                if shouldShowTransferMetrics {
                     HStack(spacing: 12) {
                         metricLabel(item.status.fractionCompleted.formattedPercent)
 
@@ -214,6 +250,18 @@ private struct ModelAssetRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var kindBadge: some View {
+        Text(item.kind.displayName)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.secondary.opacity(0.12))
+            )
     }
 
     @ViewBuilder
