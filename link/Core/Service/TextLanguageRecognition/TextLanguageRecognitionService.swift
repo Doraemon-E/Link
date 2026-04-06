@@ -13,7 +13,7 @@ nonisolated struct TextLanguageRecognitionResult: Sendable, Equatable {
     let hypotheses: [SupportedLanguage: Float]
 }
 
-protocol TextLanguageRecognitionService: Sendable {
+nonisolated protocol TextLanguageRecognitionService: Sendable {
     func recognizeLanguage(for text: String) async throws -> TextLanguageRecognitionResult
 }
 

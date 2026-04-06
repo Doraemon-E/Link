@@ -86,7 +86,8 @@ final class SystemTextToSpeechService: NSObject, TextToSpeechService {
     }
 }
 
-extension SystemTextToSpeechService: AVSpeechSynthesizerDelegate {
+@MainActor
+extension SystemTextToSpeechService: @preconcurrency AVSpeechSynthesizerDelegate {
     func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer,
         didStart utterance: AVSpeechUtterance

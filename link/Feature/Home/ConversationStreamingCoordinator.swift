@@ -7,12 +7,12 @@
 
 import Foundation
 
-enum ConversationStreamingEvent: Sendable, Equatable {
+nonisolated enum ConversationStreamingEvent: Sendable, Equatable {
     case state(TranslationStreamingState)
     case completed(messageID: UUID, text: String)
 }
 
-struct LiveUtteranceState: Sendable, Equatable {
+nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var stableTranscript: String = ""
     var unstableTranscript: String = ""
     var stableTranslation: String = ""
@@ -23,12 +23,12 @@ struct LiveUtteranceState: Sendable, Equatable {
     var translationRevision: Int = 0
 }
 
-enum LiveSpeechTranslationEvent: Sendable, Equatable {
+nonisolated enum LiveSpeechTranslationEvent: Sendable, Equatable {
     case state(LiveUtteranceState)
     case completed(LiveUtteranceState)
 }
 
-enum ConversationStreamingCoordinatorError: LocalizedError, Equatable {
+nonisolated enum ConversationStreamingCoordinatorError: LocalizedError, Equatable {
     case liveSpeechNotAvailable
 
     var errorDescription: String? {
@@ -95,7 +95,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         self.speechStreamingService = speechStreamingService
     }
 
-    func startManualTranslation(
+    nonisolated func startManualTranslation(
         messageID: UUID,
         text: String,
         sourceLanguage: SupportedLanguage,
@@ -109,7 +109,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         )
     }
 
-    func startSpeechTranslation(
+    nonisolated func startSpeechTranslation(
         messageID: UUID,
         text: String,
         sourceLanguage: SupportedLanguage,
@@ -123,23 +123,21 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         )
     }
 
-    func startLiveSpeechTranslation(
+    nonisolated func startLiveSpeechTranslation(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
         sourceLanguage: SupportedLanguage?,
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error> {
-        let speechStreamingService = self.speechStreamingService
-
         return AsyncThrowingStream { continuation in
-            guard let speechStreamingService else {
-                continuation.finish(throwing: ConversationStreamingCoordinatorError.liveSpeechNotAvailable)
-                return
-            }
-
             let producer = Task {
                 do {
-                    let initialState = self.initializeLiveSpeechState(
+                    guard let speechStreamingService = self.speechStreamingService else {
+                        continuation.finish(throwing: ConversationStreamingCoordinatorError.liveSpeechNotAvailable)
+                        return
+                    }
+
+                    let initialState = await self.initializeLiveSpeechState(
                         messageID: messageID,
                         sourceLanguage: sourceLanguage
                     )
@@ -179,7 +177,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         }
                     }
 
-                    let finalState = self.currentLiveState(messageID: messageID)
+                    let finalState = await self.currentLiveState(messageID: messageID)
                     continuation.yield(.completed(finalState))
                     continuation.finish()
                 } catch is CancellationError {
@@ -188,12 +186,12 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     continuation.finish(throwing: error)
                 }
 
-                self.clearTask(messageID: messageID)
-                self.teardownLiveSpeechState(messageID: messageID)
+                await self.clearTask(messageID: messageID)
+                await self.teardownLiveSpeechState(messageID: messageID)
             }
 
             Task {
-                self.replaceTask(producer, messageID: messageID)
+                await self.replaceTask(producer, messageID: messageID)
             }
 
             continuation.onTermination = { _ in
@@ -213,17 +211,16 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         teardownLiveSpeechState(messageID: messageID)
     }
 
-    private func startTranslation(
+    private nonisolated func startTranslation(
         messageID: UUID,
         text: String,
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
-        let translationService = self.translationService
-
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
+                    let translationService = self.translationService
                     for try await event in translationService.streamTranslation(
                         text: text,
                         source: sourceLanguage,
@@ -268,11 +265,11 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     continuation.finish(throwing: error)
                 }
 
-                self.clearTask(messageID: messageID)
+                await self.clearTask(messageID: messageID)
             }
 
             Task {
-                self.replaceTask(producer, messageID: messageID)
+                await self.replaceTask(producer, messageID: messageID)
             }
 
             continuation.onTermination = { _ in

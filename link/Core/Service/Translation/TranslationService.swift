@@ -7,13 +7,13 @@
 
 import Foundation
 
-enum TranslationStreamEvent: Sendable, Equatable {
+nonisolated enum TranslationStreamEvent: Sendable, Equatable {
     case started
     case partial(text: String, revision: Int, isFinal: Bool)
     case completed(text: String)
 }
 
-protocol TranslationStreamingService: Sendable {
+nonisolated protocol TranslationStreamingService: Sendable {
     func streamTranslation(
         text: String,
         source: SupportedLanguage,
@@ -21,7 +21,7 @@ protocol TranslationStreamingService: Sendable {
     ) -> AsyncThrowingStream<TranslationStreamEvent, Error>
 }
 
-protocol TranslationService: TranslationStreamingService {
+nonisolated protocol TranslationService: TranslationStreamingService {
     func supports(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool
     func route(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationRoute
     func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String

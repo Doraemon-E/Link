@@ -7,12 +7,12 @@
 
 import Foundation
 
-struct TypingRenderStep: Sendable, Equatable {
+nonisolated struct TypingRenderStep: Sendable, Equatable {
     let text: String
     let delayNanoseconds: UInt64
 }
 
-struct TypingRenderPlan: Sendable, Equatable {
+nonisolated struct TypingRenderPlan: Sendable, Equatable {
     let steps: [TypingRenderStep]
 
     var totalDurationNanoseconds: UInt64 {
@@ -22,7 +22,7 @@ struct TypingRenderPlan: Sendable, Equatable {
     }
 }
 
-enum TypingRenderer {
+nonisolated enum TypingRenderer {
     typealias Sleep = @Sendable (UInt64) async throws -> Void
 
     static let maximumDurationNanoseconds: UInt64 = 950_000_000
@@ -247,7 +247,7 @@ enum TypingRenderer {
     }
 }
 
-private extension Character {
+private nonisolated extension Character {
     var isWhitespaceOrNewline: Bool {
         unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
     }

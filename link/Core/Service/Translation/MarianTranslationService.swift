@@ -106,7 +106,7 @@ actor MarianTranslationService: TranslationService {
         return translatedText
     }
 
-    func streamTranslation(
+    nonisolated func streamTranslation(
         text: String,
         source: SupportedLanguage,
         target: SupportedLanguage

@@ -1054,14 +1054,14 @@ final class HomeViewModel {
                 let stream: AsyncThrowingStream<ConversationStreamingEvent, Error>
                 switch translationOrigin {
                 case .manual:
-                    stream = await self.conversationStreamingCoordinator.startManualTranslation(
+                    stream = self.conversationStreamingCoordinator.startManualTranslation(
                         messageID: messageID,
                         text: originalText,
                         sourceLanguage: sourceLanguage,
                         targetLanguage: targetLanguage
                     )
                 case .speech:
-                    stream = await self.conversationStreamingCoordinator.startSpeechTranslation(
+                    stream = self.conversationStreamingCoordinator.startSpeechTranslation(
                         messageID: messageID,
                         text: originalText,
                         sourceLanguage: sourceLanguage,
@@ -1108,7 +1108,7 @@ final class HomeViewModel {
             guard let self else { return }
 
             do {
-                let stream = await self.conversationStreamingCoordinator.startLiveSpeechTranslation(
+                let stream = self.conversationStreamingCoordinator.startLiveSpeechTranslation(
                     messageID: messageID,
                     audioStream: audioStream,
                     sourceLanguage: fallbackSourceLanguage,

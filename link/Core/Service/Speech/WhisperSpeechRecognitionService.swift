@@ -52,7 +52,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         )
     }
 
-    func streamTranscription(
+    nonisolated func streamTranscription(
         audioStream: AsyncStream<[Float]>
     ) -> AsyncThrowingStream<SpeechTranscriptEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -61,7 +61,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                     continuation.yield(.started)
 
                     let installation = try await self.loadInstallation()
-                    let context = try self.loadContext(for: installation)
+                    let context = try await self.loadContext(for: installation)
 
                     let stepSampleCount = Int(1.2 * 16_000)
                     let windowSampleCount = 5 * 16_000

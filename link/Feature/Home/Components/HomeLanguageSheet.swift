@@ -18,8 +18,8 @@ struct HomeLanguageSheet: View {
     @Binding var isPresented: Bool
     let mode: Mode
     let onResolveSelection: @Sendable (SupportedLanguage, SupportedLanguage) async -> HomeLanguageSelectionResolution
-    let onCommitSelection: @Sendable (SupportedLanguage, SupportedLanguage) -> Void
-    let onCommitSelectionRequiringDownload: @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void
+    let onCommitSelection: @MainActor @Sendable (SupportedLanguage, SupportedLanguage) -> Void
+    let onCommitSelectionRequiringDownload: @MainActor @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void
 
     @State private var draftSourceLanguage: SupportedLanguage
     @State private var draftSelectedLanguage: SupportedLanguage
@@ -32,8 +32,8 @@ struct HomeLanguageSheet: View {
         isPresented: Binding<Bool>,
         mode: Mode,
         onResolveSelection: @escaping @Sendable (SupportedLanguage, SupportedLanguage) async -> HomeLanguageSelectionResolution = { _, _ in .ready },
-        onCommitSelection: @escaping @Sendable (SupportedLanguage, SupportedLanguage) -> Void = { _, _ in },
-        onCommitSelectionRequiringDownload: @escaping @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void = { _, _, _ in }
+        onCommitSelection: @escaping @MainActor @Sendable (SupportedLanguage, SupportedLanguage) -> Void = { _, _ in },
+        onCommitSelectionRequiringDownload: @escaping @MainActor @Sendable (SupportedLanguage, SupportedLanguage, HomeLanguageDownloadPrompt) -> Void = { _, _, _ in }
     ) {
         self._sourceLanguage = sourceLanguage
         self._selectedLanguage = selectedLanguage

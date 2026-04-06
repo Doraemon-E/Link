@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum MessagePhase: Sendable, Equatable {
+nonisolated enum MessagePhase: Sendable, Equatable {
     case idle
     case transcribing
     case translating
@@ -55,7 +55,7 @@ enum MessagePhase: Sendable, Equatable {
     }
 }
 
-struct TranslationStreamingState: Sendable, Equatable {
+nonisolated struct TranslationStreamingState: Sendable, Equatable {
     let messageID: UUID
     var committedText: String
     var liveText: String?
@@ -74,7 +74,7 @@ struct TranslationStreamingState: Sendable, Equatable {
     }
 }
 
-struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
+nonisolated struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
     let messageID: UUID
     var sourceCommittedText: String
     var sourceLiveText: String?

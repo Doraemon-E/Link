@@ -9,11 +9,7 @@ import Foundation
 import NaturalLanguage
 
 actor SystemTextLanguageRecognitionService: TextLanguageRecognitionService {
-    private let recognizer: NLLanguageRecognizer
-
-    init(recognizer: NLLanguageRecognizer = NLLanguageRecognizer()) {
-        self.recognizer = recognizer
-    }
+    private let recognizer = NLLanguageRecognizer()
 
     func recognizeLanguage(for text: String) async throws -> TextLanguageRecognitionResult {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)

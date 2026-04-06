@@ -18,13 +18,13 @@ nonisolated enum SpeechTranscriptEvent: Sendable, Equatable {
     case completed(text: String, detectedLanguage: SupportedLanguage?)
 }
 
-protocol SpeechRecognitionStreamingService: Sendable {
+nonisolated protocol SpeechRecognitionStreamingService: Sendable {
     func streamTranscription(
         audioStream: AsyncStream<[Float]>
     ) -> AsyncThrowingStream<SpeechTranscriptEvent, Error>
 }
 
-protocol SpeechRecognitionService: Sendable {
+nonisolated protocol SpeechRecognitionService: Sendable {
     func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult
 }
 

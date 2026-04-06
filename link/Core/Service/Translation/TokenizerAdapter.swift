@@ -7,13 +7,13 @@
 
 import Foundation
 
-protocol TokenizerAdapter {
+nonisolated protocol TokenizerAdapter {
     func encode(_ text: String, maxLength: Int, eosTokenID: Int) throws -> [Int64]
     func decode(_ tokenIDs: [Int64], eosTokenID: Int, padTokenID: Int) throws -> String
     func debugTokenDescription(_ tokenID: Int64, eosTokenID: Int, padTokenID: Int) -> String
 }
 
-final class SentencePieceTokenizerAdapter: TokenizerAdapter {
+nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
     private struct SentencePieceEntry {
         enum Kind: Int {
             case normal = 1
