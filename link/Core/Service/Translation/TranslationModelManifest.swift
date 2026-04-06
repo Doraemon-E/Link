@@ -39,11 +39,12 @@ nonisolated struct TranslationModelManifest: Codable, Sendable {
         let maxOutputLength: Int
         let bosTokenId: Int
         let eosTokenId: Int
-        let padTokenId: Int
-        let decoderStartTokenId: Int
-        let suppressedTokenIds: [Int]?
+        let padTokenId: Int // 统一使用 padTokenId 来表示填充标记的 ID，保持张量的形状一致
+        let decoderStartTokenId: Int // 用于指定解码器的起始标记 ID，作为启动信号
+        let suppressedTokenIds: [Int]? // 禁止某个特殊符号在翻译结果中出现，例如 unkTokenId 
     }
 
+    // 映射不同来源的ONNX模型的张量名，保持一致性
     nonisolated struct TensorNames: Codable, Sendable {
         let encoderInputIDs: String
         let encoderAttentionMask: String
