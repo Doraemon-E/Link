@@ -300,7 +300,9 @@ final class MicrophoneRecordingService {
     }
 
     private func preserveRecording(at url: URL) throws -> URL {
-        let preservedURL = FileManager.default.temporaryDirectory
+        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
+        let preservedURL = appSupportURL
             .appendingPathComponent("last-speech-recording", isDirectory: false)
             .appendingPathExtension(url.pathExtension.isEmpty ? "caf" : url.pathExtension)
 
