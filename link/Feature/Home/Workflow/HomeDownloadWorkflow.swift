@@ -140,6 +140,27 @@ final class HomeDownloadWorkflow {
         store.activeDownloadPrompt = prompt
     }
 
+    func presentSendPreflightPromptIfNeeded(
+        source: SupportedLanguage,
+        target: SupportedLanguage
+    ) async -> Bool {
+        guard let store = self.store else { return false }
+
+        if let targetLanguagePrompt = await targetLanguageModelPromptIfNeeded(targetLanguage: target) {
+            store.activeDownloadPrompt = nil
+            store.activeTargetLanguageModelPrompt = targetLanguagePrompt
+            return true
+        }
+
+        guard let translationPrompt = await downloadPromptIfNeeded(source: source, target: target) else {
+            return false
+        }
+
+        store.activeTargetLanguageModelPrompt = nil
+        presentTranslationDownloadPrompt(translationPrompt)
+        return true
+    }
+
     func dismissSpeechDownloadPrompt() {
         store?.activeSpeechDownloadPrompt = nil
         store?.pendingVoiceStartAfterInstall = false

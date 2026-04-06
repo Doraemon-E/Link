@@ -211,6 +211,120 @@ final class HomeDownloadWorkflowTests: XCTestCase {
         XCTAssertNil(store.activeTargetLanguageModelPrompt)
     }
 
+    func testSendPreflightPrioritizesTargetLanguagePromptWhenNoInstalledTargetModelExists() async throws {
+        let inventoryProvider = FakeTranslationModelInventoryProvider(
+            packages: [
+                makeTranslationPackage(source: .chinese, target: .english)
+            ],
+            installedPackages: []
+        )
+        let readinessProvider = FakeTranslationAssetReadinessProvider(
+            requirement: TranslationAssetRequirement(
+                missingPackages: [
+                    makeTranslationPackage(source: .chinese, target: .english)
+                ]
+            )
+        )
+        let environment = try makeEnvironment(
+            readinessProvider: readinessProvider,
+            inventoryProvider: inventoryProvider
+        )
+        defer { environment.cleanup() }
+
+        let store = FakeDownloadWorkflowStore(
+            sourceLanguage: .chinese,
+            selectedLanguage: .english,
+            isShowingLanguageSheet: false
+        )
+        let workflow = HomeDownloadWorkflow(store: store, dependencies: environment.dependencies)
+
+        let didPresentPrompt = await workflow.presentSendPreflightPromptIfNeeded(
+            source: .chinese,
+            target: .english
+        )
+
+        XCTAssertTrue(didPresentPrompt)
+        XCTAssertEqual(store.activeTargetLanguageModelPrompt?.targetLanguage, .english)
+        XCTAssertNil(store.activeDownloadPrompt)
+    }
+
+    func testSendPreflightFallsBackToRoutePromptWhenTargetLanguageAlreadyHasInstalledModel() async throws {
+        let inventoryProvider = FakeTranslationModelInventoryProvider(
+            packages: [
+                makeTranslationPackage(source: .chinese, target: .english),
+                makeTranslationPackage(source: .japanese, target: .english)
+            ],
+            installedPackages: [
+                TranslationInstalledPackageSummary(
+                    packageId: "installed-ja-en",
+                    version: "1.0.0",
+                    sourceLanguage: .japanese,
+                    targetLanguage: .english,
+                    archiveSize: 1_024,
+                    installedSize: 2_048,
+                    installedAt: .now
+                )
+            ]
+        )
+        let readinessProvider = FakeTranslationAssetReadinessProvider(
+            requirement: TranslationAssetRequirement(
+                missingPackages: [
+                    makeTranslationPackage(source: .chinese, target: .english)
+                ]
+            )
+        )
+        let environment = try makeEnvironment(
+            readinessProvider: readinessProvider,
+            inventoryProvider: inventoryProvider
+        )
+        defer { environment.cleanup() }
+
+        let store = FakeDownloadWorkflowStore(
+            sourceLanguage: .chinese,
+            selectedLanguage: .english,
+            isShowingLanguageSheet: false
+        )
+        let workflow = HomeDownloadWorkflow(store: store, dependencies: environment.dependencies)
+
+        let didPresentPrompt = await workflow.presentSendPreflightPromptIfNeeded(
+            source: .chinese,
+            target: .english
+        )
+
+        XCTAssertTrue(didPresentPrompt)
+        XCTAssertNil(store.activeTargetLanguageModelPrompt)
+        XCTAssertEqual(store.activeDownloadPrompt?.sourceLanguage, .chinese)
+        XCTAssertEqual(store.activeDownloadPrompt?.targetLanguage, .english)
+    }
+
+    func testSendPreflightReturnsFalseWhenNoDownloadPromptIsAvailable() async throws {
+        let inventoryProvider = FakeTranslationModelInventoryProvider(
+            packages: [],
+            installedPackages: []
+        )
+        let environment = try makeEnvironment(
+            readinessProvider: FakeTranslationAssetReadinessProvider(requirement: .ready),
+            inventoryProvider: inventoryProvider
+        )
+        defer { environment.cleanup() }
+
+        let store = FakeDownloadWorkflowStore(
+            sourceLanguage: .chinese,
+            selectedLanguage: .french,
+            isShowingLanguageSheet: false
+        )
+        let workflow = HomeDownloadWorkflow(store: store, dependencies: environment.dependencies)
+
+        let didPresentPrompt = await workflow.presentSendPreflightPromptIfNeeded(
+            source: .chinese,
+            target: .french
+        )
+
+        XCTAssertFalse(didPresentPrompt)
+        XCTAssertNil(store.activeTargetLanguageModelPrompt)
+        XCTAssertNil(store.activeDownloadPrompt)
+    }
+
     private func makeEnvironment(
         readinessProvider: any TranslationAssetReadinessProviding,
         inventoryProvider: any TranslationModelInventoryProviding

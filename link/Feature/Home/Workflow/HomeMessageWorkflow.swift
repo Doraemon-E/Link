@@ -13,29 +13,53 @@ private enum HomeTranslationRequestOrigin {
 }
 
 @MainActor
+protocol HomeMessageWorkflowStore: AnyObject {
+    var messageText: String { get set }
+    var isRecordingSpeech: Bool { get }
+    var isTranscribingSpeech: Bool { get }
+    var isInstallingSpeechModel: Bool { get }
+    var selectedLanguage: SupportedLanguage { get }
+    var messageErrorMessage: String? { get set }
+    var sessionPresentation: HomeSessionPresentation { get set }
+    var streamingStatesByMessageID: [UUID: ExchangeStreamingState] { get set }
+}
+
+@MainActor
+protocol HomeMessageDownloadSupporting: AnyObject {
+    func presentSendPreflightPromptIfNeeded(
+        source: SupportedLanguage,
+        target: SupportedLanguage
+    ) async -> Bool
+}
+
+extension HomeDownloadWorkflow: HomeMessageDownloadSupporting {}
+
+@MainActor
 final class HomeMessageWorkflow {
-    private unowned let store: HomeStore
+    private weak var store: (any HomeMessageWorkflowStore)?
     private let sessionRepository: HomeSessionRepository
     private let conversationStreamingCoordinator: any ConversationStreamingCoordinator
     private let textLanguageRecognitionService: TextLanguageRecognitionService
-    private let downloadWorkflow: HomeDownloadWorkflow
+    private let downloadSupport: any HomeMessageDownloadSupporting
     private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
 
     init(
-        store: HomeStore,
+        store: any HomeMessageWorkflowStore,
         sessionRepository: HomeSessionRepository,
         conversationStreamingCoordinator: any ConversationStreamingCoordinator,
         textLanguageRecognitionService: TextLanguageRecognitionService,
-        downloadWorkflow: HomeDownloadWorkflow
+        downloadSupport: any HomeMessageDownloadSupporting
     ) {
         self.store = store
         self.sessionRepository = sessionRepository
         self.conversationStreamingCoordinator = conversationStreamingCoordinator
         self.textLanguageRecognitionService = textLanguageRecognitionService
-        self.downloadWorkflow = downloadWorkflow
+        self.downloadSupport = downloadSupport
     }
 
     func sendCurrentMessage(in runtime: HomeRuntimeContext) {
+        guard let store else { return }
+
         let trimmedText = store.messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty,
               !store.isRecordingSpeech,
@@ -48,24 +72,23 @@ final class HomeMessageWorkflow {
         store.messageErrorMessage = nil
 
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, let store = self.store else { return }
 
             let source: SupportedLanguage
             do {
                 source = try await self.resolveSourceLanguage(for: trimmedText)
             } catch let error as TextLanguageRecognitionError {
-                self.store.messageErrorMessage = error.userFacingMessage
+                store.messageErrorMessage = error.userFacingMessage
                 return
             } catch {
-                self.store.messageErrorMessage = "暂时无法识别输入语言，请稍后再试。"
+                store.messageErrorMessage = "暂时无法识别输入语言，请稍后再试。"
                 return
             }
 
-            if let prompt = await self.downloadWorkflow.downloadPromptIfNeeded(
+            if await self.downloadSupport.presentSendPreflightPromptIfNeeded(
                 source: source,
                 target: target
             ) {
-                self.downloadWorkflow.presentTranslationDownloadPrompt(prompt)
                 return
             }
 
@@ -117,6 +140,8 @@ final class HomeMessageWorkflow {
         in runtime: HomeRuntimeContext,
         clearInput: Bool
     ) {
+        guard let store else { return }
+
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
@@ -157,6 +182,8 @@ final class HomeMessageWorkflow {
         translationOrigin: HomeTranslationRequestOrigin,
         in runtime: HomeRuntimeContext
     ) {
+        guard let store else { return }
+
         translationTasksByMessageID[messageID]?.cancel()
         store.streamingStatesByMessageID[messageID] = ExchangeStreamingState(
             messageID: messageID,
@@ -190,7 +217,7 @@ final class HomeMessageWorkflow {
                     self.handleStreamingConversationEvent(event, in: runtime)
                 }
             } catch is CancellationError {
-                self.store.streamingStatesByMessageID.removeValue(forKey: messageID)
+                self.store?.streamingStatesByMessageID.removeValue(forKey: messageID)
             } catch let error as TranslationError {
                 self.failStreamingTranslation(
                     for: messageID,
@@ -238,6 +265,8 @@ final class HomeMessageWorkflow {
         _ event: ConversationStreamingEvent,
         in runtime: HomeRuntimeContext
     ) {
+        guard let store else { return }
+
         switch event {
         case .state(let state):
             guard var existingState = store.streamingStatesByMessageID[state.messageID] else {
@@ -263,6 +292,8 @@ final class HomeMessageWorkflow {
         message: String,
         in runtime: HomeRuntimeContext
     ) {
+        guard let store else { return }
+
         var state = store.streamingStatesByMessageID[messageID] ?? ExchangeStreamingState(
             messageID: messageID,
             sourceStableText: "",

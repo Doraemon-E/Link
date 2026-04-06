@@ -10,11 +10,12 @@ import Observation
 
 @MainActor
 @Observable
-final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowStore, HomeSpeechWorkflowStore {
+final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowStore, HomeSpeechWorkflowStore, HomeMessageWorkflowStore {
     struct ViewState {
         let messageItems: [MessageItemState]
         let shouldShowEmptyState: Bool
         let historySessions: [ChatSession]
+        let deletableHistorySessionIDs: Set<UUID>
         let currentSessionID: UUID?
         let toolbar: ToolbarState
         let downloadManager: DownloadManagerState
@@ -119,7 +120,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         sessionRepository: sessionRepository,
         conversationStreamingCoordinator: conversationStreamingCoordinator,
         textLanguageRecognitionService: dependencies.textLanguageRecognitionService,
-        downloadWorkflow: downloadWorkflow
+        downloadSupport: downloadWorkflow
     )
     @ObservationIgnored private lazy var speechWorkflow = HomeSpeechWorkflow(
         store: self,
@@ -176,6 +177,11 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
             messageItems: messageItems,
             shouldShowEmptyState: messageItems.isEmpty && !isChatInputFocused,
             historySessions: runtime.historySessions,
+            deletableHistorySessionIDs: Set(
+                runtime.historySessions.compactMap { session in
+                    canDeleteSession(session) ? session.id : nil
+                }
+            ),
             currentSessionID: currentSessionID(in: runtime),
             toolbar: makeToolbarState(in: runtime),
             downloadManager: makeDownloadManagerState()
@@ -237,6 +243,60 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
 
         DispatchQueue.main.async {
             self.isSessionHistoryPresented = false
+        }
+    }
+
+    func canDeleteSession(_ session: ChatSession) -> Bool {
+        let sessionMessageIDs = Set(session.messages.map(\.id))
+        guard !sessionMessageIDs.isEmpty else {
+            return true
+        }
+
+        return sessionMessageIDs.isDisjoint(with: Set(streamingStatesByMessageID.keys)) &&
+            sessionMessageIDs.isDisjoint(with: Set(messageLanguageSwitchSideByMessageID.keys))
+    }
+
+    func deleteSession(
+        id sessionID: UUID,
+        in runtime: HomeRuntimeContext
+    ) {
+        guard let session = runtime.sessions.first(where: { $0.id == sessionID }),
+              canDeleteSession(session) else {
+            return
+        }
+
+        let sessionMessageIDs = Set(session.messages.map(\.id))
+        let deletedAudioURLs = Set(
+            session.messages.compactMap { message in
+                HomeSessionRepository.localAudioFileURL(from: message.audioURL)
+            }
+        )
+
+        if let activePlaybackState,
+           sessionMessageIDs.contains(activePlaybackState.messageID) {
+            playbackController.stop()
+        }
+
+        guard sessionRepository.deleteSession(id: sessionID, in: runtime) else {
+            return
+        }
+
+        expandedSpeechTranscriptMessageIDs.subtract(sessionMessageIDs)
+
+        for messageID in sessionMessageIDs {
+            streamingStatesByMessageID.removeValue(forKey: messageID)
+            messageLanguageSwitchSideByMessageID.removeValue(forKey: messageID)
+        }
+
+        if let lastSpeechRecordingURL,
+           deletedAudioURLs.contains(lastSpeechRecordingURL.standardizedFileURL) {
+            self.lastSpeechRecordingURL = nil
+        }
+
+        if case .persisted(let currentSessionID) = sessionPresentation,
+           currentSessionID == sessionID {
+            sessionPresentation = .draft
+            isChatInputFocused = false
         }
     }
 

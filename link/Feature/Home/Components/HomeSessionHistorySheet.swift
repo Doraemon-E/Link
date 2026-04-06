@@ -16,8 +16,10 @@ struct HomeSessionHistorySheet: View {
     }
 
     let sessions: [ChatSession]
+    let deletableSessionIDs: Set<UUID>
     let currentSessionID: UUID?
     let onSelect: (UUID) -> Void
+    let onDelete: (UUID) -> Void
     @Binding var isPresented: Bool
 
     var body: some View {
@@ -33,12 +35,7 @@ struct HomeSessionHistorySheet: View {
                         ForEach(sections) { section in
                             Section(sectionHeaderTitle(for: section.day)) {
                                 ForEach(section.sessions, id: \.id) { session in
-                                    Button {
-                                        onSelect(session.id)
-                                    } label: {
-                                        sessionRow(for: session)
-                                    }
-                                    .buttonStyle(.plain)
+                                    sessionRow(for: session)
                                 }
                             }
                         }
@@ -78,7 +75,33 @@ struct HomeSessionHistorySheet: View {
             .sorted { $0.day > $1.day }
     }
 
+    @ViewBuilder
     private func sessionRow(for session: ChatSession) -> some View {
+        if deletableSessionIDs.contains(session.id) {
+            sessionRowButton(for: session)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        onDelete(session.id)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("删除会话")
+                }
+        } else {
+            sessionRowButton(for: session)
+        }
+    }
+
+    private func sessionRowButton(for session: ChatSession) -> some View {
+        Button {
+            onSelect(session.id)
+        } label: {
+            sessionRowContent(for: session)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sessionRowContent(for session: ChatSession) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(sessionTitle(for: session))
@@ -130,8 +153,10 @@ struct HomeSessionHistorySheet: View {
 #Preview {
     HomeSessionHistorySheet(
         sessions: [],
+        deletableSessionIDs: [],
         currentSessionID: nil,
         onSelect: { _ in },
+        onDelete: { _ in },
         isPresented: .constant(true)
     )
 }

@@ -10,6 +10,23 @@ import SwiftData
 
 @MainActor
 final class HomeSessionRepository {
+    static func localAudioFileURL(from audioURL: String?) -> URL? {
+        guard let audioURL = audioURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !audioURL.isEmpty else {
+            return nil
+        }
+
+        if let url = URL(string: audioURL), url.isFileURL {
+            return url.standardizedFileURL
+        }
+
+        guard audioURL.hasPrefix("/") else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: audioURL).standardizedFileURL
+    }
+
     func displayedMessages(
         in runtime: HomeRuntimeContext,
         presentation: HomeSessionPresentation
@@ -89,6 +106,44 @@ final class HomeSessionRepository {
         }
 
         saveContext(in: runtime)
+    }
+
+    @discardableResult
+    func deleteSession(
+        id: UUID,
+        in runtime: HomeRuntimeContext
+    ) -> Bool {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { session in
+                session.id == id
+            }
+        )
+
+        guard let session = try? runtime.modelContext.fetch(descriptor).first else {
+            return false
+        }
+
+        let audioFileURLs = Set(
+            session.messages.compactMap { message in
+                Self.localAudioFileURL(from: message.audioURL)
+            }
+        )
+
+        runtime.modelContext.delete(session)
+
+        do {
+            try runtime.modelContext.save()
+        } catch {
+            print("Failed to delete chat session: \(error)")
+            return false
+        }
+
+        let fileManager = FileManager.default
+        for audioFileURL in audioFileURLs where fileManager.fileExists(atPath: audioFileURL.path) {
+            try? fileManager.removeItem(at: audioFileURL)
+        }
+
+        return true
     }
 
     func resolveSession(

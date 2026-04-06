@@ -26,6 +26,8 @@ struct HomeChatInputBar: View {
     let isRecordingSpeech: Bool
     let isSpeechBusy: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
+
     let onFocusActivated: () -> Void
     let onSend: () -> Void
     let onVoiceInput: () -> Void
@@ -101,14 +103,36 @@ struct HomeChatInputBar: View {
         Button(action: handleSend) {
             Image(systemName: "arrow.up")
                 .font(.headline.weight(.bold))
-                .foregroundStyle(sendButtonGlyphColor)
                 .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
-                .glassEffect(.regular.tint(sendButtonGlassTint), in: Circle())
+                .modifier(
+                    InvertedActionButtonStyle(
+                        glyphColor: invertedActionGlyphColor,
+                        backgroundColor: invertedActionBackgroundColor,
+                        isEnabled: isSendEnabled
+                    )
+                )
         }
         .buttonStyle(.plain)
         .disabled(!isSendEnabled)
         .contentShape(Circle())
         .accessibilityLabel("发送消息")
+    }
+
+    private var waveformButton: some View {
+        Button(action: {}) {
+            Image(systemName: "waveform")
+                .font(.headline.weight(.bold))
+                .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
+                .modifier(
+                    InvertedActionButtonStyle(
+                        glyphColor: invertedActionGlyphColor,
+                        backgroundColor: invertedActionBackgroundColor
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Circle())
+        .accessibilityLabel("语音波形")
     }
 
     private var primaryVoiceButton: some View {
@@ -167,6 +191,7 @@ struct HomeChatInputBar: View {
                 sendButton
             } else {
                 primaryVoiceButton
+                waveformButton
             }
         }
         .frame(height: Metrics.primaryActionSize, alignment: .center)
@@ -183,12 +208,12 @@ struct HomeChatInputBar: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var sendButtonGlyphColor: Color {
-        isSendEnabled ? .accentColor : Color.secondary.opacity(0.45)
+    private var invertedActionGlyphColor: Color {
+        colorScheme == .dark ? .black : .white
     }
 
-    private var sendButtonGlassTint: Color {
-        isSendEnabled ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.08)
+    private var invertedActionBackgroundColor: Color {
+        colorScheme == .dark ? .white : .black
     }
 
     private var primaryVoiceGlyphColor: Color {
@@ -217,6 +242,22 @@ struct HomeChatInputBar: View {
     }
 }
 
+private struct InvertedActionButtonStyle: ViewModifier {
+    let glyphColor: Color
+    let backgroundColor: Color
+    var isEnabled: Bool = true
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(glyphColor)
+            .background(
+                Circle()
+                    .fill(backgroundColor)
+            )
+            .opacity(isEnabled ? 1 : 0.42)
+    }
+}
+
 #Preview("Empty Composer") {
     HomeChatInputBar(
         text: .constant(""),
@@ -227,6 +268,20 @@ struct HomeChatInputBar: View {
         onSend: {},
         onVoiceInput: {}
     )
+    .preferredColorScheme(.light)
+}
+
+#Preview("Empty Composer Dark") {
+    HomeChatInputBar(
+        text: .constant(""),
+        isFocused: .constant(false),
+        isRecordingSpeech: false,
+        isSpeechBusy: false,
+        onFocusActivated: {},
+        onSend: {},
+        onVoiceInput: {}
+    )
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Typing Composer") {
@@ -239,4 +294,18 @@ struct HomeChatInputBar: View {
         onSend: {},
         onVoiceInput: {}
     )
+    .preferredColorScheme(.light)
+}
+
+#Preview("Typing Composer Dark") {
+    HomeChatInputBar(
+        text: .constant("Can you translate this into Japanese?"),
+        isFocused: .constant(true),
+        isRecordingSpeech: false,
+        isSpeechBusy: false,
+        onFocusActivated: {},
+        onSend: {},
+        onVoiceInput: {}
+    )
+    .preferredColorScheme(.dark)
 }

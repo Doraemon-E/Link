@@ -32,9 +32,16 @@ struct HomePresentationModifier: ViewModifier {
             .sheet(isPresented: boolBinding(\.isSessionHistoryPresented)) {
                 HomeSessionHistorySheet(
                     sessions: viewState.historySessions,
+                    deletableSessionIDs: viewState.deletableHistorySessionIDs,
                     currentSessionID: viewState.currentSessionID,
                     onSelect: { sessionID in
                         store.selectSession(
+                            id: sessionID,
+                            in: runtimeContext
+                        )
+                    },
+                    onDelete: { sessionID in
+                        store.deleteSession(
                             id: sessionID,
                             in: runtimeContext
                         )
@@ -50,17 +57,17 @@ struct HomePresentationModifier: ViewModifier {
                 ),
                 presenting: store.activeTargetLanguageModelPrompt
             ) { _ in
-                Button("前往下载模型") {
+                Button("前往下载管理") {
                     store.openDownloadManagerForActiveTargetLanguagePrompt()
                 }
 
-                Button("暂不下载", role: .cancel) {
+                Button("取消", role: .cancel) {
                     store.dismissTargetLanguageModelPrompt()
                 }
             } message: { prompt in
                 Text(prompt.message)
             }
-            .confirmationDialog(
+            .alert(
                 store.activeDownloadPrompt?.title ?? "",
                 isPresented: presenceBinding(
                     for: \.activeDownloadPrompt,
@@ -78,7 +85,7 @@ struct HomePresentationModifier: ViewModifier {
             } message: { prompt in
                 Text(prompt.message)
             }
-            .confirmationDialog(
+            .alert(
                 store.activeSpeechDownloadPrompt?.title ?? "",
                 isPresented: presenceBinding(
                     for: \.activeSpeechDownloadPrompt,
