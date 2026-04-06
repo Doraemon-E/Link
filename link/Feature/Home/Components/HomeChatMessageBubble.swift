@@ -316,11 +316,13 @@ struct HomeChatMessageBubble: View {
                         }
                     }
 
-                    Text(translatedContent.text)
-                        .font(.body)
-                        .foregroundStyle(translatedTextColor)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    selectableMessageBodyText(isEnabled: !translatedContent.isPlaceholder) {
+                        Text(translatedContent.text)
+                            .font(.body)
+                            .foregroundStyle(translatedTextColor)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -606,20 +608,37 @@ struct HomeChatMessageBubble: View {
         placeholderColor: Color
     ) -> some View {
         if sourceContent.hasLayeredText {
-            layeredSourceText(
-                stableText: sourceContent.stableText,
-                provisionalText: sourceContent.provisionalText,
-                liveText: sourceContent.liveText,
-                baseColor: primaryColor
-            )
-            .font(.body)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(sourceContent.fallbackText ?? "…")
+            selectableMessageBodyText(isEnabled: true) {
+                layeredSourceText(
+                    stableText: sourceContent.stableText,
+                    provisionalText: sourceContent.provisionalText,
+                    liveText: sourceContent.liveText,
+                    baseColor: primaryColor
+                )
                 .font(.body)
-                .foregroundStyle(sourceContent.isPlaceholder ? placeholderColor : primaryColor)
-                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            selectableMessageBodyText(isEnabled: !sourceContent.isPlaceholder) {
+                Text(sourceContent.fallbackText ?? "…")
+                    .font(.body)
+                    .foregroundStyle(sourceContent.isPlaceholder ? placeholderColor : primaryColor)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectableMessageBodyText<Content: View>(
+        isEnabled: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if isEnabled {
+            content()
+                .textSelection(.enabled)
+        } else {
+            content()
         }
     }
 
