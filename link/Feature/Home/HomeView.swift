@@ -410,7 +410,11 @@ struct HomeView: View {
             action: store.openSessionHistory
         ) {
             Image(systemName: "line.3.horizontal")
-                .font(.body.weight(.semibold))
+                .font(HomeToolbarMetrics.plainSymbolFont)
+                .frame(
+                    width: HomeToolbarMetrics.plainSymbolFrame,
+                    height: HomeToolbarMetrics.plainSymbolFrame
+                )
         }
     }
 
@@ -421,7 +425,11 @@ struct HomeView: View {
             action: store.startNewSession
         ) {
             Image(systemName: "plus.circle")
-                .font(.system(size: 17, weight: .semibold))
+                .font(HomeToolbarMetrics.newSessionSymbolFont)
+                .frame(
+                    width: HomeToolbarMetrics.plainSymbolFrame,
+                    height: HomeToolbarMetrics.plainSymbolFrame
+                )
         }
     }
 
@@ -471,6 +479,16 @@ struct HomeView: View {
     }
 }
 
+fileprivate enum HomeToolbarMetrics {
+    static let plainSymbolFont: Font = .body.weight(.semibold)
+    static let plainSymbolFrame: CGFloat = 28
+    static let newSessionSymbolFont: Font = .system(size: 16, weight: .semibold)
+    static let downloadHitFrame: CGFloat = 32
+    static let downloadVisualFrame: CGFloat = 28
+    static let downloadSymbolFont: Font = .system(size: 15, weight: .semibold)
+    static let downloadRingLineWidth: CGFloat = 1.75
+}
+
 private struct HomeChatInputBarHeightPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
@@ -495,14 +513,17 @@ private struct HomeDownloadToolbarIcon: View {
                 //     .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
 
                 Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(HomeToolbarMetrics.downloadSymbolFont)
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(
                         Color.primary.opacity(isDownloading ? 0.86 : 0.8),
                         Color.primary.opacity(isDownloading ? 0.16 : 0.12)
                     )
             }
-            .frame(width: 32, height: 32)
+            .frame(
+                width: HomeToolbarMetrics.downloadVisualFrame,
+                height: HomeToolbarMetrics.downloadVisualFrame
+            )
             .overlay {
                 if isDownloading {
                     HomeDownloadProgressRing(progress: clampedProgress, isActive: true)
@@ -512,7 +533,10 @@ private struct HomeDownloadToolbarIcon: View {
             }
             .contentShape(Circle())
         }
-        .frame(width: 32, height: 32)
+        .frame(
+            width: HomeToolbarMetrics.downloadHitFrame,
+            height: HomeToolbarMetrics.downloadHitFrame
+        )
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDownloading)
         .animation(.easeInOut(duration: 0.24), value: clampedProgress)
         .animation(.easeInOut(duration: 0.24), value: clampedResumableProgress)
@@ -544,14 +568,17 @@ private struct HomeDownloadProgressRing: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(trackColor, lineWidth: 2)
+                .stroke(trackColor, lineWidth: HomeToolbarMetrics.downloadRingLineWidth)
 
             if progress > 0 {
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
                         arcColor,
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                        style: StrokeStyle(
+                            lineWidth: HomeToolbarMetrics.downloadRingLineWidth,
+                            lineCap: .round
+                        )
                     )
                     .rotationEffect(.degrees(-90))
             }
