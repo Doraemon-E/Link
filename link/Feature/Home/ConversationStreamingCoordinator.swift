@@ -21,6 +21,27 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var detectedLanguage: SupportedLanguage?
     var transcriptRevision: Int = 0
     var translationRevision: Int = 0
+    var isEndpoint: Bool = false
+
+    var fullTranscript: String {
+        let transcript = stableTranscript + unstableTranscript
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? transcript : normalized
+    }
+
+    var effectiveTranslation: String {
+        let preferredTranslation = displayTranslation.isEmpty ? stableTranslation : displayTranslation
+        let normalized = preferredTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? preferredTranslation : normalized
+    }
+
+    var hasUnstableTranscript: Bool {
+        !unstableTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasUnstableTranslation: Bool {
+        !unstableTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 nonisolated enum LiveSpeechTranslationEvent: Sendable, Equatable {
@@ -77,7 +98,6 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     private let speechStreamingService: (any SpeechRecognitionStreamingService)?
     private var tasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var liveStatesByMessageID: [UUID: LiveUtteranceState] = [:]
-    private var liveTranscriptCandidatesByMessageID: [UUID: String] = [:]
     private var liveResolvedSourceLanguagesByMessageID: [UUID: SupportedLanguage] = [:]
     private var liveStableTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var livePreviewTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
@@ -129,7 +149,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         sourceLanguage: SupportedLanguage?,
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error> {
-        return AsyncThrowingStream { continuation in
+        AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
                     guard let speechStreamingService = self.speechStreamingService else {
@@ -150,26 +170,12 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         switch event {
                         case .started:
                             continue
-                        case .partial(let text, _, let isFinal, let detectedLanguage):
-                            if let state = try await self.consumeLiveTranscript(
+                        case .updated(let snapshot), .completed(let snapshot):
+                            if let state = try await self.consumeLiveTranscriptSnapshot(
                                 messageID: messageID,
-                                candidate: text,
-                                detectedLanguage: detectedLanguage,
+                                snapshot: snapshot,
                                 preferredSourceLanguage: sourceLanguage,
                                 targetLanguage: targetLanguage,
-                                forceFinalizeCandidate: isFinal,
-                                continuation: continuation
-                            ) {
-                                continuation.yield(.state(state))
-                            }
-                        case .completed(let text, let detectedLanguage):
-                            if let state = try await self.consumeLiveTranscript(
-                                messageID: messageID,
-                                candidate: text,
-                                detectedLanguage: detectedLanguage,
-                                preferredSourceLanguage: sourceLanguage,
-                                targetLanguage: targetLanguage,
-                                forceFinalizeCandidate: true,
                                 continuation: continuation
                             ) {
                                 continuation.yield(.state(state))
@@ -217,7 +223,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
-        return AsyncThrowingStream { continuation in
+        AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
                     let translationService = self.translationService
@@ -297,7 +303,6 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     ) -> LiveUtteranceState {
         let state = LiveUtteranceState(detectedLanguage: sourceLanguage)
         liveStatesByMessageID[messageID] = state
-        liveTranscriptCandidatesByMessageID[messageID] = ""
         liveNextPreviewRequestIDsByMessageID[messageID] = 0
         return state
     }
@@ -306,80 +311,44 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         liveStatesByMessageID[messageID] ?? LiveUtteranceState()
     }
 
-    private func normalizedLiveTranscript(for state: LiveUtteranceState) -> String {
-        (state.stableTranscript + state.unstableTranscript)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private func currentLiveTranscript(messageID: UUID) -> String {
-        normalizedLiveTranscript(
-            for: liveStatesByMessageID[messageID] ?? LiveUtteranceState()
-        )
+        liveStatesByMessageID[messageID]?.fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    private func consumeLiveTranscript(
+    private func consumeLiveTranscriptSnapshot(
         messageID: UUID,
-        candidate: String,
-        detectedLanguage: SupportedLanguage?,
+        snapshot: SpeechTranscriptionSnapshot,
         preferredSourceLanguage: SupportedLanguage?,
         targetLanguage: SupportedLanguage,
-        forceFinalizeCandidate: Bool,
         continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
     ) async throws -> LiveUtteranceState? {
-        let normalizedCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedCandidate.isEmpty else {
+        let normalizedTranscript = snapshot.fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty || snapshot.detectedLanguage != nil else {
             return nil
         }
 
         var state = liveStatesByMessageID[messageID] ?? LiveUtteranceState()
         let previousStableTranscript = state.stableTranscript
-        let previousUnstableTranscript = state.unstableTranscript
-
         let previousResolvedSourceLanguage = liveResolvedSourceLanguagesByMessageID[messageID]
+
         let resolvedSourceLanguage = try await resolveLiveSourceLanguage(
             messageID: messageID,
             preferredSourceLanguage: preferredSourceLanguage,
-            detectedLanguage: detectedLanguage,
+            detectedLanguage: snapshot.detectedLanguage,
             targetLanguage: targetLanguage
         )
         let sourceLanguageChanged = previousResolvedSourceLanguage != resolvedSourceLanguage
 
-        state.detectedLanguage = detectedLanguage ?? state.detectedLanguage
-
-        let transcriptLanguage = detectedLanguage ?? resolvedSourceLanguage ?? preferredSourceLanguage
-        let mergedTranscript = mergeAccumulatedTranscript(
-            committedTranscript: state.stableTranscript,
-            candidate: normalizedCandidate
-        )
-
-        if forceFinalizeCandidate {
-            state.stableTranscript = mergedTranscript
-            state.unstableTranscript = ""
-        } else {
-            let committedTranscript = committedPortion(
-                of: mergedTranscript,
-                language: transcriptLanguage,
-                minimumCommittedLength: state.stableTranscript.count
-            )
-            state.stableTranscript = committedTranscript
-            state.unstableTranscript = String(
-                mergedTranscript.dropFirst(committedTranscript.count)
-            )
-        }
-
-        if state.stableTranscript != previousStableTranscript ||
-            state.unstableTranscript != previousUnstableTranscript {
-            state.transcriptRevision += 1
-        }
-
+        state.stableTranscript = snapshot.stableTranscript
+        state.unstableTranscript = snapshot.unstableTranscript
+        state.detectedLanguage = snapshot.detectedLanguage ?? state.detectedLanguage
+        state.transcriptRevision = snapshot.revision
+        state.isEndpoint = snapshot.isEndpoint
         liveStatesByMessageID[messageID] = state
-        liveTranscriptCandidatesByMessageID[messageID] = normalizedCandidate
 
-        let fullTranscript = state.stableTranscript + state.unstableTranscript
-        let effectiveSourceLanguage = resolvedSourceLanguage ?? detectedLanguage ?? preferredSourceLanguage
-
+        let effectiveSourceLanguage = resolvedSourceLanguage ?? state.detectedLanguage ?? preferredSourceLanguage
         if let effectiveSourceLanguage {
-            if state.stableTranscript != previousStableTranscript || forceFinalizeCandidate || sourceLanguageChanged {
+            if state.stableTranscript != previousStableTranscript || snapshot.isEndpoint || sourceLanguageChanged {
                 scheduleStableTranslation(
                     messageID: messageID,
                     transcript: state.stableTranscript,
@@ -389,14 +358,21 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                 )
             }
 
-            schedulePreviewTranslation(
-                messageID: messageID,
-                transcript: fullTranscript,
-                sourceLanguage: effectiveSourceLanguage,
-                targetLanguage: targetLanguage,
-                forceImmediate: forceFinalizeCandidate,
-                continuation: continuation
-            )
+            if state.hasUnstableTranscript {
+                schedulePreviewTranslation(
+                    messageID: messageID,
+                    transcript: state.fullTranscript,
+                    sourceLanguage: effectiveSourceLanguage,
+                    targetLanguage: targetLanguage,
+                    forceImmediate: snapshot.isEndpoint,
+                    continuation: continuation
+                )
+            } else {
+                clearPreviewTranslationState(
+                    messageID: messageID,
+                    continuation: continuation
+                )
+            }
         }
 
         return state
@@ -465,13 +441,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
         let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTranscript.isEmpty else {
-            var state = liveStatesByMessageID[messageID] ?? LiveUtteranceState()
-            if !state.stableTranslation.isEmpty {
-                state.stableTranslation = ""
-                state.translationRevision += 1
-                liveStatesByMessageID[messageID] = state
-                continuation.yield(.state(state))
-            }
+            clearStableTranslationState(
+                messageID: messageID,
+                continuation: continuation
+            )
             return
         }
 
@@ -511,17 +484,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     ) {
         let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTranscript.isEmpty else {
-            livePreviewRequestsByMessageID.removeValue(forKey: messageID)
-            var state = liveStatesByMessageID[messageID] ?? LiveUtteranceState()
-            let displayTranslation = state.stableTranslation
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !state.unstableTranslation.isEmpty || state.displayTranslation != displayTranslation {
-                state.unstableTranslation = ""
-                state.displayTranslation = displayTranslation
-                state.translationRevision += 1
-                liveStatesByMessageID[messageID] = state
-                continuation.yield(.state(state))
-            }
+            clearPreviewTranslationState(
+                messageID: messageID,
+                continuation: continuation
+            )
             return
         }
 
@@ -627,8 +593,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
         state.stableTranslation = normalizedTranslation
         state.displayTranslation = displayTranslation
-        if state.unstableTranscript.isEmpty {
-            state.unstableTranslation = normalizedTranslation
+        if !state.hasUnstableTranscript {
+            state.unstableTranslation = ""
         }
         state.translationRevision += 1
         liveStatesByMessageID[messageID] = state
@@ -653,7 +619,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
         let normalizedSourceTranscript = sourceTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedSourceTranscript == normalizedLiveTranscript(for: state) else {
+        guard normalizedSourceTranscript == currentLiveTranscript(messageID: messageID) else {
             return nil
         }
 
@@ -667,9 +633,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         let displayTranslation = resolvedPreviewDisplayTranslation(
             previousDisplayTranslation: state.displayTranslation,
             candidateDisplayTranslation: candidateDisplayTranslation,
-            hasUnstableTranscript: !state.unstableTranscript
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty
+            hasUnstableTranscript: state.hasUnstableTranscript
         )
 
         guard normalizedTranslation != state.unstableTranslation ||
@@ -683,6 +647,51 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         liveStatesByMessageID[messageID] = state
         liveAppliedPreviewRequestIDsByMessageID[messageID] = requestID
         return state
+    }
+
+    private func clearStableTranslationState(
+        messageID: UUID,
+        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
+    ) {
+        guard var state = liveStatesByMessageID[messageID] else {
+            return
+        }
+
+        guard !state.stableTranslation.isEmpty ||
+                !state.unstableTranslation.isEmpty ||
+                !state.displayTranslation.isEmpty else {
+            return
+        }
+
+        state.stableTranslation = ""
+        state.unstableTranslation = ""
+        state.displayTranslation = ""
+        state.translationRevision += 1
+        liveStatesByMessageID[messageID] = state
+        continuation.yield(.state(state))
+    }
+
+    private func clearPreviewTranslationState(
+        messageID: UUID,
+        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
+    ) {
+        livePreviewRequestsByMessageID.removeValue(forKey: messageID)
+
+        guard var state = liveStatesByMessageID[messageID] else {
+            return
+        }
+
+        let displayTranslation = state.stableTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !state.unstableTranslation.isEmpty || state.displayTranslation != displayTranslation else {
+            return
+        }
+
+        state.unstableTranslation = ""
+        state.displayTranslation = displayTranslation
+        state.translationRevision += 1
+        liveStatesByMessageID[messageID] = state
+        continuation.yield(.state(state))
     }
 
     private func resolvedPreviewDisplayTranslation(
@@ -714,120 +723,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         liveNextPreviewRequestIDsByMessageID.removeValue(forKey: messageID)
         liveAppliedPreviewRequestIDsByMessageID.removeValue(forKey: messageID)
         liveResolvedSourceLanguagesByMessageID.removeValue(forKey: messageID)
-        liveTranscriptCandidatesByMessageID.removeValue(forKey: messageID)
         liveStatesByMessageID.removeValue(forKey: messageID)
-    }
-
-    private func mergeAccumulatedTranscript(
-        committedTranscript: String,
-        candidate: String
-    ) -> String {
-        guard !candidate.isEmpty else {
-            return committedTranscript
-        }
-
-        guard !committedTranscript.isEmpty else {
-            return candidate
-        }
-
-        if committedTranscript.contains(candidate) {
-            return committedTranscript
-        }
-
-        if candidate.hasPrefix(committedTranscript) || candidate.contains(committedTranscript) {
-            return candidate
-        }
-
-        let committedCharacters = Array(committedTranscript)
-        let candidateCharacters = Array(candidate)
-        let maxOverlap = min(committedCharacters.count, candidateCharacters.count)
-
-        for overlapLength in stride(from: maxOverlap, through: 1, by: -1) {
-            let committedSuffix = committedCharacters.suffix(overlapLength)
-            let candidatePrefix = candidateCharacters.prefix(overlapLength)
-
-            if Array(committedSuffix) == Array(candidatePrefix) {
-                return committedTranscript + String(candidateCharacters.dropFirst(overlapLength))
-            }
-        }
-
-        return committedTranscript + candidate
-    }
-
-    private func committedPortion(
-        of text: String,
-        language: SupportedLanguage?,
-        minimumCommittedLength: Int
-    ) -> String {
-        committedPortion(
-            of: text,
-            language: language,
-            minimumCommittedLength: minimumCommittedLength,
-            reserveCount: transcriptTailReserveCharacterCount(for: language)
-        )
-    }
-
-    private func committedPortion(
-        of text: String,
-        language: SupportedLanguage?,
-        minimumCommittedLength: Int,
-        reserveCount: Int
-    ) -> String {
-        guard !text.isEmpty else {
-            return ""
-        }
-
-        let targetCommittedLength = max(
-            minimumCommittedLength,
-            text.count - reserveCount
-        )
-        let clampedCommittedLength = min(targetCommittedLength, text.count)
-
-        guard clampedCommittedLength > 0 else {
-            return ""
-        }
-
-        if let language, [.chinese, .japanese, .korean].contains(language) {
-            return String(text.prefix(clampedCommittedLength))
-        }
-
-        let boundaryScalars = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        let scalars = Array(text.unicodeScalars)
-        var lastBoundaryCharacterIndex = minimumCommittedLength
-        var characterIndex = 0
-
-        for scalar in scalars {
-            characterIndex += 1
-            if characterIndex > clampedCommittedLength {
-                break
-            }
-
-            if boundaryScalars.contains(scalar),
-               characterIndex >= minimumCommittedLength {
-                lastBoundaryCharacterIndex = characterIndex
-            }
-        }
-
-        let finalCommittedLength: Int
-        if lastBoundaryCharacterIndex > minimumCommittedLength {
-            finalCommittedLength = lastBoundaryCharacterIndex
-        } else {
-            finalCommittedLength = clampedCommittedLength
-        }
-
-        return String(text.prefix(finalCommittedLength))
-    }
-
-    private func transcriptTailReserveCharacterCount(for language: SupportedLanguage?) -> Int {
-        guard let language else {
-            return 16
-        }
-
-        if [.chinese, .japanese, .korean].contains(language) {
-            return 8
-        }
-
-        return 20
     }
 
     private func composeDisplayTranslation(

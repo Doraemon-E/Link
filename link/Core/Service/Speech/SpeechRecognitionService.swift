@@ -12,10 +12,28 @@ nonisolated struct SpeechRecognitionResult: Sendable {
     let detectedLanguage: String?
 }
 
+nonisolated struct SpeechTranscriptionSnapshot: Sendable, Equatable {
+    let stableTranscript: String
+    let unstableTranscript: String
+    let revision: Int
+    let detectedLanguage: SupportedLanguage?
+    let isEndpoint: Bool
+
+    var fullTranscript: String {
+        let transcript = stableTranscript + unstableTranscript
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? transcript : normalized
+    }
+
+    var hasUnstableTranscript: Bool {
+        !unstableTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 nonisolated enum SpeechTranscriptEvent: Sendable, Equatable {
     case started
-    case partial(text: String, revision: Int, isFinal: Bool, detectedLanguage: SupportedLanguage?)
-    case completed(text: String, detectedLanguage: SupportedLanguage?)
+    case updated(SpeechTranscriptionSnapshot)
+    case completed(SpeechTranscriptionSnapshot)
 }
 
 nonisolated protocol SpeechRecognitionStreamingService: Sendable {

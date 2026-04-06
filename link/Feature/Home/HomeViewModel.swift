@@ -68,7 +68,7 @@ final class HomeViewModel {
     @ObservationIgnored private let microphoneRecordingService: MicrophoneRecordingService
     @ObservationIgnored private let conversationStreamingCoordinator: LocalConversationStreamingCoordinator
     @ObservationIgnored private let appSettings: AppSettings
-    @ObservationIgnored private var autoStopSpeechTask: Task<Void, Never>?
+    @ObservationIgnored private var silenceAutoStopTask: Task<Void, Never>?
     @ObservationIgnored private var speechPreviewPlayer: AVAudioPlayer?
     @ObservationIgnored private var speechPreviewTask: Task<Void, Never>?
     @ObservationIgnored private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
@@ -448,10 +448,14 @@ final class HomeViewModel {
             )
             liveSpeechSession = liveSession
             applyLiveSpeechState(LiveUtteranceState(), to: liveSession)
-            startLiveSpeechStreaming(audioStream: audioStream)
+            startLiveSpeechStreaming(
+                audioStream: audioStream,
+                using: modelContext,
+                sessions: sessions
+            )
             isRecordingSpeech = true
             isChatInputFocused = false
-            scheduleAutoStopSpeechTask(using: modelContext, sessions: sessions)
+            scheduleSilenceAutoStop(using: modelContext, sessions: sessions)
         } catch let error as SpeechRecognitionError {
             cleanupLiveSpeechSessionIfNeeded(using: modelContext)
             speechErrorMessage = error.userFacingMessage
@@ -464,8 +468,7 @@ final class HomeViewModel {
     func stopSpeechRecordingAndTranslate(using modelContext: ModelContext, sessions: [ChatSession]) async {
         guard isRecordingSpeech else { return }
 
-        autoStopSpeechTask?.cancel()
-        autoStopSpeechTask = nil
+        cancelSilenceAutoStop()
         isRecordingSpeech = false
         isTranscribingSpeech = true
         speechErrorMessage = nil
@@ -520,9 +523,14 @@ final class HomeViewModel {
                 source: effectiveSourceLanguage,
                 target: liveSession.targetLanguage
             )
+            let reconciledOutput = reconciledLiveSpeechOutput(
+                liveState: liveSession.latestState,
+                finalTranscript: transcribedText,
+                finalTranslation: translatedText
+            )
             finalizeLiveSpeechSession(
-                transcript: transcribedText,
-                translatedText: translatedText,
+                transcript: reconciledOutput.transcript,
+                translatedText: reconciledOutput.translation,
                 sourceLanguage: effectiveSourceLanguage,
                 audioURL: recordingResult.preservedRecordingURL?.absoluteString,
                 using: modelContext
@@ -865,11 +873,11 @@ final class HomeViewModel {
         }
     }
 
-    private func scheduleAutoStopSpeechTask(using modelContext: ModelContext, sessions: [ChatSession]) {
-        autoStopSpeechTask?.cancel()
-        autoStopSpeechTask = Task { @MainActor [weak self] in
+    private func scheduleSilenceAutoStop(using modelContext: ModelContext, sessions: [ChatSession]) {
+        silenceAutoStopTask?.cancel()
+        silenceAutoStopTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .seconds(30))
+                try await Task.sleep(for: .seconds(10))
             } catch {
                 return
             }
@@ -877,6 +885,42 @@ final class HomeViewModel {
             guard let self, self.isRecordingSpeech else { return }
             await self.stopSpeechRecordingAndTranslate(using: modelContext, sessions: sessions)
         }
+    }
+
+    private func cancelSilenceAutoStop() {
+        silenceAutoStopTask?.cancel()
+        silenceAutoStopTask = nil
+    }
+
+    private func updateSilenceAutoStop(
+        previousState: LiveUtteranceState,
+        currentState: LiveUtteranceState,
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
+    ) {
+        guard isRecordingSpeech else {
+            cancelSilenceAutoStop()
+            return
+        }
+
+        let transcriptDidChange = previousState.transcriptRevision != currentState.transcriptRevision
+            || previousState.fullTranscript != currentState.fullTranscript
+            || previousState.isEndpoint != currentState.isEndpoint
+
+        guard transcriptDidChange else {
+            return
+        }
+
+        let hasTranscript = !currentState.fullTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+
+        if currentState.isEndpoint || !hasTranscript {
+            scheduleSilenceAutoStop(using: modelContext, sessions: sessions)
+            return
+        }
+
+        cancelSilenceAutoStop()
     }
 
     private func submitMessage(
@@ -1093,7 +1137,9 @@ final class HomeViewModel {
     }
 
     private func startLiveSpeechStreaming(
-        audioStream: AsyncStream<[Float]>
+        audioStream: AsyncStream<[Float]>,
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
     ) {
         guard var liveSpeechSession else {
             return
@@ -1116,7 +1162,11 @@ final class HomeViewModel {
                 )
 
                 for try await event in stream {
-                    self.handleLiveSpeechTranslationEvent(event)
+                    self.handleLiveSpeechTranslationEvent(
+                        event,
+                        using: modelContext,
+                        sessions: sessions
+                    )
                 }
             } catch is CancellationError {
                 return
@@ -1136,7 +1186,9 @@ final class HomeViewModel {
     }
 
     private func handleLiveSpeechTranslationEvent(
-        _ event: LiveSpeechTranslationEvent
+        _ event: LiveSpeechTranslationEvent,
+        using modelContext: ModelContext,
+        sessions: [ChatSession]
     ) {
         guard let liveSpeechSession else {
             return
@@ -1144,10 +1196,17 @@ final class HomeViewModel {
 
         switch event {
         case .state(let state), .completed(let state):
+            let previousState = liveSpeechSession.latestState
             var updatedSession = liveSpeechSession
             updatedSession.latestState = state
             self.liveSpeechSession = updatedSession
             applyLiveSpeechState(state, to: updatedSession)
+            updateSilenceAutoStop(
+                previousState: previousState,
+                currentState: state,
+                using: modelContext,
+                sessions: sessions
+            )
         }
     }
 
@@ -1229,20 +1288,22 @@ final class HomeViewModel {
         _ state: LiveUtteranceState,
         to session: LiveSpeechSession
     ) {
-        let transcriptText = (state.stableTranscript + state.unstableTranscript)
+        let transcriptText = state.fullTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let translationText = (state.displayTranslation.isEmpty ? state.stableTranslation : state.displayTranslation)
+        let translationText = state.effectiveTranslation
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         streamingStatesByMessageID[session.message.id] = ExchangeStreamingState(
             messageID: session.message.id,
             sourceCommittedText: state.stableTranscript,
-            sourceLiveText: transcriptText.isEmpty ? nil : transcriptText,
-            sourcePhase: .transcribing,
+            sourceLiveText: state.hasUnstableTranscript && !transcriptText.isEmpty ? transcriptText : nil,
+            sourcePhase: transcriptText.isEmpty ? .transcribing : (isRecordingSpeech ? .transcribing : .completed),
             sourceRevision: state.transcriptRevision,
             translatedCommittedText: state.stableTranslation,
-            translatedLiveText: translationText.isEmpty ? nil : translationText,
-            translationPhase: translationText.isEmpty ? .translating : .typing,
+            translatedLiveText: state.hasUnstableTranslation && !translationText.isEmpty ? translationText : nil,
+            translationPhase: translationText.isEmpty
+                ? .translating
+                : ((isRecordingSpeech || state.hasUnstableTranscript || state.hasUnstableTranslation) ? .typing : .completed),
             translationRevision: state.translationRevision
         )
     }
@@ -1287,6 +1348,7 @@ final class HomeViewModel {
             return
         }
 
+        cancelSilenceAutoStop()
         liveSpeechSession.liveTask?.cancel()
         Task {
             await conversationStreamingCoordinator.cancel(messageID: liveSpeechSession.message.id)
@@ -1311,9 +1373,9 @@ final class HomeViewModel {
     private func fallbackTranscriptAndTranslation(
         from state: LiveUtteranceState
     ) -> (transcript: String, translation: String)? {
-        let transcript = (state.stableTranscript + state.unstableTranscript)
+        let transcript = state.fullTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let translation = (state.displayTranslation.isEmpty ? state.stableTranslation : state.displayTranslation)
+        let translation = state.effectiveTranslation
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !transcript.isEmpty, !translation.isEmpty else {
@@ -1321,6 +1383,68 @@ final class HomeViewModel {
         }
 
         return (transcript, translation)
+    }
+
+    private func reconciledLiveSpeechOutput(
+        liveState: LiveUtteranceState,
+        finalTranscript: String,
+        finalTranslation: String
+    ) -> (transcript: String, translation: String) {
+        let liveTranscript = liveState.fullTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveTranslation = liveState.effectiveTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (
+            transcript: reconciledSpeechText(
+                finalText: finalTranscript,
+                liveText: liveTranscript,
+                liveHasPendingText: liveState.hasUnstableTranscript
+            ),
+            translation: reconciledSpeechText(
+                finalText: finalTranslation,
+                liveText: liveTranslation,
+                liveHasPendingText: liveState.hasUnstableTranslation || liveState.hasUnstableTranscript
+            )
+        )
+    }
+
+    private func reconciledSpeechText(
+        finalText: String,
+        liveText: String,
+        liveHasPendingText: Bool
+    ) -> String {
+        let normalizedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLiveText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedLiveText.isEmpty else {
+            return normalizedFinalText
+        }
+
+        guard !normalizedFinalText.isEmpty else {
+            return normalizedLiveText
+        }
+
+        if normalizedFinalText == normalizedLiveText {
+            return normalizedLiveText
+        }
+
+        if liveHasPendingText {
+            return normalizedFinalText
+        }
+
+        if normalizedFinalText.hasPrefix(normalizedLiveText) ||
+            normalizedFinalText.contains(normalizedLiveText) ||
+            normalizedFinalText.count >= normalizedLiveText.count + 8 {
+            return normalizedFinalText
+        }
+
+        if normalizedLiveText.hasPrefix(normalizedFinalText),
+           normalizedLiveText.count - normalizedFinalText.count <= 6 {
+            return normalizedLiveText
+        }
+
+        return normalizedLiveText
     }
 
     private func finalizeLiveSpeechSessionAfterFailure(

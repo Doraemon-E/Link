@@ -19,16 +19,45 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         let context: OpaquePointer
     }
 
-    private struct StreamingInferenceResult {
-        let text: String
-        let detectedLanguage: SupportedLanguage?
+    private struct StreamingSession {
+        var gate: SpeechActivityGate
+        var stabilizer = SpeechTranscriptStabilizer()
+        var activeUtteranceSamples: [Float] = []
+        var samplesSinceLastInference = 0
+        var latestSnapshot: SpeechTranscriptionSnapshot?
+
+        init(configuration: SpeechStreamingConfiguration) {
+            self.gate = SpeechActivityGate(
+                configuration: configuration.activityGate,
+                sampleRate: configuration.sampleRate
+            )
+        }
+
+        mutating func appendCapturedSamples(_ samples: [Float]) {
+            guard !samples.isEmpty else {
+                return
+            }
+
+            activeUtteranceSamples.append(contentsOf: samples)
+            samplesSinceLastInference += samples.count
+        }
+
+        mutating func resetActiveUtterance() {
+            activeUtteranceSamples.removeAll(keepingCapacity: false)
+            samplesSinceLastInference = 0
+        }
     }
 
     private let packageManager: SpeechModelPackageManager
+    private let streamingConfiguration: SpeechStreamingConfiguration
     private var loadedState: LoadedState?
 
-    init(packageManager: SpeechModelPackageManager) {
+    init(
+        packageManager: SpeechModelPackageManager,
+        streamingConfiguration: SpeechStreamingConfiguration = .default
+    ) {
         self.packageManager = packageManager
+        self.streamingConfiguration = streamingConfiguration
     }
 
     deinit {
@@ -62,14 +91,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
 
                     let installation = try await self.loadInstallation()
                     let context = try await self.loadContext(for: installation)
-
-                    let stepSampleCount = Int(1.2 * 16_000)
-                    let windowSampleCount = 5 * 16_000
-                    var rollingSamples: [Float] = []
-                    var pendingSampleCount = 0
-                    var latestText = ""
-                    var latestLanguage: SupportedLanguage?
-                    var revision = 0
+                    var session = StreamingSession(configuration: self.streamingConfiguration)
 
                     for await chunk in audioStream {
                         try Task.checkCancellation()
@@ -77,64 +99,28 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                             continue
                         }
 
-                        rollingSamples.append(contentsOf: chunk)
-                        if rollingSamples.count > windowSampleCount {
-                            rollingSamples.removeFirst(rollingSamples.count - windowSampleCount)
-                        }
-
-                        pendingSampleCount += chunk.count
-                        guard pendingSampleCount >= stepSampleCount else {
-                            continue
-                        }
-
-                        pendingSampleCount = 0
-                        if let result = try await self.runStreamingInferenceIfNeeded(
-                            samples: rollingSamples,
-                            currentText: latestText,
-                            context: context
-                        ) {
-                            latestText = result.text
-                            latestLanguage = result.detectedLanguage
-                            revision += 1
-                            continuation.yield(
-                                .partial(
-                                    text: result.text,
-                                    revision: revision,
-                                    isFinal: false,
-                                    detectedLanguage: result.detectedLanguage
-                                )
-                            )
-                        }
-                    }
-
-                    if pendingSampleCount > 0,
-                       let result = try await self.runStreamingInferenceIfNeeded(
-                           samples: rollingSamples,
-                           currentText: latestText,
-                           context: context
-                       ) {
-                        latestText = result.text
-                        latestLanguage = result.detectedLanguage
-                        revision += 1
-                        continuation.yield(
-                            .partial(
-                                text: result.text,
-                                revision: revision,
-                                isFinal: true,
-                                detectedLanguage: result.detectedLanguage
-                            )
+                        let snapshots = try await self.consumeStreamingChunk(
+                            chunk,
+                            context: context,
+                            session: &session
                         )
+                        for snapshot in snapshots {
+                            session.latestSnapshot = snapshot
+                            continuation.yield(.updated(snapshot))
+                        }
                     }
 
-                    if !latestText.isEmpty {
-                        continuation.yield(
-                            .completed(
-                                text: latestText,
-                                detectedLanguage: latestLanguage
-                            )
-                        )
+                    if let finalSnapshot = try await self.finishStreamingSession(
+                        context: context,
+                        session: &session
+                    ) {
+                        session.latestSnapshot = finalSnapshot
+                        continuation.yield(.updated(finalSnapshot))
                     }
 
+                    continuation.yield(
+                        .completed(session.latestSnapshot ?? session.stabilizer.currentSnapshot)
+                    )
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
@@ -174,7 +160,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         }
 
         var contextParams = whisper_context_default_params()
-        contextParams.use_gpu = true
+        contextParams.use_gpu = streamingConfiguration.useGPU
         log("Loading Whisper context for packageId=\(installation.package.packageId), modelURL=\(installation.modelURL.path)")
 
         guard let context = installation.modelURL.path.withCString({
@@ -191,38 +177,142 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         return context
     }
 
-    private func runStreamingInferenceIfNeeded(
-        samples: [Float],
-        currentText: String,
-        context: OpaquePointer
-    ) async throws -> StreamingInferenceResult? {
-        guard samples.count >= 1600 else {
+    private func consumeStreamingChunk(
+        _ chunk: [Float],
+        context: OpaquePointer,
+        session: inout StreamingSession
+    ) async throws -> [SpeechTranscriptionSnapshot] {
+        let gateUpdate = session.gate.consume(chunk)
+        session.appendCapturedSamples(gateUpdate.appendedSamples)
+
+        guard !session.activeUtteranceSamples.isEmpty || gateUpdate.isEndpoint else {
+            return []
+        }
+
+        var emittedSnapshots: [SpeechTranscriptionSnapshot] = []
+
+        if shouldRunStreamingInference(after: gateUpdate, session: session) {
+            session.samplesSinceLastInference = 0
+            if let snapshot = try await runBestEffortStreamingInference(
+                context: context,
+                session: &session
+            ) {
+                emittedSnapshots.append(snapshot)
+            }
+        }
+
+        if gateUpdate.isEndpoint,
+           let snapshot = try await finalizeActiveUtterance(
+               context: context,
+               session: &session
+           ) {
+            emittedSnapshots.append(snapshot)
+        }
+
+        return emittedSnapshots
+    }
+
+    private func finishStreamingSession(
+        context: OpaquePointer,
+        session: inout StreamingSession
+    ) async throws -> SpeechTranscriptionSnapshot? {
+        guard !session.activeUtteranceSamples.isEmpty else {
+            return session.stabilizer.currentSnapshot.hasUnstableTranscript
+                ? session.stabilizer.finalizeCurrentUtterance()
+                : nil
+        }
+
+        return try await finalizeActiveUtterance(
+            context: context,
+            session: &session
+        )
+    }
+
+    private func shouldRunStreamingInference(
+        after gateUpdate: SpeechActivityGate.Update,
+        session: StreamingSession
+    ) -> Bool {
+        guard !gateUpdate.isEndpoint else {
+            return false
+        }
+
+        guard session.activeUtteranceSamples.count >= streamingConfiguration.minimumStreamingSampleCount else {
+            return false
+        }
+
+        return session.samplesSinceLastInference >= streamingConfiguration.stepSampleCount
+    }
+
+    private func runBestEffortStreamingInference(
+        context: OpaquePointer,
+        session: inout StreamingSession
+    ) async throws -> SpeechTranscriptionSnapshot? {
+        let inferenceSamples = Array(
+            session.activeUtteranceSamples.suffix(streamingConfiguration.streamingWindowSampleCount)
+        )
+
+        guard inferenceSamples.count >= streamingConfiguration.minimumStreamingSampleCount else {
             return nil
         }
 
-        let result: SpeechRecognitionResult
         do {
-            result = try runTranscription(
-                samples: samples,
+            let result = try runTranscription(
+                samples: inferenceSamples,
                 context: context,
                 mode: .streaming
+            )
+            return session.stabilizer.consume(
+                candidate: result.text,
+                detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
+                isEndpoint: false
             )
         } catch let error as SpeechRecognitionError {
             if case .emptyTranscription = error {
                 return nil
             }
 
-            throw error
-        }
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text != currentText else {
+            log("Ignoring streaming inference error: \(error.localizedDescription)")
+            return nil
+        } catch {
+            log("Ignoring streaming inference error: \(error.localizedDescription)")
             return nil
         }
+    }
 
-        return StreamingInferenceResult(
-            text: text,
-            detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage)
-        )
+    private func finalizeActiveUtterance(
+        context: OpaquePointer,
+        session: inout StreamingSession
+    ) async throws -> SpeechTranscriptionSnapshot? {
+        defer {
+            session.resetActiveUtterance()
+        }
+
+        guard session.activeUtteranceSamples.count >= streamingConfiguration.minimumFinalizationSampleCount else {
+            return session.stabilizer.finalizeCurrentUtterance()
+        }
+
+        do {
+            let result = try runTranscription(
+                samples: session.activeUtteranceSamples,
+                context: context,
+                mode: .final
+            )
+            return session.stabilizer.consume(
+                candidate: result.text,
+                detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
+                isEndpoint: true
+            )
+        } catch let error as SpeechRecognitionError {
+            if case .emptyTranscription = error {
+                return session.stabilizer.finalizeCurrentUtterance()
+            }
+
+            log("Falling back to accumulated live transcript after endpoint inference error: \(error.localizedDescription)")
+            return session.stabilizer.finalizeCurrentUtterance()
+        } catch {
+            log("Falling back to accumulated live transcript after endpoint inference error: \(error.localizedDescription)")
+            return session.stabilizer.finalizeCurrentUtterance()
+        }
     }
 
     private func runTranscription(
@@ -230,29 +320,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         context: OpaquePointer,
         mode: TranscriptionMode
     ) throws -> SpeechRecognitionResult {
-        var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
-        params.translate = false
-        // `detect_language = true` makes whisper_full return immediately after language detection,
-        // so leave it off and let a nil language trigger auto-detection during transcription.
-        params.detect_language = false
-        params.no_timestamps = true
-        params.print_special = false
-        params.print_progress = false
-        params.print_realtime = false
-        params.print_timestamps = false
-        params.language = nil
-        params.n_threads = Int32(max(1, min(ProcessInfo.processInfo.activeProcessorCount, 4)))
-        params.no_speech_thold = 1.0
-
-        switch mode {
-        case .final:
-            params.single_segment = false
-        case .streaming:
-            params.single_segment = true
-            params.no_context = true
-            params.audio_ctx = 768
-            params.max_tokens = 32
-        }
+        let params = makeWhisperParams(for: mode)
 
         log(
             "Whisper params[\(mode)]: threads=\(params.n_threads), detectLanguage=\(params.detect_language), " +
@@ -306,8 +374,53 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         }
     }
 
+    private func makeWhisperParams(
+        for mode: TranscriptionMode
+    ) -> whisper_full_params {
+        var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        params.translate = false
+        // `detect_language = true` makes whisper_full return immediately after language detection,
+        // so leave it off and let a nil language trigger auto-detection during transcription.
+        params.detect_language = false
+        params.no_timestamps = true
+        params.print_special = false
+        params.print_progress = false
+        params.print_realtime = false
+        params.print_timestamps = false
+        params.language = nil
+        params.n_threads = contextThreadCount()
+        params.no_speech_thold = streamingConfiguration.inference.noSpeechThreshold
+
+        switch mode {
+        case .final:
+            params.single_segment = false
+            params.no_context = false
+            params.audio_ctx = 0
+            params.max_tokens = 0
+        case .streaming:
+            params.single_segment = true
+            params.no_context = true
+            params.audio_ctx = streamingConfiguration.inference.audioContextSize
+            params.max_tokens = streamingConfiguration.inference.maxTokenCount
+        }
+
+        return params
+    }
+
+    private func contextThreadCount() -> Int32 {
+        Int32(
+            max(
+                1,
+                min(
+                    ProcessInfo.processInfo.activeProcessorCount,
+                    Int(streamingConfiguration.threadLimit)
+                )
+            )
+        )
+    }
+
     private func sampleStatistics(for samples: [Float]) -> String {
-        let durationSeconds = Double(samples.count) / 16_000
+        let durationSeconds = Double(samples.count) / Double(streamingConfiguration.sampleRate)
         let peak = samples.reduce(Float.zero) { max($0, abs($1)) }
         let energy = samples.reduce(Double.zero) { partial, sample in
             let value = Double(sample)
