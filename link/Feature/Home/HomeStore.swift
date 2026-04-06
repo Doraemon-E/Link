@@ -135,7 +135,7 @@ final class HomeStore {
     }
 
     func shouldShowSessionHistoryButton(in runtime: HomeRuntimeContext) -> Bool {
-        sessionRepository.latestNonEmptySession(in: runtime) != nil
+        return true
     }
 
     func shouldShowNewSessionButton(in runtime: HomeRuntimeContext) -> Bool {

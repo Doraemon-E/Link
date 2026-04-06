@@ -8,6 +8,13 @@
 import SwiftUI
 
 struct HomeSessionHistorySheet: View {
+    private struct SessionDaySection: Identifiable {
+        let day: Date
+        let sessions: [ChatSession]
+
+        var id: Date { day }
+    }
+
     let sessions: [ChatSession]
     let currentSessionID: UUID?
     let onSelect: (UUID) -> Void
@@ -16,19 +23,25 @@ struct HomeSessionHistorySheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if sessions.isEmpty {
+                if sections.isEmpty {
                     ContentUnavailableView(
                         "暂无历史会话",
                         systemImage: "clock.arrow.circlepath"
                     )
                 } else {
-                    List(sessions, id: \.id) { session in
-                        Button {
-                            onSelect(session.id)
-                        } label: {
-                            sessionRow(for: session)
+                    List {
+                        ForEach(sections) { section in
+                            Section(sectionHeaderTitle(for: section.day)) {
+                                ForEach(section.sessions, id: \.id) { session in
+                                    Button {
+                                        onSelect(session.id)
+                                    } label: {
+                                        sessionRow(for: session)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -44,6 +57,27 @@ struct HomeSessionHistorySheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    private var sections: [SessionDaySection] {
+        Dictionary(grouping: sessions) { normalizedDay(for: $0.updatedAt) }
+            .map { day, groupedSessions in
+                SessionDaySection(
+                    day: day,
+                    sessions: groupedSessions.sorted { lhs, rhs in
+                        if lhs.updatedAt == rhs.updatedAt {
+                            if lhs.createdAt == rhs.createdAt {
+                                return lhs.id.uuidString > rhs.id.uuidString
+                            }
+
+                            return lhs.createdAt > rhs.createdAt
+                        }
+
+                        return lhs.updatedAt > rhs.updatedAt
+                    }
+                )
+            }
+            .sorted { $0.day > $1.day }
+    }
+
     private func sessionRow(for session: ChatSession) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -52,7 +86,7 @@ struct HomeSessionHistorySheet: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                Text(timeString(for: session.updatedAt))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -78,6 +112,18 @@ struct HomeSessionHistorySheet: View {
         }
 
         return "新会话"
+    }
+
+    private func normalizedDay(for date: Date) -> Date {
+        Calendar.autoupdatingCurrent.startOfDay(for: date)
+    }
+
+    private func sectionHeaderTitle(for day: Date) -> String {
+        day.formatted(date: .long, time: .omitted)
+    }
+
+    private func timeString(for date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
     }
 }
 
