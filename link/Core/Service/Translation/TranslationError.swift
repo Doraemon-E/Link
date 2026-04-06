@@ -18,7 +18,6 @@ nonisolated enum TranslationError: LocalizedError {
     case catalogMissing
     case catalogInvalid(String)
     case catalogUnavailable
-    case downloadFailed(String)
     case integrityCheckFailed
     case extractionFailed(String)
     case incompatibleTokenizer(String)
@@ -48,8 +47,6 @@ nonisolated enum TranslationError: LocalizedError {
             return "Translation model catalog is invalid: \(detail)"
         case .catalogUnavailable:
             return "Translation model catalog is unavailable."
-        case .downloadFailed(let detail):
-            return "Model download failed: \(detail)"
         case .integrityCheckFailed:
             return "Downloaded model archive failed the integrity check."
         case .extractionFailed(let detail):
@@ -77,12 +74,6 @@ nonisolated enum TranslationError: LocalizedError {
             return "找不到对应的模型包配置，请刷新模型目录后再试。"
         case .catalogMissing, .catalogInvalid, .catalogUnavailable:
             return "模型目录暂时不可用，请稍后重试。"
-        case .downloadFailed(let detail):
-            return userFacingFailureMessage(
-                prefix: "模型下载失败",
-                detail: detail,
-                fallback: "请检查网络后重试。"
-            )
         case .integrityCheckFailed:
             return "下载的模型校验失败，请重新下载。"
         case .extractionFailed(let detail):

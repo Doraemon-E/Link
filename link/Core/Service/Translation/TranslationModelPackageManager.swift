@@ -73,40 +73,12 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
         self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
-    func warmUpCatalog() async {
-        await catalogRepository.warmUpCatalog()
-    }
-
     func packageMetadata(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelPackage? {
         guard source != target else {
             return nil
         }
 
         return try await catalogRepository.package(source: source, target: target)
-    }
-
-    func isInstalled(source: SupportedLanguage, target: SupportedLanguage) async throws -> Bool {
-        guard source != target else {
-            return true
-        }
-
-        return try await installedPackage(for: source, target: target) != nil
-    }
-
-    func ensureInstalled(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelInstallation {
-        if source == target {
-            throw TranslationError.modelPackageUnavailable(source: source, target: target)
-        }
-
-        if let installation = try await installedPackage(for: source, target: target) {
-            return installation
-        }
-
-        guard let package = try await catalogRepository.package(source: source, target: target) else {
-            throw TranslationError.modelPackageUnavailable(source: source, target: target)
-        }
-
-        return try await install(packageId: package.packageId)
     }
 
     func installedPackage(for source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelInstallation? {
@@ -154,7 +126,7 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
         return summaries
     }
 
-    func assetRequirement(
+    func translationAssetRequirement(
         for route: TranslationRoute
     ) async throws -> TranslationAssetRequirement {
         guard !route.steps.isEmpty else {
@@ -182,131 +154,91 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
         return TranslationAssetRequirement(missingPackages: missingPackages)
     }
 
-    func translationAssetRequirement(
-        for route: TranslationRoute
-    ) async throws -> TranslationAssetRequirement {
-        try await assetRequirement(for: route)
-    }
-
-    func areAssetsReady(for route: TranslationRoute) async throws -> Bool {
-        try await assetRequirement(for: route).isReady
-    }
-
     func areTranslationAssetsReady(
         for route: TranslationRoute
     ) async throws -> Bool {
-        try await areAssetsReady(for: route)
-    }
-
-    func install(packageId: String) async throws -> TranslationModelInstallation {
-        guard let package = try await catalogRepository.package(packageId: packageId) else {
-            log("Missing package metadata for packageId=\(packageId)")
-            throw TranslationError.packageMissing(packageId: packageId)
-        }
-
-        return try await install(package: package, archiveURLOverride: nil)
+        try await translationAssetRequirement(for: route).isReady
     }
 
     func install(packageId: String, archiveURL: URL) async throws -> TranslationModelInstallation {
         guard let package = try await catalogRepository.package(packageId: packageId) else {
-            log("Missing package metadata for packageId=\(packageId)")
             throw TranslationError.packageMissing(packageId: packageId)
         }
 
-        return try await install(package: package, archiveURLOverride: archiveURL)
+        return try await install(package: package, archiveURL: archiveURL)
     }
 
     private func install(
         package: TranslationModelPackage,
-        archiveURLOverride: URL?
+        archiveURL: URL
     ) async throws -> TranslationModelInstallation {
         if let installation = try validInstalledPackage(for: package) {
-            log("Using cached installation for packageId=\(package.packageId)")
             return installation
         }
 
-        do {
-            log("Starting install for packageId=\(package.packageId), archiveURL=\(package.archiveURL.absoluteString)")
+        try removeStaleInstallationIfNeeded(packageId: package.packageId)
 
-            try removeStaleInstallationIfNeeded(packageId: package.packageId)
+        try ensureDirectoryExists(at: try packagesDirectoryURL())
+        try ensureDirectoryExists(at: try temporaryDirectoryURL())
 
-            try ensureDirectoryExists(at: try packagesDirectoryURL())
-            try ensureDirectoryExists(at: try temporaryDirectoryURL())
-
-            let workingDirectoryURL = try makeWorkingDirectory()
-            defer {
-                try? FileManager.default.removeItem(at: workingDirectoryURL)
-            }
-
-            let archiveURL: URL
-            if let archiveURLOverride {
-                archiveURL = archiveURLOverride
-            } else {
-                archiveURL = try await downloadArchive(for: package, into: workingDirectoryURL)
-            }
-            try verifyChecksumIfNeeded(for: package, archiveURL: archiveURL)
-
-            let extractedDirectoryURL = workingDirectoryURL.appendingPathComponent("extracted", isDirectory: true)
-            try ensureDirectoryExists(at: extractedDirectoryURL)
-
-            do {
-                try FileManager.default.unzipItem(at: archiveURL, to: extractedDirectoryURL)
-                log("Unzipped packageId=\(package.packageId) into \(extractedDirectoryURL.path)")
-                logExtractedContents(at: extractedDirectoryURL)
-            } catch {
-                log("Unzip failed for packageId=\(package.packageId): \(error.localizedDescription)")
-                throw TranslationError.extractionFailed(error.localizedDescription)
-            }
-
-            let payloadRootURL = try ensurePayloadRoot(
-                for: package,
-                extractedDirectoryURL: extractedDirectoryURL
-            )
-
-            let manifestURL = payloadRootURL.appendingPathComponent(package.manifestRelativePath, isDirectory: false)
-            let manifest = try loadManifestOrSynthesizeIfPossible(
-                for: package,
-                modelDirectoryURL: payloadRootURL,
-                manifestURL: manifestURL
-            )
-            let modelDirectoryURL = manifestURL.deletingLastPathComponent()
-
-            try validate(package: package, manifest: manifest, modelDirectoryURL: modelDirectoryURL)
-
-            let destinationURL = try packageDirectoryURL(for: package.packageId)
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-
-            do {
-                try FileManager.default.moveItem(at: payloadRootURL, to: destinationURL)
-            } catch {
-                log("Failed to move packageId=\(package.packageId) into destination: \(error.localizedDescription)")
-                throw TranslationError.installationFailed("Failed to store package \(package.packageId): \(error.localizedDescription)")
-            }
-
-            try upsertInstalledRecord(
-                TranslationInstalledPackageRecord(
-                    packageId: package.packageId,
-                    version: package.version,
-                    manifestRelativePath: package.manifestRelativePath,
-                    installedAt: .now
-                )
-            )
-
-            log("Install completed for packageId=\(package.packageId), destination=\(destinationURL.path)")
-
-            return TranslationModelInstallation(
-                package: package,
-                manifest: manifest,
-                modelDirectoryURL: destinationURL
-                    .appendingPathComponent(package.manifestRelativePath, isDirectory: false)
-                    .deletingLastPathComponent()
-            )
-        } catch {
-            log("Install failed for packageId=\(package.packageId): \(error.localizedDescription)")
-            throw error
+        let workingDirectoryURL = try makeWorkingDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: workingDirectoryURL)
         }
+
+        try verifyChecksumIfNeeded(for: package, archiveURL: archiveURL)
+
+        let extractedDirectoryURL = workingDirectoryURL.appendingPathComponent("extracted", isDirectory: true)
+        try ensureDirectoryExists(at: extractedDirectoryURL)
+
+        do {
+            try FileManager.default.unzipItem(at: archiveURL, to: extractedDirectoryURL)
+        } catch {
+            throw TranslationError.extractionFailed(error.localizedDescription)
+        }
+
+        let payloadRootURL = try ensurePayloadRoot(
+            for: package,
+            extractedDirectoryURL: extractedDirectoryURL
+        )
+
+        let manifestURL = payloadRootURL.appendingPathComponent(package.manifestRelativePath, isDirectory: false)
+        let manifest = try loadManifestOrSynthesizeIfPossible(
+            for: package,
+            modelDirectoryURL: payloadRootURL,
+            manifestURL: manifestURL
+        )
+        let modelDirectoryURL = manifestURL.deletingLastPathComponent()
+
+        try validate(package: package, manifest: manifest, modelDirectoryURL: modelDirectoryURL)
+
+        let destinationURL = try packageDirectoryURL(for: package.packageId)
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+
+        do {
+            try FileManager.default.moveItem(at: payloadRootURL, to: destinationURL)
+        } catch {
+            throw TranslationError.installationFailed("Failed to store package \(package.packageId): \(error.localizedDescription)")
+        }
+
+        try upsertInstalledRecord(
+            TranslationInstalledPackageRecord(
+                packageId: package.packageId,
+                version: package.version,
+                manifestRelativePath: package.manifestRelativePath,
+                installedAt: .now
+            )
+        )
+
+        return TranslationModelInstallation(
+            package: package,
+            manifest: manifest,
+            modelDirectoryURL: destinationURL
+                .appendingPathComponent(package.manifestRelativePath, isDirectory: false)
+                .deletingLastPathComponent()
+        )
     }
 
     func remove(packageId: String) async throws {
@@ -352,7 +284,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
         do {
             return try installedPackage(for: package)
         } catch {
-            log("Cached installation invalid for packageId=\(package.packageId): \(error.localizedDescription)")
             try? removeStaleInstallationIfNeeded(packageId: package.packageId)
             return nil
         }
@@ -381,39 +312,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
         }
     }
 
-    private func downloadArchive(
-        for package: TranslationModelPackage,
-        into workingDirectoryURL: URL
-    ) async throws -> URL {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.allowsCellularAccess = true
-        configuration.allowsExpensiveNetworkAccess = true
-        configuration.allowsConstrainedNetworkAccess = false
-        configuration.waitsForConnectivity = true
-
-        let session = URLSession(configuration: configuration)
-        log("Downloading packageId=\(package.packageId) from \(package.archiveURL.absoluteString)")
-        let (temporaryFileURL, response) = try await session.download(from: package.archiveURL)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              200 ..< 300 ~= httpResponse.statusCode else {
-            log("Download failed for packageId=\(package.packageId): unexpected response")
-            throw TranslationError.downloadFailed("The server did not return a successful response.")
-        }
-
-        let archiveURL = workingDirectoryURL.appendingPathComponent("\(package.packageId).zip", isDirectory: false)
-
-        do {
-            try FileManager.default.moveItem(at: temporaryFileURL, to: archiveURL)
-        } catch {
-            log("Failed to move downloaded archive for packageId=\(package.packageId): \(error.localizedDescription)")
-            throw TranslationError.downloadFailed(error.localizedDescription)
-        }
-
-        log("Downloaded packageId=\(package.packageId) to \(archiveURL.path)")
-        return archiveURL
-    }
-
     private func verifyChecksumIfNeeded(
         for package: TranslationModelPackage,
         archiveURL: URL
@@ -425,7 +323,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
 
         let actualHash = try sha256(for: archiveURL)
         guard actualHash == expectedHash else {
-            log("Checksum mismatch for archive=\(archiveURL.lastPathComponent), expected=\(expectedHash), actual=\(actualHash)")
             throw TranslationError.integrityCheckFailed
         }
     }
@@ -487,7 +384,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
                 modelDirectoryURL: fallbackRootURL
             )
             try saveManifest(manifest, to: manifestURL)
-            log("Synthesized manifest for packageId=\(package.packageId) at \(manifestURL.path)")
             return fallbackRootURL
         }
     }
@@ -537,17 +433,13 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
             .map(URL.init(fileURLWithPath:))
 
         guard let rootURL = uniqueRoots.first else {
-            log("Manifest not found after extraction. expectedPath=\(manifestRelativePath), extractedDirectory=\(extractedDirectoryURL.path)")
-            logExtractedContents(at: extractedDirectoryURL)
             throw TranslationError.extractionFailed("解压后没有找到 \(manifestRelativePath)。")
         }
 
         if uniqueRoots.count > 1 {
-            log("Multiple manifest roots found after extraction for path=\(manifestRelativePath): \(uniqueRoots.map(\.path).joined(separator: ", "))")
             throw TranslationError.extractionFailed("解压后找到了多个模型目录，请检查压缩包结构。")
         }
 
-        log("Resolved payload root for manifestPath=\(manifestRelativePath): \(rootURL.path)")
         return rootURL
     }
 
@@ -587,14 +479,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
                     )
                 }
             }
-
-        if candidates.count > 1 {
-            log("Multiple raw model roots found for packageId=\(package.packageId): \(candidates.map(\.path).joined(separator: ", "))")
-        }
-
-        if let candidate = candidates.first {
-            log("Detected raw model export root for packageId=\(package.packageId): \(candidate.path)")
-        }
 
         return candidates.first
     }
@@ -673,7 +557,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
                 throw error
             }
 
-            log("Recovered invalid manifest for packageId=\(package.packageId) at \(manifestURL.path)")
             return manifest
         }
     }
@@ -703,7 +586,6 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
             modelDirectoryURL: modelDirectoryURL
         )
         try saveManifest(manifest, to: manifestURL)
-        log("Synthesized manifest for packageId=\(package.packageId) at \(manifestURL.path)")
         return manifest
     }
 
@@ -981,44 +863,5 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationAsse
             at: directoryURL,
             withIntermediateDirectories: true
         )
-    }
-
-    private func log(_ message: String) {
-        print("[TranslationModelPackageManager] \(message)")
-    }
-
-    private func logExtractedContents(at directoryURL: URL) {
-        let fileManager = FileManager.default
-
-        guard let enumerator = fileManager.enumerator(
-            at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            log("Failed to enumerate extracted contents at \(directoryURL.path)")
-            return
-        }
-
-        var entries: [String] = []
-
-        for case let fileURL as URL in enumerator {
-            let relativePath = fileURL.path.replacingOccurrences(
-                of: directoryURL.path + "/",
-                with: ""
-            )
-            let suffix = fileURL.hasDirectoryPath ? "/" : ""
-            entries.append(relativePath + suffix)
-
-            if entries.count >= 60 {
-                break
-            }
-        }
-
-        if entries.isEmpty {
-            log("Extracted directory is empty: \(directoryURL.path)")
-            return
-        }
-
-        log("Extracted contents sample (\(entries.count) entries): \(entries.joined(separator: ", "))")
     }
 }
