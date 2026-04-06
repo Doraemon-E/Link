@@ -28,9 +28,11 @@ struct HomeChatInputBar: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    let isImmersiveVoiceModeActive: Bool
     let onFocusActivated: () -> Void
     let onSend: () -> Void
     let onVoiceInput: () -> Void
+    let onImmersiveVoiceInput: () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
     @State private var textFieldHeight: CGFloat = Metrics.fieldMinHeight
@@ -45,7 +47,7 @@ struct HomeChatInputBar: View {
     }
 
     var body: some View {
-        composerField
+        currentBarContent
             .onChange(of: isTextFieldFocused) { oldValue, newValue in
                 if !oldValue && newValue {
                     onFocusActivated()
@@ -60,6 +62,19 @@ struct HomeChatInputBar: View {
                     isTextFieldFocused = newValue
                 }
             }
+            .onChange(of: isImmersiveVoiceModeActive) { _, newValue in
+                guard newValue else { return }
+                isTextFieldFocused = false
+            }
+    }
+
+    @ViewBuilder
+    private var currentBarContent: some View {
+        if isImmersiveVoiceModeActive {
+            immersiveVoiceBar
+        } else {
+            composerField
+        }
     }
 
     private var composerField: some View {
@@ -99,6 +114,41 @@ struct HomeChatInputBar: View {
             }
     }
 
+    private var immersiveVoiceBar: some View {
+        Group {
+            if isRecordingSpeech {
+                Button(action: onVoiceInput) {
+                    immersiveVoiceBarContent
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("结束语音录音")
+            } else {
+                immersiveVoiceBarContent
+                    .accessibilityLabel("正在处理语音翻译")
+            }
+        }
+    }
+
+    private var immersiveVoiceBarContent: some View {
+        HStack {
+            Spacer(minLength: 0)
+
+            ImmersiveWaveformRow(
+                barColor: invertedActionGlyphColor,
+                isEmphasized: isRecordingSpeech
+            )
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Metrics.fieldHorizontalPadding)
+        .frame(maxWidth: .infinity, minHeight: Metrics.fieldMinHeight)
+        .background(
+            RoundedRectangle(cornerRadius: Metrics.fieldMinHeight / 2, style: .continuous)
+                .fill(invertedActionBackgroundColor)
+        )
+        .opacity(isRecordingSpeech ? 1 : 0.74)
+    }
+
     private var sendButton: some View {
         Button(action: handleSend) {
             Image(systemName: "arrow.up")
@@ -119,7 +169,7 @@ struct HomeChatInputBar: View {
     }
 
     private var waveformButton: some View {
-        Button(action: {}) {
+        Button(action: onImmersiveVoiceInput) {
             Image(systemName: "waveform.mid")
                 .font(.headline.weight(.bold))
                 .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
@@ -131,6 +181,7 @@ struct HomeChatInputBar: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(isInputDisabled)
         .contentShape(Circle())
         .accessibilityLabel("语音波形")
     }
@@ -258,15 +309,60 @@ private struct InvertedActionButtonStyle: ViewModifier {
     }
 }
 
+private struct ImmersiveWaveformRow: View {
+    private static let cycleDuration = 1.28
+    private static let phaseOffset = 0.11
+    private let baseHeights: [CGFloat] = [7, 15, 11, 20, 14, 24, 15, 22, 13, 18, 10, 14, 8]
+
+    let barColor: Color
+    let isEmphasized: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
+            let timestamp = context.date.timeIntervalSinceReferenceDate
+
+            HStack(alignment: .center, spacing: 4) {
+                ForEach(Array(baseHeights.enumerated()), id: \.offset) { index, baseHeight in
+                    Capsule(style: .continuous)
+                        .fill(barColor)
+                        .frame(
+                            width: 4,
+                            height: animatedHeight(
+                                for: index,
+                                baseHeight: baseHeight,
+                                timestamp: timestamp
+                            )
+                        )
+                }
+            }
+            .frame(height: 30, alignment: .center)
+        }
+    }
+
+    private func animatedHeight(
+        for index: Int,
+        baseHeight: CGFloat,
+        timestamp: TimeInterval
+    ) -> CGFloat {
+        let progress = timestamp.remainder(dividingBy: Self.cycleDuration) / Self.cycleDuration
+        let phase = (progress - (Double(index) * Self.phaseOffset)) * .pi * 2
+        let wave = (sin(phase) + 1) / 2
+        let amplitude: CGFloat = isEmphasized ? 10 : 5
+        return max(6, baseHeight + CGFloat(wave) * amplitude)
+    }
+}
+
 #Preview("Empty Composer") {
     HomeChatInputBar(
         text: .constant(""),
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
-        onVoiceInput: {}
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
     )
     .preferredColorScheme(.light)
 }
@@ -277,9 +373,11 @@ private struct InvertedActionButtonStyle: ViewModifier {
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
-        onVoiceInput: {}
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
     )
     .preferredColorScheme(.dark)
 }
@@ -290,9 +388,11 @@ private struct InvertedActionButtonStyle: ViewModifier {
         isFocused: .constant(true),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
-        onVoiceInput: {}
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
     )
     .preferredColorScheme(.light)
 }
@@ -303,9 +403,41 @@ private struct InvertedActionButtonStyle: ViewModifier {
         isFocused: .constant(true),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
-        onVoiceInput: {}
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
+    )
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Immersive Voice") {
+    HomeChatInputBar(
+        text: .constant(""),
+        isFocused: .constant(false),
+        isRecordingSpeech: true,
+        isSpeechBusy: false,
+        isImmersiveVoiceModeActive: true,
+        onFocusActivated: {},
+        onSend: {},
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
+    )
+    .preferredColorScheme(.light)
+}
+
+#Preview("Immersive Voice Finalizing") {
+    HomeChatInputBar(
+        text: .constant(""),
+        isFocused: .constant(false),
+        isRecordingSpeech: false,
+        isSpeechBusy: true,
+        isImmersiveVoiceModeActive: true,
+        onFocusActivated: {},
+        onSend: {},
+        onVoiceInput: {},
+        onImmersiveVoiceInput: {}
     )
     .preferredColorScheme(.dark)
 }

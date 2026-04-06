@@ -12,6 +12,7 @@ struct HomeConversationContentView: View {
     let selectedLanguage: SupportedLanguage
     let messageListBottomAnchorID: String
     let messageListBottomSpacerHeight: CGFloat
+    let immersiveVoiceTranslationState: HomeImmersiveVoiceTranslationState?
     let onOpenLanguagePicker: () -> Void
     let onDismissInputFocus: () -> Void
     let onTranslatedPlayback: (ChatMessage) -> Void
@@ -23,7 +24,9 @@ struct HomeConversationContentView: View {
 
     var body: some View {
         Group {
-            if viewState.shouldShowEmptyState {
+            if let immersiveVoiceTranslationState {
+                HomeImmersiveVoiceTranslationView(state: immersiveVoiceTranslationState)
+            } else if viewState.shouldShowEmptyState {
                 HomeEmptyStateView(
                     selectedLanguage: selectedLanguage,
                     onOpenLanguagePicker: onOpenLanguagePicker
@@ -43,8 +46,61 @@ struct HomeConversationContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(contentBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onDismissInputFocus)
+        .animation(.easeInOut(duration: 0.22), value: immersiveVoiceTranslationState != nil)
+    }
+
+    @ViewBuilder
+    private var contentBackground: some View {
+        if immersiveVoiceTranslationState != nil {
+            ZStack {
+                Color(uiColor: .systemBackground)
+
+                RadialGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.14),
+                        Color.clear
+                    ],
+                    center: .top,
+                    startRadius: 40,
+                    endRadius: 420
+                )
+            }
+        } else {
+            Color(uiColor: .systemGroupedBackground)
+        }
+    }
+}
+
+private struct HomeImmersiveVoiceTranslationView: View {
+    let state: HomeImmersiveVoiceTranslationState
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack {
+                    Spacer(minLength: 0)
+
+                    if hasText {
+                        Text(state.translatedText)
+                            .font(.system(size: 30, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.primary.opacity(0.96))
+                            .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 28)
+                .frame(minHeight: proxy.size.height, alignment: .center)
+            }
+        }
+    }
+
+    private var hasText: Bool {
+        !state.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

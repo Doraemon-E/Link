@@ -10,11 +10,13 @@ import Foundation
 @MainActor
 protocol HomeSpeechWorkflowStore: AnyObject {
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt? { get set }
+    var immersiveVoiceTranslationState: HomeImmersiveVoiceTranslationState? { get set }
     var isChatInputFocused: Bool { get set }
     var isInstallingSpeechModel: Bool { get }
     var isRecordingSpeech: Bool { get set }
     var isTranscribingSpeech: Bool { get set }
     var lastSpeechRecordingURL: URL? { get set }
+    var pendingSpeechCaptureOrigin: HomeSpeechCaptureOrigin { get set }
     var pendingVoiceStartAfterInstall: Bool { get set }
     var playbackErrorMessage: String? { get set }
     var selectedLanguage: SupportedLanguage { get set }
@@ -58,6 +60,14 @@ final class HomeSpeechWorkflow {
         var liveTask: Task<Void, Never>?
     }
 
+    private struct CompletedSpeechCapture {
+        let liveSpeechSession: LiveSpeechSession
+        let preservedRecordingURL: URL?
+        let transcript: String
+        let sourceLanguage: SupportedLanguage
+        let targetLanguage: SupportedLanguage
+    }
+
     private weak var store: (any HomeSpeechWorkflowStore)?
     private let sessionRepository: HomeSessionRepository
     private let conversationStreamingCoordinator: any ConversationStreamingCoordinator
@@ -66,8 +76,16 @@ final class HomeSpeechWorkflow {
     private let microphoneRecordingService: any SpeechRecordingService
     private let downloadWorkflow: any HomeSpeechDownloadSupporting
     private let playbackController: any HomePlaybackControlling
+    private var activeCaptureOrigin: HomeSpeechCaptureOrigin?
     private var silenceAutoStopTask: Task<Void, Never>?
     private var liveSpeechSession: LiveSpeechSession?
+    private var immersivePreviewTask: Task<Void, Never>?
+    private var immersivePreviewTaskID: UUID?
+    private var immersiveFinalTranslationTaskID: UUID?
+    private var immersivePreviewGeneration = 0
+    private var immersivePreviewSourceLanguage: SupportedLanguage?
+    private var immersiveLastStableTranscript = ""
+    private var immersiveLatestTranslatedText = ""
 
     init(
         store: any HomeSpeechWorkflowStore,
@@ -101,19 +119,17 @@ final class HomeSpeechWorkflow {
             return
         }
 
-        do {
-            if let prompt = try await downloadWorkflow.speechDownloadPromptIfNeeded() {
-                store.activeSpeechDownloadPrompt = prompt
-                store.pendingVoiceStartAfterInstall = true
-                return
-            }
+        await beginSpeechRecordingIfPossible(in: runtime, origin: .compactMic)
+    }
 
-            await startSpeechRecording(in: runtime)
-        } catch let error as SpeechRecognitionError {
-            store.speechErrorMessage = error.userFacingMessage
-        } catch {
-            store.speechErrorMessage = "语音识别暂时不可用，请稍后再试。"
+    func startImmersiveVoiceTranslation(in runtime: HomeRuntimeContext) async {
+        guard let store else { return }
+
+        guard !store.isRecordingSpeech, !store.isTranscribingSpeech, !store.isInstallingSpeechModel else {
+            return
         }
+
+        await beginSpeechRecordingIfPossible(in: runtime, origin: .immersiveWave)
     }
 
     func handlePendingSpeechResumeIfNeeded(in runtime: HomeRuntimeContext) async {
@@ -123,11 +139,37 @@ final class HomeSpeechWorkflow {
             return
         }
 
+        let origin = store.pendingSpeechCaptureOrigin
         store.speechResumeRequestToken = 0
-        await startSpeechRecording(in: runtime)
+        await startSpeechRecording(in: runtime, origin: origin)
     }
 
-    private func startSpeechRecording(in runtime: HomeRuntimeContext) async {
+    private func beginSpeechRecordingIfPossible(
+        in runtime: HomeRuntimeContext,
+        origin: HomeSpeechCaptureOrigin
+    ) async {
+        guard let store else { return }
+
+        do {
+            if let prompt = try await downloadWorkflow.speechDownloadPromptIfNeeded() {
+                store.activeSpeechDownloadPrompt = prompt
+                store.pendingVoiceStartAfterInstall = true
+                store.pendingSpeechCaptureOrigin = origin
+                return
+            }
+
+            await startSpeechRecording(in: runtime, origin: origin)
+        } catch let error as SpeechRecognitionError {
+            store.speechErrorMessage = error.userFacingMessage
+        } catch {
+            store.speechErrorMessage = "语音识别暂时不可用，请稍后再试。"
+        }
+    }
+
+    private func startSpeechRecording(
+        in runtime: HomeRuntimeContext,
+        origin: HomeSpeechCaptureOrigin
+    ) async {
         guard let store else { return }
 
         guard !store.isRecordingSpeech, !store.isTranscribingSpeech, !store.isInstallingSpeechModel else {
@@ -144,8 +186,20 @@ final class HomeSpeechWorkflow {
                 in: runtime,
                 presentation: &store.sessionPresentation
             )
+
+            activeCaptureOrigin = origin
             liveSpeechSession = LiveSpeechSession(record: liveSession)
-            applyLiveSpeechState(LiveUtteranceState(), to: liveSession)
+
+            if origin == .immersiveWave {
+                store.immersiveVoiceTranslationState = HomeImmersiveVoiceTranslationState(
+                    messageID: liveSession.message.id,
+                    translatedText: "",
+                    phase: .listening
+                )
+            } else {
+                applyLiveSpeechState(LiveUtteranceState(), to: liveSession)
+            }
+
             startLiveSpeechTranscription(audioStream: audioStream, in: runtime)
             store.isRecordingSpeech = true
             store.isChatInputFocused = false
@@ -174,82 +228,14 @@ final class HomeSpeechWorkflow {
         }
 
         do {
-            guard let liveSpeechSession else {
-                throw SpeechRecognitionError.recordingNotActive
-            }
-            let messageID = liveSpeechSession.record.message.id
+            let completedCapture = try await completeSpeechCapture(in: runtime)
+            preservedRecordingURL = completedCapture.preservedRecordingURL
 
-            let recordingResult = try await microphoneRecordingService.stopRecording(for: messageID)
-            preservedRecordingURL = recordingResult.preservedRecordingURL
-            store.lastSpeechRecordingURL = recordingResult.preservedRecordingURL
-            if let liveTask = self.liveSpeechSession?.liveTask {
-                await liveTask.value
-            }
-
-            let recognitionResult = try await speechRecognitionService.transcribe(
-                samples: recordingResult.samples,
-                preferredLanguage: nil
-            )
-            let transcribedText = recognitionResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard !transcribedText.isEmpty else {
-                throw SpeechRecognitionError.emptyTranscription
-            }
-
-            let effectiveSourceLanguage = resolvedSpeechSourceLanguage(
-                detectedLanguageCode: recognitionResult.detectedLanguage,
-                fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage
-            )
-            let targetLanguage = liveSpeechSession.record.targetLanguage
-
-            sessionRepository.finalizeLiveSpeechTranscript(
-                liveSpeechSession.record,
-                transcript: transcribedText,
-                sourceLanguage: effectiveSourceLanguage,
-                audioURL: preservedRecordingURL?.absoluteString,
-                in: runtime
-            )
-            self.liveSpeechSession = nil
-
-            do {
-                if let prompt = try await downloadWorkflow.translationDownloadPrompt(
-                    source: effectiveSourceLanguage,
-                    target: targetLanguage
-                ) {
-                    downloadWorkflow.presentTranslationDownloadPrompt(prompt)
-                    sessionRepository.updateTranslatedMessage(
-                        id: messageID,
-                        text: TranslationError.modelNotInstalled(
-                            source: effectiveSourceLanguage,
-                            target: targetLanguage
-                        ).userFacingMessage,
-                        in: runtime
-                    )
-                    store.streamingStatesByMessageID.removeValue(forKey: messageID)
-                    store.speechErrorMessage = nil
-                    return
-                }
-
-                messageWorkflow.startSpeechTranslation(
-                    for: messageID,
-                    transcript: transcribedText,
-                    sourceLanguage: effectiveSourceLanguage,
-                    targetLanguage: targetLanguage,
-                    in: runtime
-                )
-                store.speechErrorMessage = nil
-            } catch let error as TranslationError {
-                handleSpeechTranslationFailure(
-                    messageID: messageID,
-                    message: error.userFacingMessage,
-                    in: runtime
-                )
-            } catch {
-                handleSpeechTranslationFailure(
-                    messageID: messageID,
-                    message: "翻译失败了，请稍后再试。",
-                    in: runtime
-                )
+            switch activeCaptureOrigin ?? .compactMic {
+            case .compactMic:
+                await finishCompactSpeechCapture(completedCapture, in: runtime)
+            case .immersiveWave:
+                await finishImmersiveSpeechCapture(completedCapture, in: runtime)
             }
         } catch let error as SpeechRecognitionError {
             microphoneRecordingService.cancelRecording()
@@ -268,6 +254,160 @@ final class HomeSpeechWorkflow {
         }
     }
 
+    private func completeSpeechCapture(in runtime: HomeRuntimeContext) async throws -> CompletedSpeechCapture {
+        guard let liveSpeechSession else {
+            throw SpeechRecognitionError.recordingNotActive
+        }
+
+        let messageID = liveSpeechSession.record.message.id
+        let recordingResult = try await microphoneRecordingService.stopRecording(for: messageID)
+        store?.lastSpeechRecordingURL = recordingResult.preservedRecordingURL
+
+        if let liveTask = self.liveSpeechSession?.liveTask {
+            await liveTask.value
+        }
+
+        let recognitionResult = try await speechRecognitionService.transcribe(
+            samples: recordingResult.samples,
+            preferredLanguage: nil
+        )
+        let transcribedText = recognitionResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !transcribedText.isEmpty else {
+            throw SpeechRecognitionError.emptyTranscription
+        }
+
+        let effectiveSourceLanguage = resolvedSpeechSourceLanguage(
+            detectedLanguageCode: recognitionResult.detectedLanguage,
+            liveDetectedLanguage: self.liveSpeechSession?.latestState.detectedLanguage,
+            fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage
+        )
+
+        return CompletedSpeechCapture(
+            liveSpeechSession: liveSpeechSession,
+            preservedRecordingURL: recordingResult.preservedRecordingURL,
+            transcript: transcribedText,
+            sourceLanguage: effectiveSourceLanguage,
+            targetLanguage: liveSpeechSession.record.targetLanguage
+        )
+    }
+
+    private func finishCompactSpeechCapture(
+        _ completedCapture: CompletedSpeechCapture,
+        in runtime: HomeRuntimeContext
+    ) async {
+        guard let store else { return }
+
+        let messageID = completedCapture.liveSpeechSession.record.message.id
+
+        sessionRepository.finalizeLiveSpeechTranscript(
+            completedCapture.liveSpeechSession.record,
+            transcript: completedCapture.transcript,
+            sourceLanguage: completedCapture.sourceLanguage,
+            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
+            in: runtime
+        )
+
+        self.liveSpeechSession = nil
+        activeCaptureOrigin = nil
+
+        do {
+            if let prompt = try await downloadWorkflow.translationDownloadPrompt(
+                source: completedCapture.sourceLanguage,
+                target: completedCapture.targetLanguage
+            ) {
+                downloadWorkflow.presentTranslationDownloadPrompt(prompt)
+                sessionRepository.updateTranslatedMessage(
+                    id: messageID,
+                    text: TranslationError.modelNotInstalled(
+                        source: completedCapture.sourceLanguage,
+                        target: completedCapture.targetLanguage
+                    ).userFacingMessage,
+                    in: runtime
+                )
+                store.streamingStatesByMessageID.removeValue(forKey: messageID)
+                store.speechErrorMessage = nil
+                return
+            }
+
+            messageWorkflow.startSpeechTranslation(
+                for: messageID,
+                transcript: completedCapture.transcript,
+                sourceLanguage: completedCapture.sourceLanguage,
+                targetLanguage: completedCapture.targetLanguage,
+                in: runtime
+            )
+            store.speechErrorMessage = nil
+        } catch let error as TranslationError {
+            handleSpeechTranslationFailure(
+                messageID: messageID,
+                message: error.userFacingMessage,
+                in: runtime
+            )
+        } catch {
+            handleSpeechTranslationFailure(
+                messageID: messageID,
+                message: "翻译失败了，请稍后再试。",
+                in: runtime
+            )
+        }
+    }
+
+    private func finishImmersiveSpeechCapture(
+        _ completedCapture: CompletedSpeechCapture,
+        in runtime: HomeRuntimeContext
+    ) async {
+        guard let store else { return }
+
+        updateImmersiveVoiceTranslationState(
+            text: immersiveLatestTranslatedText,
+            phase: .finalizing
+        )
+        cancelImmersivePreviewTranslation()
+
+        do {
+            if let prompt = try await downloadWorkflow.translationDownloadPrompt(
+                source: completedCapture.sourceLanguage,
+                target: completedCapture.targetLanguage
+            ) {
+                cleanupFailedPreservedRecording(at: completedCapture.preservedRecordingURL)
+                discardLiveSpeechSession(in: runtime)
+                downloadWorkflow.presentTranslationDownloadPrompt(prompt)
+                store.speechErrorMessage = nil
+                return
+            }
+        } catch {
+            // Fall through to the final translation attempt and surface its failure in-session.
+        }
+
+        let translatedText: String
+        do {
+            translatedText = try await streamImmersiveFinalTranslation(
+                transcript: completedCapture.transcript,
+                sourceLanguage: completedCapture.sourceLanguage,
+                targetLanguage: completedCapture.targetLanguage
+            )
+        } catch let error as TranslationError {
+            translatedText = error.userFacingMessage
+        } catch {
+            translatedText = "翻译失败了，请稍后再试。"
+        }
+
+        sessionRepository.finalizeLiveSpeechSession(
+            completedCapture.liveSpeechSession.record,
+            transcript: completedCapture.transcript,
+            translatedText: translatedText,
+            sourceLanguage: completedCapture.sourceLanguage,
+            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
+            in: runtime
+        )
+
+        self.liveSpeechSession = nil
+        activeCaptureOrigin = nil
+        resetImmersiveTranslationRuntime(clearPresentation: true)
+        store.speechErrorMessage = nil
+    }
+
     private func prepareForSpeechRecording() {
         guard let store else { return }
 
@@ -275,7 +415,9 @@ final class HomeSpeechWorkflow {
         store.speechErrorMessage = nil
         store.playbackErrorMessage = nil
         store.pendingVoiceStartAfterInstall = false
+        store.pendingSpeechCaptureOrigin = .compactMic
         store.lastSpeechRecordingURL = nil
+        resetImmersiveTranslationRuntime(clearPresentation: true)
     }
 
     private func startLiveSpeechTranscription(
@@ -331,13 +473,254 @@ final class HomeSpeechWorkflow {
             var updatedSession = liveSpeechSession
             updatedSession.latestState = state
             self.liveSpeechSession = updatedSession
-            applyLiveSpeechState(state, to: updatedSession.record)
+
+            switch activeCaptureOrigin ?? .compactMic {
+            case .compactMic:
+                applyLiveSpeechState(state, to: updatedSession.record)
+            case .immersiveWave:
+                scheduleImmersiveTranslationPreview(for: state, in: runtime)
+            }
+
             updateSilenceAutoStop(
                 previousState: previousState,
                 currentState: state,
                 in: runtime
             )
         }
+    }
+
+    private func scheduleImmersiveTranslationPreview(
+        for state: LiveUtteranceState,
+        in runtime: HomeRuntimeContext
+    ) {
+        updateImmersiveVoiceTranslationState(
+            text: immersiveLatestTranslatedText,
+            phase: immersiveLatestTranslatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .listening
+                : .translating
+        )
+
+        Task { @MainActor [weak self] in
+            await self?.refreshImmersiveTranslationPreview(for: state, in: runtime)
+        }
+    }
+
+    private func refreshImmersiveTranslationPreview(
+        for state: LiveUtteranceState,
+        in runtime: HomeRuntimeContext
+    ) async {
+        guard activeCaptureOrigin == .immersiveWave,
+              let store,
+              store.isRecordingSpeech,
+              let liveSpeechSession else {
+            return
+        }
+
+        let stableTranscript = state.stableTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stableTranscript.isEmpty else {
+            return
+        }
+
+        guard let detectedLanguage = state.detectedLanguage else {
+            return
+        }
+
+        if immersivePreviewSourceLanguage != detectedLanguage {
+            do {
+                if let prompt = try await downloadWorkflow.translationDownloadPrompt(
+                    source: detectedLanguage,
+                    target: liveSpeechSession.record.targetLanguage
+                ) {
+                    guard activeCaptureOrigin == .immersiveWave,
+                          self.liveSpeechSession?.record.message.id == liveSpeechSession.record.message.id else {
+                        return
+                    }
+
+                    await abortImmersiveSpeechSessionForMissingModel(prompt, in: runtime)
+                    return
+                }
+            } catch {
+                // Ignore transient route errors here and let the final translation surface them if needed.
+            }
+
+            guard activeCaptureOrigin == .immersiveWave,
+                  self.liveSpeechSession?.record.message.id == liveSpeechSession.record.message.id else {
+                return
+            }
+
+            immersivePreviewSourceLanguage = detectedLanguage
+            immersiveLastStableTranscript = ""
+        }
+
+        guard stableTranscript != immersiveLastStableTranscript else {
+            return
+        }
+
+        immersiveLastStableTranscript = stableTranscript
+        startImmersivePreviewTranslation(
+            transcript: stableTranscript,
+            sourceLanguage: detectedLanguage,
+            targetLanguage: liveSpeechSession.record.targetLanguage
+        )
+    }
+
+    private func startImmersivePreviewTranslation(
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
+    ) {
+        cancelImmersivePreviewTranslation()
+
+        let requestGeneration = immersivePreviewGeneration + 1
+        immersivePreviewGeneration = requestGeneration
+
+        let taskID = UUID()
+        immersivePreviewTaskID = taskID
+        updateImmersiveVoiceTranslationState(
+            text: immersiveLatestTranslatedText,
+            phase: .translating
+        )
+
+        immersivePreviewTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let stream = self.conversationStreamingCoordinator.startSpeechTranslation(
+                    messageID: taskID,
+                    text: transcript,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage
+                )
+
+                for try await event in stream {
+                    guard self.activeCaptureOrigin == .immersiveWave,
+                          requestGeneration == self.immersivePreviewGeneration else {
+                        continue
+                    }
+
+                    switch event {
+                    case .state(let state):
+                        let displayText = state.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !displayText.isEmpty {
+                            self.immersiveLatestTranslatedText = state.displayText
+                            self.updateImmersiveVoiceTranslationState(
+                                text: state.displayText,
+                                phase: .translating
+                            )
+                        }
+                    case .completed(_, let text):
+                        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !normalizedText.isEmpty {
+                            self.immersiveLatestTranslatedText = text
+                            self.updateImmersiveVoiceTranslationState(
+                                text: text,
+                                phase: .translating
+                            )
+                        }
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func streamImmersiveFinalTranslation(
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage
+    ) async throws -> String {
+        let taskID = UUID()
+        immersiveFinalTranslationTaskID = taskID
+
+        updateImmersiveVoiceTranslationState(
+            text: immersiveLatestTranslatedText,
+            phase: .finalizing
+        )
+
+        let stream = conversationStreamingCoordinator.startSpeechTranslation(
+            messageID: taskID,
+            text: transcript,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage
+        )
+
+        var completedText: String?
+
+        defer {
+            immersiveFinalTranslationTaskID = nil
+        }
+
+        for try await event in stream {
+            switch event {
+            case .state(let state):
+                let displayText = state.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayText.isEmpty {
+                    immersiveLatestTranslatedText = state.displayText
+                    updateImmersiveVoiceTranslationState(
+                        text: state.displayText,
+                        phase: .finalizing
+                    )
+                }
+            case .completed(_, let text):
+                let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalizedText.isEmpty {
+                    immersiveLatestTranslatedText = text
+                    updateImmersiveVoiceTranslationState(
+                        text: text,
+                        phase: .finalizing
+                    )
+                }
+                completedText = text
+            }
+        }
+
+        guard let completedText else {
+            throw TranslationError.emptyOutput
+        }
+
+        return completedText
+    }
+
+    private func abortImmersiveSpeechSessionForMissingModel(
+        _ prompt: HomeLanguageDownloadPrompt,
+        in runtime: HomeRuntimeContext
+    ) async {
+        guard let store else { return }
+
+        cancelSilenceAutoStop()
+        microphoneRecordingService.cancelRecording()
+        store.isRecordingSpeech = false
+        store.isTranscribingSpeech = false
+        discardLiveSpeechSession(in: runtime)
+        downloadWorkflow.presentTranslationDownloadPrompt(prompt)
+        store.speechErrorMessage = nil
+    }
+
+    private func updateImmersiveVoiceTranslationState(
+        text: String? = nil,
+        phase: HomeImmersiveVoiceTranslationPhase
+    ) {
+        guard let store else { return }
+
+        guard var state = store.immersiveVoiceTranslationState else {
+            if let liveSpeechSession {
+                store.immersiveVoiceTranslationState = HomeImmersiveVoiceTranslationState(
+                    messageID: liveSpeechSession.record.message.id,
+                    translatedText: text ?? immersiveLatestTranslatedText,
+                    phase: phase
+                )
+            }
+            return
+        }
+
+        if let text {
+            state.translatedText = text
+        }
+        state.phase = phase
+        store.immersiveVoiceTranslationState = state
     }
 
     private func scheduleSilenceAutoStop(in runtime: HomeRuntimeContext) {
@@ -438,10 +821,13 @@ final class HomeSpeechWorkflow {
         }
 
         cancelSilenceAutoStop()
+        resetImmersiveTranslationRuntime(clearPresentation: true)
         liveSpeechSession.liveTask?.cancel()
+
         Task {
             await conversationStreamingCoordinator.cancel(messageID: liveSpeechSession.record.message.id)
         }
+
         store.streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.record.message.id)
         sessionRepository.discardLiveSpeechSession(
             liveSpeechSession.record,
@@ -449,6 +835,7 @@ final class HomeSpeechWorkflow {
             presentation: &store.sessionPresentation
         )
         self.liveSpeechSession = nil
+        activeCaptureOrigin = nil
     }
 
     private func handleSpeechRecognitionFailure(
@@ -478,13 +865,51 @@ final class HomeSpeechWorkflow {
 
     private func resolvedSpeechSourceLanguage(
         detectedLanguageCode: String?,
+        liveDetectedLanguage: SupportedLanguage?,
         fallbackSourceLanguage: SupportedLanguage
     ) -> SupportedLanguage {
         if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode) {
             return detectedLanguage
         }
 
+        if let liveDetectedLanguage {
+            return liveDetectedLanguage
+        }
+
         return fallbackSourceLanguage
+    }
+
+    private func resetImmersiveTranslationRuntime(clearPresentation: Bool) {
+        cancelImmersivePreviewTranslation()
+
+        if let finalTaskID = immersiveFinalTranslationTaskID {
+            Task {
+                await conversationStreamingCoordinator.cancel(messageID: finalTaskID)
+            }
+        }
+
+        immersiveFinalTranslationTaskID = nil
+        immersivePreviewGeneration = 0
+        immersivePreviewSourceLanguage = nil
+        immersiveLastStableTranscript = ""
+        immersiveLatestTranslatedText = ""
+
+        if clearPresentation {
+            store?.immersiveVoiceTranslationState = nil
+        }
+    }
+
+    private func cancelImmersivePreviewTranslation() {
+        immersivePreviewTask?.cancel()
+        immersivePreviewTask = nil
+
+        if let previewTaskID = immersivePreviewTaskID {
+            Task {
+                await conversationStreamingCoordinator.cancel(messageID: previewTaskID)
+            }
+        }
+
+        immersivePreviewTaskID = nil
     }
 
     private func cleanupFailedPreservedRecording(at url: URL?) {

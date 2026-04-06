@@ -39,6 +39,7 @@ struct HomeView: View {
                     selectedLanguage: store.selectedLanguage,
                     messageListBottomAnchorID: Self.messageListBottomAnchorID,
                     messageListBottomSpacerHeight: messageListBottomSpacerHeight,
+                    immersiveVoiceTranslationState: viewState.immersiveVoiceTranslationState,
                     onOpenLanguagePicker: {
                         store.presentGlobalTargetLanguagePicker()
                     },
@@ -126,6 +127,7 @@ struct HomeView: View {
                     isFocused: binding(\.isChatInputFocused),
                     isRecordingSpeech: store.isRecordingSpeech,
                     isSpeechBusy: store.isTranscribingSpeech || store.isInstallingSpeechModel,
+                    isImmersiveVoiceModeActive: viewState.immersiveVoiceTranslationState != nil,
                     onFocusActivated: store.handleInputFocusActivated,
                     onSend: {
                         store.sendCurrentMessage(in: runtimeContext)
@@ -133,6 +135,11 @@ struct HomeView: View {
                     onVoiceInput: {
                         Task {
                             await store.toggleSpeechRecording(in: runtimeContext)
+                        }
+                    },
+                    onImmersiveVoiceInput: {
+                        Task {
+                            await store.startImmersiveVoiceTranslation(in: runtimeContext)
                         }
                     }
                 )

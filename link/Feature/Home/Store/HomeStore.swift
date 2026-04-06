@@ -14,6 +14,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
     struct ViewState {
         let messageItems: [MessageItemState]
         let shouldShowEmptyState: Bool
+        let immersiveVoiceTranslationState: HomeImmersiveVoiceTranslationState?
         let historySessions: [ChatSession]
         let deletableHistorySessionIDs: Set<UUID>
         let currentSessionID: UUID?
@@ -96,10 +97,12 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
     var speechErrorMessage: String?
     var playbackErrorMessage: String?
     var pendingVoiceStartAfterInstall = false
+    var pendingSpeechCaptureOrigin: HomeSpeechCaptureOrigin = .compactMic
     var lastSpeechRecordingURL: URL?
     var activePlaybackState: HomePlaybackState?
     var expandedSpeechTranscriptMessageIDs: Set<UUID> = []
     var streamingStatesByMessageID: [UUID: ExchangeStreamingState] = [:]
+    var immersiveVoiceTranslationState: HomeImmersiveVoiceTranslationState?
     var messageLanguageSwitchSideByMessageID: [UUID: HomeMessageLanguageSide] = [:]
     var assetRecords: [ModelAssetRecord] = []
     var assetSummary: ModelAssetSummary = .empty
@@ -177,7 +180,10 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
 
         return ViewState(
             messageItems: messageItems,
-            shouldShowEmptyState: messageItems.isEmpty && !isChatInputFocused,
+            shouldShowEmptyState: messageItems.isEmpty &&
+                !isChatInputFocused &&
+                immersiveVoiceTranslationState == nil,
+            immersiveVoiceTranslationState: immersiveVoiceTranslationState,
             historySessions: runtime.historySessions,
             deletableHistorySessionIDs: Set(
                 runtime.historySessions.compactMap { session in
@@ -404,6 +410,10 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
         await speechWorkflow.toggleSpeechRecording(in: runtime)
     }
 
+    func startImmersiveVoiceTranslation(in runtime: HomeRuntimeContext) async {
+        await speechWorkflow.startImmersiveVoiceTranslation(in: runtime)
+    }
+
     func toggleTranslatedPlayback(message: ChatMessage) {
         playbackController.toggleTranslatedPlayback(message: message)
     }
@@ -474,10 +484,17 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
 
     private func displayedMessages(in runtime: HomeRuntimeContext) -> [ChatMessage] {
         guard !isDraftSession else { return [] }
-        return sessionRepository.displayedMessages(
+
+        let messages = sessionRepository.displayedMessages(
             in: runtime,
             presentation: sessionPresentation
         )
+
+        guard let immersiveVoiceTranslationState else {
+            return messages
+        }
+
+        return messages.filter { $0.id != immersiveVoiceTranslationState.messageID }
     }
 
     private func currentSessionID(in runtime: HomeRuntimeContext) -> UUID? {
