@@ -37,6 +37,7 @@ nonisolated struct SpeechActivityGate: Sendable {
         let didStartSpeech: Bool
         let isSpeechActive: Bool
         let isEndpoint: Bool
+        let trailingSilenceDuration: TimeInterval
     }
 
     private let configuration: Configuration
@@ -78,7 +79,8 @@ nonisolated struct SpeechActivityGate: Sendable {
                 statistics: statistics,
                 didStartSpeech: false,
                 isSpeechActive: false,
-                isEndpoint: false
+                isEndpoint: false,
+                trailingSilenceDuration: 0
             )
         }
 
@@ -90,7 +92,8 @@ nonisolated struct SpeechActivityGate: Sendable {
                 statistics: statistics,
                 didStartSpeech: false,
                 isSpeechActive: false,
-                isEndpoint: false
+                isEndpoint: false,
+                trailingSilenceDuration: 0
             )
         }
 
@@ -104,7 +107,8 @@ nonisolated struct SpeechActivityGate: Sendable {
             statistics: statistics,
             didStartSpeech: true,
             isSpeechActive: true,
-            isEndpoint: false
+            isEndpoint: false,
+            trailingSilenceDuration: 0
         )
     }
 
@@ -118,6 +122,9 @@ nonisolated struct SpeechActivityGate: Sendable {
             silenceSampleCount += samples.count
         }
 
+        let trailingSilenceDuration = statistics.containsSpeech
+            ? 0
+            : TimeInterval(silenceSampleCount) / TimeInterval(sampleRate)
         let isEndpoint = !statistics.containsSpeech && silenceSampleCount >= endpointSampleCount
         if isEndpoint {
             isSpeechActive = false
@@ -130,7 +137,8 @@ nonisolated struct SpeechActivityGate: Sendable {
             statistics: statistics,
             didStartSpeech: false,
             isSpeechActive: isSpeechActive,
-            isEndpoint: isEndpoint
+            isEndpoint: isEndpoint,
+            trailingSilenceDuration: trailingSilenceDuration
         )
     }
 

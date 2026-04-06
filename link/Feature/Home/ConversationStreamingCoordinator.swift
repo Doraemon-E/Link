@@ -14,7 +14,8 @@ nonisolated enum ConversationStreamingEvent: Sendable, Equatable {
 
 nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var stableTranscript: String = ""
-    var unstableTranscript: String = ""
+    var provisionalTranscript: String = ""
+    var liveTranscript: String = ""
     var stableTranslation: String = ""
     var unstableTranslation: String = ""
     var displayTranslation: String = ""
@@ -24,9 +25,13 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var isEndpoint: Bool = false
 
     var fullTranscript: String {
-        let transcript = stableTranscript + unstableTranscript
+        let transcript = stableTranscript + provisionalTranscript + liveTranscript
         let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? transcript : normalized
+    }
+
+    var unstableTranscript: String {
+        provisionalTranscript + liveTranscript
     }
 
     var effectiveTranslation: String {
@@ -35,12 +40,36 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
         return normalized.isEmpty ? preferredTranslation : normalized
     }
 
+    var hasProvisionalTranscript: Bool {
+        !provisionalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasLiveTranscript: Bool {
+        !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var hasUnstableTranscript: Bool {
-        !unstableTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasProvisionalTranscript || hasLiveTranscript
     }
 
     var hasUnstableTranslation: Bool {
         !unstableTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasDisplayTranslationBeyondStable: Bool {
+        let normalizedDisplayTranslation = displayTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDisplayTranslation.isEmpty else {
+            return false
+        }
+
+        let normalizedStableTranslation = stableTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedStableTranslation.isEmpty else {
+            return true
+        }
+
+        return normalizedDisplayTranslation != normalizedStableTranslation
     }
 }
 
@@ -340,7 +369,8 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         let sourceLanguageChanged = previousResolvedSourceLanguage != resolvedSourceLanguage
 
         state.stableTranscript = snapshot.stableTranscript
-        state.unstableTranscript = snapshot.unstableTranscript
+        state.provisionalTranscript = snapshot.provisionalTranscript
+        state.liveTranscript = snapshot.liveTranscript
         state.detectedLanguage = snapshot.detectedLanguage ?? state.detectedLanguage
         state.transcriptRevision = snapshot.revision
         state.isEndpoint = snapshot.isEndpoint
@@ -364,7 +394,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     transcript: state.fullTranscript,
                     sourceLanguage: effectiveSourceLanguage,
                     targetLanguage: targetLanguage,
-                    forceImmediate: snapshot.isEndpoint,
+                    forceImmediate: snapshot.hasPauseHint || snapshot.isEndpoint,
                     continuation: continuation
                 )
             } else {
@@ -681,8 +711,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
             return
         }
 
-        let displayTranslation = state.stableTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTranslation = retainedDisplayTranslationAfterPreviewCleared(
+            previousDisplayTranslation: state.displayTranslation,
+            stableTranslation: state.stableTranslation
+        )
         guard !state.unstableTranslation.isEmpty || state.displayTranslation != displayTranslation else {
             return
         }
@@ -704,14 +736,115 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         let normalizedCandidate = candidateDisplayTranslation
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard hasUnstableTranscript,
-              !normalizedPrevious.isEmpty,
-              !normalizedCandidate.isEmpty,
-              normalizedCandidate.count < normalizedPrevious.count else {
+        guard hasUnstableTranscript else {
             return normalizedCandidate
         }
 
+        guard !normalizedPrevious.isEmpty else {
+            return normalizedCandidate
+        }
+
+        guard !normalizedCandidate.isEmpty else {
+            return normalizedPrevious
+        }
+
+        let previousComparisonKey = displayTranslationComparisonKey(normalizedPrevious)
+        let candidateComparisonKey = displayTranslationComparisonKey(normalizedCandidate)
+
+        if candidateComparisonKey == previousComparisonKey ||
+            candidateComparisonKey.hasPrefix(previousComparisonKey) {
+            return normalizedCandidate
+        }
+
+        if previousComparisonKey.hasPrefix(candidateComparisonKey) {
+            return normalizedPrevious
+        }
+
         return normalizedPrevious
+    }
+
+    private func retainedDisplayTranslationAfterPreviewCleared(
+        previousDisplayTranslation: String,
+        stableTranslation: String
+    ) -> String {
+        let normalizedPrevious = previousDisplayTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedStable = stableTranslation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedPrevious.isEmpty else {
+            return normalizedStable
+        }
+
+        guard !normalizedStable.isEmpty else {
+            return normalizedPrevious
+        }
+
+        let previousComparisonKey = displayTranslationComparisonKey(normalizedPrevious)
+        let stableComparisonKey = displayTranslationComparisonKey(normalizedStable)
+
+        if previousComparisonKey == stableComparisonKey ||
+            previousComparisonKey.hasPrefix(stableComparisonKey) {
+            return normalizedPrevious
+        }
+
+        return normalizedStable
+    }
+
+    private func displayTranslationComparisonKey(_ text: String) -> String {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            return ""
+        }
+
+        var comparisonKey = ""
+        var lastCharacterWasWhitespace = false
+
+        for character in trimmedText {
+            if character.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
+                if !comparisonKey.isEmpty, !lastCharacterWasWhitespace {
+                    comparisonKey.append(" ")
+                }
+                lastCharacterWasWhitespace = true
+                continue
+            }
+
+            lastCharacterWasWhitespace = false
+            comparisonKey.append(normalizedDisplayComparisonFragment(for: character))
+        }
+
+        return comparisonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedDisplayComparisonFragment(for character: Character) -> String {
+        switch character {
+        case "，", ",":
+            return ","
+        case "。", ".":
+            return "."
+        case "！", "!":
+            return "!"
+        case "？", "?":
+            return "?"
+        case "：", ":":
+            return ":"
+        case "；", ";":
+            return ";"
+        case "（", "(":
+            return "("
+        case "）", ")":
+            return ")"
+        case "“", "”", "\"":
+            return "\""
+        case "‘", "’", "'":
+            return "'"
+        default:
+            let fragment = String(character)
+            if fragment.unicodeScalars.allSatisfy(\.isASCII) {
+                return fragment.lowercased()
+            }
+            return fragment
+        }
     }
 
     private func teardownLiveSpeechState(messageID: UUID) {

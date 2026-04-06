@@ -1077,8 +1077,9 @@ final class HomeViewModel {
         translationTasksByMessageID[messageID]?.cancel()
         streamingStatesByMessageID[messageID] = ExchangeStreamingState(
             messageID: messageID,
-            sourceCommittedText: originalText,
-            sourceLiveText: nil,
+            sourceStableText: originalText,
+            sourceProvisionalText: "",
+            sourceLiveText: "",
             sourcePhase: .completed,
             sourceRevision: 0,
             translatedCommittedText: "",
@@ -1241,8 +1242,9 @@ final class HomeViewModel {
     ) {
         var state = streamingStatesByMessageID[messageID] ?? ExchangeStreamingState(
             messageID: messageID,
-            sourceCommittedText: "",
-            sourceLiveText: nil,
+            sourceStableText: "",
+            sourceProvisionalText: "",
+            sourceLiveText: "",
             sourcePhase: .completed,
             sourceRevision: 0,
             translatedCommittedText: "",
@@ -1292,18 +1294,21 @@ final class HomeViewModel {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let translationText = state.effectiveTranslation
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasVisiblePreviewTranslation = state.hasUnstableTranslation ||
+            state.hasDisplayTranslationBeyondStable
 
         streamingStatesByMessageID[session.message.id] = ExchangeStreamingState(
             messageID: session.message.id,
-            sourceCommittedText: state.stableTranscript,
-            sourceLiveText: state.hasUnstableTranscript && !transcriptText.isEmpty ? transcriptText : nil,
+            sourceStableText: state.stableTranscript,
+            sourceProvisionalText: state.provisionalTranscript,
+            sourceLiveText: state.liveTranscript,
             sourcePhase: transcriptText.isEmpty ? .transcribing : (isRecordingSpeech ? .transcribing : .completed),
             sourceRevision: state.transcriptRevision,
             translatedCommittedText: state.stableTranslation,
-            translatedLiveText: state.hasUnstableTranslation && !translationText.isEmpty ? translationText : nil,
+            translatedLiveText: hasVisiblePreviewTranslation && !translationText.isEmpty ? translationText : nil,
             translationPhase: translationText.isEmpty
                 ? .translating
-                : ((isRecordingSpeech || state.hasUnstableTranscript || state.hasUnstableTranslation) ? .typing : .completed),
+                : ((isRecordingSpeech || state.hasUnstableTranscript || hasVisiblePreviewTranslation) ? .typing : .completed),
             translationRevision: state.translationRevision
         )
     }
@@ -1398,53 +1403,31 @@ final class HomeViewModel {
         return (
             transcript: reconciledSpeechText(
                 finalText: finalTranscript,
-                liveText: liveTranscript,
-                liveHasPendingText: liveState.hasUnstableTranscript
+                liveText: liveTranscript
             ),
             translation: reconciledSpeechText(
                 finalText: finalTranslation,
-                liveText: liveTranslation,
-                liveHasPendingText: liveState.hasUnstableTranslation || liveState.hasUnstableTranscript
+                liveText: liveTranslation
             )
         )
     }
 
     private func reconciledSpeechText(
         finalText: String,
-        liveText: String,
-        liveHasPendingText: Bool
+        liveText: String
     ) -> String {
         let normalizedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedLiveText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !normalizedLiveText.isEmpty else {
-            return normalizedFinalText
-        }
 
         guard !normalizedFinalText.isEmpty else {
             return normalizedLiveText
         }
 
-        if normalizedFinalText == normalizedLiveText {
-            return normalizedLiveText
-        }
-
-        if liveHasPendingText {
+        guard !normalizedLiveText.isEmpty else {
             return normalizedFinalText
         }
 
-        if normalizedFinalText.hasPrefix(normalizedLiveText) ||
-            normalizedFinalText.contains(normalizedLiveText) ||
-            normalizedFinalText.count >= normalizedLiveText.count + 8 {
-            return normalizedFinalText
-        }
-
-        if normalizedLiveText.hasPrefix(normalizedFinalText),
-           normalizedLiveText.count - normalizedFinalText.count <= 6 {
-            return normalizedLiveText
-        }
-
-        return normalizedLiveText
+        return normalizedFinalText
     }
 
     private func finalizeLiveSpeechSessionAfterFailure(

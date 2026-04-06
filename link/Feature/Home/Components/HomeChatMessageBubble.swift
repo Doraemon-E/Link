@@ -13,6 +13,19 @@ struct HomeChatMessageBubble: View {
         let isPlaceholder: Bool
     }
 
+    private struct SourceBlockContent {
+        let stableText: String
+        let provisionalText: String
+        let liveText: String
+        let fallbackText: String?
+        let isPlaceholder: Bool
+
+        var hasLayeredText: Bool {
+            let transcript = stableText + provisionalText + liveText
+            return !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     let message: ChatMessage
     let streamingState: ExchangeStreamingState?
     let showsSpeechPlaybackButton: Bool
@@ -26,12 +39,7 @@ struct HomeChatMessageBubble: View {
 
             VStack(alignment: .trailing, spacing: 6) {
                 VStack(alignment: .leading, spacing: 14) {
-                    messageSection(
-                        title: "原文",
-                        content: sourceContent,
-                        textColor: .secondary,
-                        font: .subheadline
-                    )
+                    sourceMessageSection
 
                     Divider()
 
@@ -56,11 +64,42 @@ struct HomeChatMessageBubble: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var sourceContent: MessageBlockContent {
-        content(
-            persistedText: message.sourceText,
-            liveText: streamingState?.sourceDisplayText,
-            placeholderText: streamingState?.sourcePlaceholderText
+    private var sourceContent: SourceBlockContent {
+        let stableText = streamingState?.sourceStableText ?? ""
+        let provisionalText = streamingState?.sourceProvisionalText ?? ""
+        let liveText = streamingState?.sourceLiveText ?? ""
+        let layeredTranscript = stableText + provisionalText + liveText
+
+        if !layeredTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return SourceBlockContent(
+                stableText: stableText,
+                provisionalText: provisionalText,
+                liveText: liveText,
+                fallbackText: nil,
+                isPlaceholder: false
+            )
+        }
+
+        if let placeholderText = streamingState?.sourcePlaceholderText,
+           !placeholderText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return SourceBlockContent(
+                stableText: "",
+                provisionalText: "",
+                liveText: "",
+                fallbackText: placeholderText,
+                isPlaceholder: true
+            )
+        }
+
+        let persistedText = message.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : message.sourceText
+        return SourceBlockContent(
+            stableText: "",
+            provisionalText: "",
+            liveText: "",
+            fallbackText: persistedText ?? "…",
+            isPlaceholder: persistedText == nil
         )
     }
 
@@ -97,6 +136,38 @@ struct HomeChatMessageBubble: View {
         }
 
         return MessageBlockContent(text: "…", isPlaceholder: true)
+    }
+
+    @ViewBuilder
+    private var sourceMessageSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("原文")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+
+            if sourceContent.hasLayeredText {
+                layeredSourceText(
+                    stableText: sourceContent.stableText,
+                    provisionalText: sourceContent.provisionalText,
+                    liveText: sourceContent.liveText
+                )
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(sourceContent.fallbackText ?? "…")
+                    .font(.subheadline)
+                    .foregroundStyle(sourceContent.isPlaceholder ? Color.secondary : Color.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func layeredSourceText(
+        stableText: String,
+        provisionalText: String,
+        liveText: String
+    ) -> Text {
+        Text("\(Text(stableText).foregroundStyle(Color.secondary))\(Text(provisionalText).foregroundStyle(Color.secondary.opacity(0.72)))\(Text(liveText).foregroundStyle(Color.secondary.opacity(0.45)))")
     }
 
     @ViewBuilder

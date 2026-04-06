@@ -76,8 +76,9 @@ nonisolated struct TranslationStreamingState: Sendable, Equatable {
 
 nonisolated struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
     let messageID: UUID
-    var sourceCommittedText: String
-    var sourceLiveText: String?
+    var sourceStableText: String
+    var sourceProvisionalText: String
+    var sourceLiveText: String
     var sourcePhase: MessagePhase
     var sourceRevision: Int
     var translatedCommittedText: String
@@ -90,10 +91,9 @@ nonisolated struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
     }
 
     var sourceDisplayText: String {
-        resolvedDisplayText(
-            committedText: sourceCommittedText,
-            liveText: sourceLiveText
-        )
+        let transcript = sourceStableText + sourceProvisionalText + sourceLiveText
+        let normalized = transcript.trimmingCharacters(in: .newlines)
+        return normalized.isEmpty ? transcript : normalized
     }
 
     var translatedDisplayText: String {
@@ -101,6 +101,11 @@ nonisolated struct ExchangeStreamingState: Sendable, Equatable, Identifiable {
             committedText: translatedCommittedText,
             liveText: translatedLiveText
         )
+    }
+
+    var hasSourceUnstableText: Bool {
+        !sourceProvisionalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !sourceLiveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var sourcePlaceholderText: String? {

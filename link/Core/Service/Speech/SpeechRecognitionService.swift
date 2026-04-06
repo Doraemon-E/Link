@@ -14,19 +14,33 @@ nonisolated struct SpeechRecognitionResult: Sendable {
 
 nonisolated struct SpeechTranscriptionSnapshot: Sendable, Equatable {
     let stableTranscript: String
-    let unstableTranscript: String
+    let provisionalTranscript: String
+    let liveTranscript: String
     let revision: Int
     let detectedLanguage: SupportedLanguage?
     let isEndpoint: Bool
+    let hasPauseHint: Bool
 
     var fullTranscript: String {
-        let transcript = stableTranscript + unstableTranscript
+        let transcript = stableTranscript + provisionalTranscript + liveTranscript
         let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? transcript : normalized
     }
 
+    var unstableTranscript: String {
+        provisionalTranscript + liveTranscript
+    }
+
+    var hasProvisionalTranscript: Bool {
+        !provisionalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasLiveTranscript: Bool {
+        !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var hasUnstableTranscript: Bool {
-        !unstableTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasProvisionalTranscript || hasLiveTranscript
     }
 }
 

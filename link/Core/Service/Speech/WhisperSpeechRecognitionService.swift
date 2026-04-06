@@ -195,6 +195,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
             session.samplesSinceLastInference = 0
             if let snapshot = try await runBestEffortStreamingInference(
                 context: context,
+                gateUpdate: gateUpdate,
                 session: &session
             ) {
                 emittedSnapshots.append(snapshot)
@@ -245,6 +246,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
 
     private func runBestEffortStreamingInference(
         context: OpaquePointer,
+        gateUpdate: SpeechActivityGate.Update,
         session: inout StreamingSession
     ) async throws -> SpeechTranscriptionSnapshot? {
         let inferenceSamples = Array(
@@ -261,10 +263,13 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 context: context,
                 mode: .streaming
             )
+            let hasPauseHint = gateUpdate.trailingSilenceDuration >= 0.35 ||
+                hasStrongPausePunctuation(in: result.text)
             return session.stabilizer.consume(
                 candidate: result.text,
                 detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
-                isEndpoint: false
+                isEndpoint: false,
+                hasPauseHint: hasPauseHint
             )
         } catch let error as SpeechRecognitionError {
             if case .emptyTranscription = error {
@@ -300,7 +305,8 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
             return session.stabilizer.consume(
                 candidate: result.text,
                 detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
-                isEndpoint: true
+                isEndpoint: true,
+                hasPauseHint: true
             )
         } catch let error as SpeechRecognitionError {
             if case .emptyTranscription = error {
@@ -465,12 +471,24 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         return text
     }
 
+    private func hasStrongPausePunctuation(in text: String) -> Bool {
+        guard let lastCharacter = text.trimmingCharacters(in: .whitespacesAndNewlines).last else {
+            return false
+        }
+
+        return Self.strongPausePunctuationCharacters.contains(lastCharacter)
+    }
+
     private static let whisperNonSpeechPlaceholders: Set<String> = [
         "[BLANK_AUDIO]",
         "[MUSIC]",
         "[NOISE]",
         "[LAUGHTER]",
         "[APPLAUSE]"
+    ]
+
+    private static let strongPausePunctuationCharacters: Set<Character> = [
+        "，", "。", "！", "？", "；", "：", "、", ",", ".", "!", "?", ";", ":"
     ]
 
     private func log(_ message: String) {
