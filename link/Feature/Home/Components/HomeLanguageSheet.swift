@@ -42,7 +42,7 @@ struct HomeLanguageSheet: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.fraction(0.8), .large])
         .presentationDragIndicator(.visible)
         .onAppear {
             draftSelectedLanguage = selectedLanguage
@@ -62,6 +62,7 @@ struct HomeLanguageSheet: View {
                     languageCard(for: language)
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -71,19 +72,10 @@ struct HomeLanguageSheet: View {
         return Button {
             draftSelectedLanguage = language
         } label: {
-            VStack(spacing: 14) {
-                ZStack(alignment: .topTrailing) {
-                    Text(language.flagEmoji)
-                        .font(.system(size: 40))
-                        .frame(maxWidth: .infinity)
-
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.white, Color.accentColor)
-                            .offset(x: 6, y: -6)
-                    }
-                }
+            VStack(spacing: 8) {
+                Text(language.flagEmoji)
+                    .font(.system(size: 40))
+                    .frame(maxWidth: .infinity)
 
                 Text(language.displayName)
                     .font(.body.weight(.semibold))
@@ -91,19 +83,9 @@ struct HomeLanguageSheet: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity, minHeight: 136, alignment: .top)
+            .padding()
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
             .background(cardBackground(isSelected: isSelected))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(
-                        isSelected
-                            ? Color.accentColor.opacity(0.45)
-                            : Color(uiColor: .separator).opacity(0.14),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            }
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -112,10 +94,10 @@ struct HomeLanguageSheet: View {
     @ViewBuilder
     private func cardBackground(isSelected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(
-                isSelected
-                    ? Color.accentColor.opacity(0.14)
-                    : Color(uiColor: .secondarySystemBackground)
+            .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
             )
     }
 
