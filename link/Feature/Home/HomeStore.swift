@@ -164,12 +164,6 @@ final class HomeStore {
             sessionRepository.currentSession(in: runtime, presentation: sessionPresentation) != nil
     }
 
-    func shouldShowLanguagePickerHero(in runtime: HomeRuntimeContext) -> Bool {
-        !isDraftSession &&
-            !isChatInputFocused &&
-            sessionRepository.currentSession(in: runtime, presentation: sessionPresentation) == nil
-    }
-
     func currentSessionID(in runtime: HomeRuntimeContext) -> UUID? {
         sessionRepository.currentSessionID(in: runtime, presentation: sessionPresentation)
     }
@@ -188,6 +182,7 @@ final class HomeStore {
         guard !isDraftSession else { return }
         playbackController.stop()
         sessionPresentation = .draft
+        isChatInputFocused = false
     }
 
     func selectSession(id sessionID: UUID) {

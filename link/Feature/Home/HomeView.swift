@@ -27,7 +27,7 @@ struct HomeView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 Group {
-                    if displayedMessages.isEmpty && shouldShowLanguagePickerHero {
+                    if displayedMessages.isEmpty && !store.isChatInputFocused {
                         emptyState
                     } else {
                         messageList
@@ -271,18 +271,12 @@ struct HomeView: View {
         store.shouldShowSessionHistoryButton(in: runtimeContext)
     }
 
-    private var shouldShowLanguagePickerHero: Bool {
-        store.shouldShowLanguagePickerHero(in: runtimeContext)
-    }
-
     private var shouldShowNewSessionButton: Bool {
         store.shouldShowNewSessionButton(in: runtimeContext)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 72)
-
+        VStack(spacing: 22) {
             Text("开始新的翻译对话")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -303,8 +297,6 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
-
-            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
