@@ -9,11 +9,14 @@ import Foundation
 
 @MainActor
 final class HomeDownloadWorkflow {
+    private static let minimumLoadingDuration: TimeInterval = 2.0
+
     private unowned let store: HomeStore
     private let dependencies: HomeDependencies
     private var downloadObservationTask: Task<Void, Never>?
     private var downloadMilestoneSignature = ""
     private var pendingSpeechResumePackageID: String?
+    private var isPreparingDownloadManager = false
 
     init(store: HomeStore, dependencies: HomeDependencies) {
         self.store = store
@@ -47,7 +50,28 @@ final class HomeDownloadWorkflow {
     }
 
     func openDownloadManager() {
-        store.isDownloadManagerPresented = true
+        presentDownloadManager()
+    }
+
+    func prepareDownloadManagerIfNeeded() async {
+        guard !store.hasPreparedDownloadManager, !isPreparingDownloadManager else {
+            return
+        }
+
+        isPreparingDownloadManager = true
+        store.isDownloadManagerLoading = true
+        let loadingStartedAt = Date()
+        defer {
+            isPreparingDownloadManager = false
+            store.isDownloadManagerLoading = false
+        }
+
+        await dependencies.modelAssetService.warmUp()
+        let snapshot = await dependencies.modelAssetService.currentSnapshot()
+        await ensureMinimumLoadingDuration(since: loadingStartedAt)
+        store.assetRecords = snapshot.records
+        store.assetSummary = snapshot.summary
+        store.hasPreparedDownloadManager = true
     }
 
     func presentDownloadPrompt() {
@@ -96,7 +120,7 @@ final class HomeDownloadWorkflow {
 
         store.downloadErrorMessage = nil
         store.activeDownloadPrompt = nil
-        store.isDownloadManagerPresented = true
+        presentDownloadManager()
         await dependencies.modelAssetService.startAssets(kind: .translation, packageIDs: packageIds)
         await refreshDownloadAvailabilityForCurrentSelection()
     }
@@ -107,7 +131,7 @@ final class HomeDownloadWorkflow {
     ) async {
         store.speechErrorMessage = nil
         store.activeSpeechDownloadPrompt = nil
-        store.isDownloadManagerPresented = true
+        presentDownloadManager()
         store.pendingVoiceStartAfterInstall = shouldResumeRecording
         pendingSpeechResumePackageID = packageId
         await dependencies.modelAssetService.startAssets(kind: .speech, packageIDs: [packageId])
@@ -242,5 +266,25 @@ final class HomeDownloadWorkflow {
         return try await dependencies.translationAssetReadinessProvider.translationAssetRequirement(
             for: route
         )
+    }
+
+    private func presentDownloadManager() {
+        if !store.hasPreparedDownloadManager {
+            store.isDownloadManagerLoading = true
+        }
+
+        store.isDownloadManagerPresented = true
+    }
+
+    private func ensureMinimumLoadingDuration(since startedAt: Date) async {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining = Self.minimumLoadingDuration - elapsed
+
+        guard remaining > 0 else {
+            return
+        }
+
+        let nanoseconds = UInt64(remaining * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: nanoseconds)
     }
 }

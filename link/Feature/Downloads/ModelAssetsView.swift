@@ -10,6 +10,7 @@ import SwiftUI
 struct ModelAssetsView: View {
     @State private var pendingDeleteItem: ModelAssetRecord?
 
+    let isLoading: Bool
     let processingRecords: [ModelAssetRecord]
     let resumableRecords: [ModelAssetRecord]
     let failedRecords: [ModelAssetRecord]
@@ -30,7 +31,9 @@ struct ModelAssetsView: View {
 
     var body: some View {
         Group {
-            if allItemsAreEmpty {
+            if isLoading && allItemsAreEmpty {
+                loadingState
+            } else if allItemsAreEmpty {
                 emptyState
             } else {
                 List {
@@ -97,6 +100,13 @@ struct ModelAssetsView: View {
                 )
             }
         }
+    }
+
+    private var loadingState: some View {
+        ProgressView()
+            .controlSize(.large)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 
     private var emptyState: some View {
