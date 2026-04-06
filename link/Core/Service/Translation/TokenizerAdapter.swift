@@ -40,6 +40,8 @@ nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
         let removeExtraWhitespaces: Bool
         let escapeWhitespaces: Bool
 
+        /// 预处理输入文本以符合 SentencePiece 模型的规范，包括添加虚拟前缀、去除多余空白和转义空格等。
+        /// "Hello World" -> "▁Hello▁World" (假设 addDummyPrefix=true, removeExtraWhitespaces=true, escapeWhitespaces=true)
         func prepare(_ text: String) -> String {
             var normalized = text
 
@@ -358,7 +360,8 @@ nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
             guard let unkTokenID = decodedVocabulary["<unk>"] else {
                 throw TranslationError.incompatibleTokenizer("Vocabulary does not contain <unk>.")
             }
-
+            
+            /// 加载模型规范和词汇表，并构建 SentencePiece 模型以供编码和解码使用。
             let spec = try SentencePieceParser.parseSpec(data: Data(contentsOf: sourceURL))
             self.vocabulary = decodedVocabulary
             self.reverseVocabulary = Self.makeReverseVocabularyPreservingFirstID(from: decodedVocabulary)
