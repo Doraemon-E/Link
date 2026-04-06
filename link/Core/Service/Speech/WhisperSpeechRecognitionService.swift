@@ -263,13 +263,15 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 context: context,
                 mode: .streaming
             )
-            let hasPauseHint = gateUpdate.trailingSilenceDuration >= 0.35 ||
-                hasStrongPausePunctuation(in: result.text)
+            let pauseStrength = pauseStrength(
+                trailingSilenceDuration: gateUpdate.trailingSilenceDuration,
+                transcript: result.text
+            )
             return session.stabilizer.consume(
                 candidate: result.text,
                 detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
                 isEndpoint: false,
-                hasPauseHint: hasPauseHint
+                pauseStrength: pauseStrength
             )
         } catch let error as SpeechRecognitionError {
             if case .emptyTranscription = error {
@@ -306,7 +308,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 candidate: result.text,
                 detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
                 isEndpoint: true,
-                hasPauseHint: true
+                pauseStrength: .hard
             )
         } catch let error as SpeechRecognitionError {
             if case .emptyTranscription = error {
@@ -477,6 +479,21 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         }
 
         return Self.strongPausePunctuationCharacters.contains(lastCharacter)
+    }
+
+    private func pauseStrength(
+        trailingSilenceDuration: TimeInterval,
+        transcript: String
+    ) -> SpeechPauseStrength {
+        if trailingSilenceDuration >= 0.55 {
+            return .hard
+        }
+
+        if trailingSilenceDuration >= 0.35 || hasStrongPausePunctuation(in: transcript) {
+            return .soft
+        }
+
+        return .none
     }
 
     private static let whisperNonSpeechPlaceholders: Set<String> = [

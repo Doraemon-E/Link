@@ -12,6 +12,16 @@ nonisolated struct SpeechRecognitionResult: Sendable {
     let detectedLanguage: String?
 }
 
+nonisolated enum SpeechPauseStrength: Int, Sendable, Comparable {
+    case none
+    case soft
+    case hard
+
+    static func < (lhs: SpeechPauseStrength, rhs: SpeechPauseStrength) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 nonisolated struct SpeechTranscriptionSnapshot: Sendable, Equatable {
     let stableTranscript: String
     let provisionalTranscript: String
@@ -19,7 +29,7 @@ nonisolated struct SpeechTranscriptionSnapshot: Sendable, Equatable {
     let revision: Int
     let detectedLanguage: SupportedLanguage?
     let isEndpoint: Bool
-    let hasPauseHint: Bool
+    let pauseStrength: SpeechPauseStrength
 
     var fullTranscript: String {
         let transcript = stableTranscript + provisionalTranscript + liveTranscript
@@ -41,6 +51,10 @@ nonisolated struct SpeechTranscriptionSnapshot: Sendable, Equatable {
 
     var hasUnstableTranscript: Bool {
         hasProvisionalTranscript || hasLiveTranscript
+    }
+
+    var hasPauseHint: Bool {
+        pauseStrength != .none
     }
 }
 
