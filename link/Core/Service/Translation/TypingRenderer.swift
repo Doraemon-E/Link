@@ -62,6 +62,7 @@ nonisolated enum TypingRenderer {
 
         var renderedText = ""
         var steps: [TypingRenderStep] = []
+        /// 与分配内存，提高性能
         steps.reserveCapacity(chunks.count)
 
         for index in chunks.indices {
