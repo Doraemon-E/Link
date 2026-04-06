@@ -12,6 +12,9 @@ struct HomeView: View {
     private static let messageListBottomAnchorID = "home-message-list-bottom-anchor"
     private static let messageListBottomSpacing: CGFloat = 16
     private static let messageListBottomActionClearance: CGFloat = 44
+    private static let chatInputHorizontalInset: CGFloat = 14
+    private static let chatInputTopInset: CGFloat = 8
+    private static let chatInputBottomInset: CGFloat = 10
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
@@ -111,6 +114,10 @@ struct HomeView: View {
                         }
                     }
                 )
+                .padding(.horizontal, Self.chatInputHorizontalInset)
+                .padding(.top, Self.chatInputTopInset)
+                .padding(.bottom, Self.chatInputBottomInset)
+                .frame(maxWidth: .infinity)
                 .background {
                     GeometryReader { proxy in
                         Color.clear
