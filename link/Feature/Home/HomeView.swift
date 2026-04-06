@@ -48,12 +48,6 @@ struct HomeView: View {
                         sessionHistoryToolbarButton
                     }
 
-                    ToolbarItem {
-                        toolbarContent
-                    }
-
-                    ToolbarSpacer()
-
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         if store.shouldShowDownloadToolbarButton {
                             downloadToolbarButton
@@ -329,10 +323,6 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
     }
 
-    private var toolbarContent: some View {
-        toolbarLanguagePickerButton
-    }
-
     private var downloadManagerView: some View {
         ModelAssetsView(
             processingRecords: store.processingAssetRecords,
@@ -396,21 +386,6 @@ struct HomeView: View {
                 hasAttention: store.assetManagerHasAttention
             )
         }
-    }
-
-    private var toolbarLanguagePickerButton: some View {
-        Button {
-            store.isLanguageSheetPresented = true
-        } label: {
-            HomeToolbarTranslationItem(
-                flagEmoji: store.selectedLanguage.flagEmoji,
-                title: store.selectedLanguage.displayName
-            )
-            .frame(maxWidth: 200)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("目标语言")
-        .accessibilityValue(store.selectedLanguage.displayName)
     }
 
     private func toolbarIconButton<Label: View>(
