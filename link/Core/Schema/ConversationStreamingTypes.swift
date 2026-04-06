@@ -16,12 +16,8 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var stableTranscript: String = ""
     var provisionalTranscript: String = ""
     var liveTranscript: String = ""
-    var stableTranslation: String = ""
-    var unstableTranslation: String = ""
-    var displayTranslation: String = ""
     var detectedLanguage: SupportedLanguage?
     var transcriptRevision: Int = 0
-    var translationRevision: Int = 0
     var isEndpoint: Bool = false
 
     var fullTranscript: String {
@@ -32,12 +28,6 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
 
     var unstableTranscript: String {
         provisionalTranscript + liveTranscript
-    }
-
-    var effectiveTranslation: String {
-        let preferredTranslation = displayTranslation.isEmpty ? stableTranslation : displayTranslation
-        let normalized = preferredTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? preferredTranslation : normalized
     }
 
     var hasProvisionalTranscript: Bool {
@@ -51,29 +41,9 @@ nonisolated struct LiveUtteranceState: Sendable, Equatable {
     var hasUnstableTranscript: Bool {
         hasProvisionalTranscript || hasLiveTranscript
     }
-
-    var hasUnstableTranslation: Bool {
-        !unstableTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var hasDisplayTranslationBeyondStable: Bool {
-        let normalizedDisplayTranslation = displayTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedDisplayTranslation.isEmpty else {
-            return false
-        }
-
-        let normalizedStableTranslation = stableTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedStableTranslation.isEmpty else {
-            return true
-        }
-
-        return normalizedDisplayTranslation != normalizedStableTranslation
-    }
 }
 
-nonisolated enum LiveSpeechTranslationEvent: Sendable, Equatable {
+nonisolated enum LiveSpeechTranscriptionEvent: Sendable, Equatable {
     case state(LiveUtteranceState)
     case completed(LiveUtteranceState)
 }
@@ -84,7 +54,7 @@ nonisolated enum ConversationStreamingCoordinatorError: LocalizedError, Equatabl
     var errorDescription: String? {
         switch self {
         case .liveSpeechNotAvailable:
-            return "Live speech translation is not available in the current build."
+            return "Live speech transcription is not available in the current build."
         }
     }
 }

@@ -81,6 +81,28 @@ final class HomeMessageWorkflow {
         }
     }
 
+    func startSpeechTranslation(
+        for messageID: UUID,
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        in runtime: HomeRuntimeContext
+    ) {
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTranscript.isEmpty else {
+            return
+        }
+
+        startStreamingTranslation(
+            for: messageID,
+            originalText: trimmedTranscript,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            translationOrigin: .speech,
+            in: runtime
+        )
+    }
+
     private func resolveSourceLanguage(for text: String) async throws -> SupportedLanguage {
         let result = try await textLanguageRecognitionService.recognizeLanguage(for: text)
         return result.language
@@ -157,23 +179,13 @@ final class HomeMessageWorkflow {
             }
 
             do {
-                let stream: AsyncThrowingStream<ConversationStreamingEvent, Error>
-                switch translationOrigin {
-                case .manual:
-                    stream = self.conversationStreamingCoordinator.startManualTranslation(
-                        messageID: messageID,
-                        text: originalText,
-                        sourceLanguage: sourceLanguage,
-                        targetLanguage: targetLanguage
-                    )
-                case .speech:
-                    stream = self.conversationStreamingCoordinator.startSpeechTranslation(
-                        messageID: messageID,
-                        text: originalText,
-                        sourceLanguage: sourceLanguage,
-                        targetLanguage: targetLanguage
-                    )
-                }
+                let stream = self.translationStream(
+                    for: messageID,
+                    originalText: originalText,
+                    sourceLanguage: sourceLanguage,
+                    targetLanguage: targetLanguage,
+                    translationOrigin: translationOrigin
+                )
                 for try await event in stream {
                     self.handleStreamingConversationEvent(event, in: runtime)
                 }
@@ -195,6 +207,31 @@ final class HomeMessageWorkflow {
         }
 
         translationTasksByMessageID[messageID] = task
+    }
+
+    private func translationStream(
+        for messageID: UUID,
+        originalText: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        translationOrigin: HomeTranslationRequestOrigin
+    ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
+        switch translationOrigin {
+        case .manual:
+            return conversationStreamingCoordinator.startManualTranslation(
+                messageID: messageID,
+                text: originalText,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage
+            )
+        case .speech:
+            return conversationStreamingCoordinator.startSpeechTranslation(
+                messageID: messageID,
+                text: originalText,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage
+            )
+        }
     }
 
     private func handleStreamingConversationEvent(

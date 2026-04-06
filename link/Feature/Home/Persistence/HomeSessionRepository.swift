@@ -252,6 +252,25 @@ final class HomeSessionRepository {
         return message
     }
 
+    func finalizeLiveSpeechTranscript(
+        _ liveSpeechSession: HomeLiveSpeechSessionRecord,
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        audioURL: String?,
+        in runtime: HomeRuntimeContext
+    ) {
+        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        liveSpeechSession.message.sourceText = normalizedTranscript
+        liveSpeechSession.message.sourceLanguage = sourceLanguage
+        liveSpeechSession.message.targetLanguage = liveSpeechSession.targetLanguage
+        liveSpeechSession.message.translatedText = ""
+        liveSpeechSession.message.audioURL = audioURL
+        liveSpeechSession.session.updatedAt = .now
+
+        saveContext(in: runtime)
+    }
+
     func updateSessionLanguages(
         _ session: ChatSession,
         sourceLanguage: SupportedLanguage? = nil,

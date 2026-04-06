@@ -123,7 +123,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
         store: self,
         sessionRepository: sessionRepository,
         conversationStreamingCoordinator: conversationStreamingCoordinator,
-        translationService: dependencies.translationService,
+        messageWorkflow: messageWorkflow,
         speechRecognitionService: dependencies.speechRecognitionService,
         microphoneRecordingService: dependencies.microphoneRecordingService,
         downloadWorkflow: downloadWorkflow,
@@ -349,10 +349,6 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
             return
         }
 
-        guard !playbackController.shouldAutoExpandSpeechTranscript(for: message) else {
-            return
-        }
-
         if expandedSpeechTranscriptMessageIDs.contains(message.id) {
             expandedSpeechTranscriptMessageIDs.remove(message.id)
         } else {
@@ -429,7 +425,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
             isSourcePlaybackDisabled: playbackController.isSourcePlaybackDisabled(for: message) || isMessageSwitching,
             isPlayingSourceMessage: playbackController.isPlayingSourceMessage(message),
             showsSpeechTranscript: isSpeechTranscriptExpanded(for: message),
-            isSpeechTranscriptToggleDisabled: playbackController.shouldAutoExpandSpeechTranscript(for: message) || isMessageSwitching,
+            isSpeechTranscriptToggleDisabled: isMessageSwitching,
             hasPlayableSourceRecording: playbackController.hasPlayableSourceRecording(for: message),
             isSourceLanguageSwitchDisabled: isLanguageSwitchDisabled,
             isTargetLanguageSwitchDisabled: isLanguageSwitchDisabled,
@@ -481,10 +477,6 @@ final class HomeStore: HomeMessageLanguageWorkflowStore {
     private func isSpeechTranscriptExpanded(for message: ChatMessage) -> Bool {
         guard message.inputType == .speech else {
             return false
-        }
-
-        if playbackController.shouldAutoExpandSpeechTranscript(for: message) {
-            return true
         }
 
         return expandedSpeechTranscriptMessageIDs.contains(message.id)

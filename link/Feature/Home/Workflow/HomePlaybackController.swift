@@ -164,15 +164,6 @@ final class HomePlaybackController {
         }
     }
 
-    func shouldAutoExpandSpeechTranscript(for message: ChatMessage) -> Bool {
-        guard message.inputType == .speech,
-              let streamingState = store.streamingStatesByMessageID[message.id] else {
-            return false
-        }
-
-        return streamingState.sourcePhase.isInProgress || streamingState.translationPhase.isInProgress
-    }
-
     func stop() {
         let previousPlaybackID = currentPlaybackID
         let hadActivePlayback = previousPlaybackID != nil || store.activePlaybackState != nil

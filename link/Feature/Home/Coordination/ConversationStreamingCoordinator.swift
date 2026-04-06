@@ -22,43 +22,28 @@ protocol ConversationStreamingCoordinator: Sendable {
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error>
 
-    func startLiveSpeechTranslation(
+    func startLiveSpeechTranscription(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
-        sourceLanguage: SupportedLanguage?,
-        targetLanguage: SupportedLanguage
-    ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error>
+        sourceLanguage: SupportedLanguage?
+    ) -> AsyncThrowingStream<LiveSpeechTranscriptionEvent, Error>
 
     func cancel(messageID: UUID) async
 }
 
 actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
-    private struct LivePreviewRequest: Sendable {
-        let requestID: Int
-        let transcript: String
-        let sourceLanguage: SupportedLanguage
-        let targetLanguage: SupportedLanguage
-    }
-
     private let translationService: TranslationService
-    private let translationAssetReadinessProvider: (any TranslationAssetReadinessProviding)?
     private let speechStreamingService: (any SpeechRecognitionStreamingService)?
     private var tasksByMessageID: [UUID: Task<Void, Never>] = [:]
     private var liveStatesByMessageID: [UUID: LiveUtteranceState] = [:]
-    private var liveResolvedSourceLanguagesByMessageID: [UUID: SupportedLanguage] = [:]
-    private var liveStableTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
-    private var livePreviewTranslationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
-    private var livePreviewRequestsByMessageID: [UUID: LivePreviewRequest] = [:]
-    private var liveNextPreviewRequestIDsByMessageID: [UUID: Int] = [:]
-    private var liveAppliedPreviewRequestIDsByMessageID: [UUID: Int] = [:]
 
     init(
         translationService: TranslationService,
         translationAssetReadinessProvider: (any TranslationAssetReadinessProviding)? = nil,
         speechStreamingService: (any SpeechRecognitionStreamingService)? = nil
     ) {
+        _ = translationAssetReadinessProvider
         self.translationService = translationService
-        self.translationAssetReadinessProvider = translationAssetReadinessProvider
         self.speechStreamingService = speechStreamingService
     }
 
@@ -90,17 +75,18 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         )
     }
 
-    nonisolated func startLiveSpeechTranslation(
+    nonisolated func startLiveSpeechTranscription(
         messageID: UUID,
         audioStream: AsyncStream<[Float]>,
-        sourceLanguage: SupportedLanguage?,
-        targetLanguage: SupportedLanguage
-    ) -> AsyncThrowingStream<LiveSpeechTranslationEvent, Error> {
+        sourceLanguage: SupportedLanguage?
+    ) -> AsyncThrowingStream<LiveSpeechTranscriptionEvent, Error> {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
                     guard let speechStreamingService = self.speechStreamingService else {
-                        continuation.finish(throwing: ConversationStreamingCoordinatorError.liveSpeechNotAvailable)
+                        continuation.finish(
+                            throwing: ConversationStreamingCoordinatorError.liveSpeechNotAvailable
+                        )
                         return
                     }
 
@@ -118,12 +104,10 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                         case .started:
                             continue
                         case .updated(let snapshot), .completed(let snapshot):
-                            if let state = try await self.consumeLiveTranscriptSnapshot(
+                            if let state = await self.consumeLiveTranscriptSnapshot(
                                 messageID: messageID,
                                 snapshot: snapshot,
-                                preferredSourceLanguage: sourceLanguage,
-                                targetLanguage: targetLanguage,
-                                continuation: continuation
+                                preferredSourceLanguage: sourceLanguage
                             ) {
                                 continuation.yield(.state(state))
                             }
@@ -250,7 +234,6 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
     ) -> LiveUtteranceState {
         let state = LiveUtteranceState(detectedLanguage: sourceLanguage)
         liveStatesByMessageID[messageID] = state
-        liveNextPreviewRequestIDsByMessageID[messageID] = 0
         return state
     }
 
@@ -258,636 +241,38 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         liveStatesByMessageID[messageID] ?? LiveUtteranceState()
     }
 
-    private func currentLiveTranscript(messageID: UUID) -> String {
-        liveStatesByMessageID[messageID]?.fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
     private func consumeLiveTranscriptSnapshot(
         messageID: UUID,
         snapshot: SpeechTranscriptionSnapshot,
-        preferredSourceLanguage: SupportedLanguage?,
-        targetLanguage: SupportedLanguage,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) async throws -> LiveUtteranceState? {
-        let normalizedTranscript = snapshot.fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTranscript.isEmpty || snapshot.detectedLanguage != nil else {
+        preferredSourceLanguage: SupportedLanguage?
+    ) -> LiveUtteranceState? {
+        let normalizedTranscript = snapshot.fullTranscript.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedTranscript.isEmpty ||
+                snapshot.detectedLanguage != nil ||
+                preferredSourceLanguage != nil else {
             return nil
         }
 
         var state = liveStatesByMessageID[messageID] ?? LiveUtteranceState()
-        let previousStableTranscript = state.stableTranscript
-        let previousResolvedSourceLanguage = liveResolvedSourceLanguagesByMessageID[messageID]
-
-        let resolvedSourceLanguage = try await resolveLiveSourceLanguage(
-            messageID: messageID,
-            preferredSourceLanguage: preferredSourceLanguage,
-            detectedLanguage: snapshot.detectedLanguage,
-            targetLanguage: targetLanguage
-        )
-        let sourceLanguageChanged = previousResolvedSourceLanguage != resolvedSourceLanguage
-
+        let previousState = state
         state.stableTranscript = snapshot.stableTranscript
         state.provisionalTranscript = snapshot.provisionalTranscript
         state.liveTranscript = snapshot.liveTranscript
-        state.detectedLanguage = snapshot.detectedLanguage ?? state.detectedLanguage
+        state.detectedLanguage = snapshot.detectedLanguage ?? state.detectedLanguage ?? preferredSourceLanguage
         state.transcriptRevision = snapshot.revision
         state.isEndpoint = snapshot.isEndpoint
-        liveStatesByMessageID[messageID] = state
 
-        let effectiveSourceLanguage = resolvedSourceLanguage ?? state.detectedLanguage ?? preferredSourceLanguage
-        if let effectiveSourceLanguage {
-            if state.stableTranscript != previousStableTranscript || snapshot.isEndpoint || sourceLanguageChanged {
-                scheduleStableTranslation(
-                    messageID: messageID,
-                    transcript: state.stableTranscript,
-                    sourceLanguage: effectiveSourceLanguage,
-                    targetLanguage: targetLanguage,
-                    continuation: continuation
-                )
-            }
-
-            if state.hasUnstableTranscript {
-                schedulePreviewTranslation(
-                    messageID: messageID,
-                    transcript: state.fullTranscript,
-                    sourceLanguage: effectiveSourceLanguage,
-                    targetLanguage: targetLanguage,
-                    forceImmediate: snapshot.hasPauseHint || snapshot.isEndpoint,
-                    continuation: continuation
-                )
-            } else {
-                clearPreviewTranslationState(
-                    messageID: messageID,
-                    continuation: continuation
-                )
-            }
-        }
-
-        return state
-    }
-
-    private func resolveLiveSourceLanguage(
-        messageID: UUID,
-        preferredSourceLanguage: SupportedLanguage?,
-        detectedLanguage: SupportedLanguage?,
-        targetLanguage: SupportedLanguage
-    ) async throws -> SupportedLanguage? {
-        if let detectedLanguage {
-            let currentResolvedLanguage = liveResolvedSourceLanguagesByMessageID[messageID]
-            if currentResolvedLanguage != detectedLanguage,
-               try await hasReadyTranslation(source: detectedLanguage, target: targetLanguage) {
-                liveResolvedSourceLanguagesByMessageID[messageID] = detectedLanguage
-                return detectedLanguage
-            }
-        }
-
-        if let resolvedLanguage = liveResolvedSourceLanguagesByMessageID[messageID] {
-            return resolvedLanguage
-        }
-
-        if let preferredSourceLanguage,
-           try await hasReadyTranslation(source: preferredSourceLanguage, target: targetLanguage) {
-            liveResolvedSourceLanguagesByMessageID[messageID] = preferredSourceLanguage
-            return preferredSourceLanguage
-        }
-
-        if let detectedLanguage,
-           try await hasReadyTranslation(source: detectedLanguage, target: targetLanguage) {
-            liveResolvedSourceLanguagesByMessageID[messageID] = detectedLanguage
-            return detectedLanguage
-        }
-
-        return nil
-    }
-
-    private func hasReadyTranslation(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) async throws -> Bool {
-        if let translationAssetReadinessProvider {
-            do {
-                let route = try await translationService.route(source: source, target: target)
-                return try await translationAssetReadinessProvider.areTranslationAssetsReady(
-                    for: route
-                )
-            } catch is TranslationError {
-                return false
-            }
-        }
-
-        return try await translationService.supports(source: source, target: target)
-    }
-
-    private func scheduleStableTranslation(
-        messageID: UUID,
-        transcript: String,
-        sourceLanguage: SupportedLanguage,
-        targetLanguage: SupportedLanguage,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) {
-        liveStableTranslationTasksByMessageID[messageID]?.cancel()
-
-        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTranscript.isEmpty else {
-            clearStableTranslationState(
-                messageID: messageID,
-                continuation: continuation
-            )
-            return
-        }
-
-        let task = Task {
-            do {
-                let translatedText = try await self.translationService.translate(
-                    text: normalizedTranscript,
-                    source: sourceLanguage,
-                    target: targetLanguage
-                )
-                try Task.checkCancellation()
-
-                if let state = self.applyStableTranslation(
-                    messageID: messageID,
-                    translatedText: translatedText,
-                    targetLanguage: targetLanguage
-                ) {
-                    continuation.yield(.state(state))
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                return
-            }
-        }
-
-        liveStableTranslationTasksByMessageID[messageID] = task
-    }
-
-    private func schedulePreviewTranslation(
-        messageID: UUID,
-        transcript: String,
-        sourceLanguage: SupportedLanguage,
-        targetLanguage: SupportedLanguage,
-        forceImmediate: Bool,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) {
-        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTranscript.isEmpty else {
-            clearPreviewTranslationState(
-                messageID: messageID,
-                continuation: continuation
-            )
-            return
-        }
-
-        let nextRequestID = (liveNextPreviewRequestIDsByMessageID[messageID] ?? 0) + 1
-        liveNextPreviewRequestIDsByMessageID[messageID] = nextRequestID
-        livePreviewRequestsByMessageID[messageID] = LivePreviewRequest(
-            requestID: nextRequestID,
-            transcript: normalizedTranscript,
-            sourceLanguage: sourceLanguage,
-            targetLanguage: targetLanguage
-        )
-
-        guard livePreviewTranslationTasksByMessageID[messageID] == nil else {
-            return
-        }
-
-        let task = Task {
-            await self.processPreviewTranslations(
-                messageID: messageID,
-                initialForceImmediate: forceImmediate,
-                continuation: continuation
-            )
-        }
-        livePreviewTranslationTasksByMessageID[messageID] = task
-    }
-
-    private func processPreviewTranslations(
-        messageID: UUID,
-        initialForceImmediate: Bool,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) async {
-        var shouldSkipDelay = initialForceImmediate
-
-        defer {
-            livePreviewTranslationTasksByMessageID.removeValue(forKey: messageID)
-        }
-
-        while !Task.isCancelled {
-            guard livePreviewRequestsByMessageID[messageID] != nil else {
-                break
-            }
-
-            do {
-                if !shouldSkipDelay {
-                    try await Task.sleep(for: .milliseconds(200))
-                }
-                shouldSkipDelay = false
-                try Task.checkCancellation()
-
-                guard let request = livePreviewRequestsByMessageID.removeValue(forKey: messageID) else {
-                    continue
-                }
-
-                guard request.transcript == currentLiveTranscript(messageID: messageID) else {
-                    continue
-                }
-
-                let translatedText = try await translationService.translate(
-                    text: request.transcript,
-                    source: request.sourceLanguage,
-                    target: request.targetLanguage
-                )
-                try Task.checkCancellation()
-
-                if let state = applyPreviewTranslation(
-                    messageID: messageID,
-                    requestID: request.requestID,
-                    sourceTranscript: request.transcript,
-                    translatedText: translatedText,
-                    targetLanguage: request.targetLanguage
-                ) {
-                    continuation.yield(.state(state))
-                }
-            } catch is CancellationError {
-                break
-            } catch {
-                continue
-            }
-        }
-    }
-
-    private func applyStableTranslation(
-        messageID: UUID,
-        translatedText: String,
-        targetLanguage: SupportedLanguage
-    ) -> LiveUtteranceState? {
-        guard var state = liveStatesByMessageID[messageID] else {
+        guard state != previousState else {
             return nil
         }
 
-        let normalizedTranslation = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayTranslation = composeDisplayTranslation(
-            previousDisplayTranslation: state.displayTranslation,
-            stableTranslation: normalizedTranslation,
-            previewTranslation: state.unstableTranslation,
-            targetLanguage: targetLanguage
-        )
-
-        guard normalizedTranslation != state.stableTranslation ||
-            displayTranslation != state.displayTranslation else {
-            return nil
-        }
-
-        state.stableTranslation = normalizedTranslation
-        state.displayTranslation = displayTranslation
-        if !state.hasUnstableTranscript {
-            state.unstableTranslation = ""
-        }
-        state.translationRevision += 1
         liveStatesByMessageID[messageID] = state
         return state
-    }
-
-    private func applyPreviewTranslation(
-        messageID: UUID,
-        requestID: Int,
-        sourceTranscript: String,
-        translatedText: String,
-        targetLanguage: SupportedLanguage
-    ) -> LiveUtteranceState? {
-        guard var state = liveStatesByMessageID[messageID] else {
-            return nil
-        }
-
-        let lastAppliedRequestID = liveAppliedPreviewRequestIDsByMessageID[messageID] ?? 0
-        guard requestID >= lastAppliedRequestID else {
-            return nil
-        }
-
-        let normalizedSourceTranscript = sourceTranscript
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedSourceTranscript == currentLiveTranscript(messageID: messageID) else {
-            return nil
-        }
-
-        let normalizedTranslation = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let candidateDisplayTranslation = composeDisplayTranslation(
-            previousDisplayTranslation: state.displayTranslation,
-            stableTranslation: state.stableTranslation,
-            previewTranslation: normalizedTranslation,
-            targetLanguage: targetLanguage
-        )
-        let displayTranslation = resolvedPreviewDisplayTranslation(
-            previousDisplayTranslation: state.displayTranslation,
-            candidateDisplayTranslation: candidateDisplayTranslation,
-            hasUnstableTranscript: state.hasUnstableTranscript
-        )
-
-        guard normalizedTranslation != state.unstableTranslation ||
-            displayTranslation != state.displayTranslation else {
-            return nil
-        }
-
-        state.unstableTranslation = normalizedTranslation
-        state.displayTranslation = displayTranslation
-        state.translationRevision += 1
-        liveStatesByMessageID[messageID] = state
-        liveAppliedPreviewRequestIDsByMessageID[messageID] = requestID
-        return state
-    }
-
-    private func clearStableTranslationState(
-        messageID: UUID,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) {
-        guard var state = liveStatesByMessageID[messageID] else {
-            return
-        }
-
-        guard !state.stableTranslation.isEmpty ||
-                !state.unstableTranslation.isEmpty ||
-                !state.displayTranslation.isEmpty else {
-            return
-        }
-
-        state.stableTranslation = ""
-        state.unstableTranslation = ""
-        state.displayTranslation = ""
-        state.translationRevision += 1
-        liveStatesByMessageID[messageID] = state
-        continuation.yield(.state(state))
-    }
-
-    private func clearPreviewTranslationState(
-        messageID: UUID,
-        continuation: AsyncThrowingStream<LiveSpeechTranslationEvent, Error>.Continuation
-    ) {
-        livePreviewRequestsByMessageID.removeValue(forKey: messageID)
-
-        guard var state = liveStatesByMessageID[messageID] else {
-            return
-        }
-
-        let displayTranslation = retainedDisplayTranslationAfterPreviewCleared(
-            previousDisplayTranslation: state.displayTranslation,
-            stableTranslation: state.stableTranslation
-        )
-        guard !state.unstableTranslation.isEmpty || state.displayTranslation != displayTranslation else {
-            return
-        }
-
-        state.unstableTranslation = ""
-        state.displayTranslation = displayTranslation
-        state.translationRevision += 1
-        liveStatesByMessageID[messageID] = state
-        continuation.yield(.state(state))
-    }
-
-    private func resolvedPreviewDisplayTranslation(
-        previousDisplayTranslation: String,
-        candidateDisplayTranslation: String,
-        hasUnstableTranscript: Bool
-    ) -> String {
-        let normalizedPrevious = previousDisplayTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCandidate = candidateDisplayTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard hasUnstableTranscript else {
-            return normalizedCandidate
-        }
-
-        guard !normalizedPrevious.isEmpty else {
-            return normalizedCandidate
-        }
-
-        guard !normalizedCandidate.isEmpty else {
-            return normalizedPrevious
-        }
-
-        let previousComparisonKey = displayTranslationComparisonKey(normalizedPrevious)
-        let candidateComparisonKey = displayTranslationComparisonKey(normalizedCandidate)
-
-        if candidateComparisonKey == previousComparisonKey ||
-            candidateComparisonKey.hasPrefix(previousComparisonKey) {
-            return normalizedCandidate
-        }
-
-        if previousComparisonKey.hasPrefix(candidateComparisonKey) {
-            return normalizedPrevious
-        }
-
-        return normalizedPrevious
-    }
-
-    private func retainedDisplayTranslationAfterPreviewCleared(
-        previousDisplayTranslation: String,
-        stableTranslation: String
-    ) -> String {
-        let normalizedPrevious = previousDisplayTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedStable = stableTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !normalizedPrevious.isEmpty else {
-            return normalizedStable
-        }
-
-        guard !normalizedStable.isEmpty else {
-            return normalizedPrevious
-        }
-
-        let previousComparisonKey = displayTranslationComparisonKey(normalizedPrevious)
-        let stableComparisonKey = displayTranslationComparisonKey(normalizedStable)
-
-        if previousComparisonKey == stableComparisonKey ||
-            previousComparisonKey.hasPrefix(stableComparisonKey) {
-            return normalizedPrevious
-        }
-
-        return normalizedStable
-    }
-
-    private func displayTranslationComparisonKey(_ text: String) -> String {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else {
-            return ""
-        }
-
-        var comparisonKey = ""
-        var lastCharacterWasWhitespace = false
-
-        for character in trimmedText {
-            if character.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
-                if !comparisonKey.isEmpty, !lastCharacterWasWhitespace {
-                    comparisonKey.append(" ")
-                }
-                lastCharacterWasWhitespace = true
-                continue
-            }
-
-            lastCharacterWasWhitespace = false
-            comparisonKey.append(normalizedDisplayComparisonFragment(for: character))
-        }
-
-        return comparisonKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func normalizedDisplayComparisonFragment(for character: Character) -> String {
-        switch character {
-        case "，", ",":
-            return ","
-        case "。", ".":
-            return "."
-        case "！", "!":
-            return "!"
-        case "？", "?":
-            return "?"
-        case "：", ":":
-            return ":"
-        case "；", ";":
-            return ";"
-        case "（", "(":
-            return "("
-        case "）", ")":
-            return ")"
-        case "“", "”", "\"":
-            return "\""
-        case "‘", "’", "'":
-            return "'"
-        default:
-            let fragment = String(character)
-            if fragment.unicodeScalars.allSatisfy(\.isASCII) {
-                return fragment.lowercased()
-            }
-            return fragment
-        }
     }
 
     private func teardownLiveSpeechState(messageID: UUID) {
-        liveStableTranslationTasksByMessageID[messageID]?.cancel()
-        livePreviewTranslationTasksByMessageID[messageID]?.cancel()
-        liveStableTranslationTasksByMessageID.removeValue(forKey: messageID)
-        livePreviewTranslationTasksByMessageID.removeValue(forKey: messageID)
-        livePreviewRequestsByMessageID.removeValue(forKey: messageID)
-        liveNextPreviewRequestIDsByMessageID.removeValue(forKey: messageID)
-        liveAppliedPreviewRequestIDsByMessageID.removeValue(forKey: messageID)
-        liveResolvedSourceLanguagesByMessageID.removeValue(forKey: messageID)
         liveStatesByMessageID.removeValue(forKey: messageID)
-    }
-
-    private func composeDisplayTranslation(
-        previousDisplayTranslation: String,
-        stableTranslation: String,
-        previewTranslation: String,
-        targetLanguage: SupportedLanguage
-    ) -> String {
-        let normalizedStable = stableTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPreview = previewTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrevious = previousDisplayTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !normalizedStable.isEmpty else {
-            return normalizedPreview
-        }
-
-        guard !normalizedPreview.isEmpty else {
-            return normalizedStable
-        }
-
-        if let mergedTranslation = mergeStableTranslationWithPreview(
-            stableTranslation: normalizedStable,
-            previewTranslation: normalizedPreview,
-            targetLanguage: targetLanguage
-        ) {
-            return mergedTranslation
-        }
-
-        if normalizedPrevious.hasPrefix(normalizedStable) {
-            return normalizedPrevious
-        }
-
-        return normalizedStable
-    }
-
-    private func mergeStableTranslationWithPreview(
-        stableTranslation: String,
-        previewTranslation: String,
-        targetLanguage: SupportedLanguage
-    ) -> String? {
-        if previewTranslation == stableTranslation {
-            return stableTranslation
-        }
-
-        if previewTranslation.hasPrefix(stableTranslation) {
-            return previewTranslation
-        }
-
-        let stableCharacters = Array(stableTranslation)
-        let previewCharacters = Array(previewTranslation)
-        let maxOverlap = min(stableCharacters.count, previewCharacters.count)
-        let minimumOverlap = min(
-            minimumDisplayTranslationOverlapCharacterCount(for: targetLanguage),
-            maxOverlap
-        )
-
-        guard minimumOverlap > 0 else {
-            return nil
-        }
-
-        for overlapLength in stride(from: maxOverlap, through: minimumOverlap, by: -1) {
-            let stableSuffix = stableCharacters.suffix(overlapLength)
-            let previewPrefix = previewCharacters.prefix(overlapLength)
-
-            guard Array(stableSuffix) == Array(previewPrefix) else {
-                continue
-            }
-
-            if !isValidDisplayTranslationOverlap(
-                stableCharacters: stableCharacters,
-                overlapLength: overlapLength,
-                targetLanguage: targetLanguage
-            ) {
-                continue
-            }
-
-            return stableTranslation + String(previewCharacters.dropFirst(overlapLength))
-        }
-
-        return nil
-    }
-
-    private func minimumDisplayTranslationOverlapCharacterCount(
-        for language: SupportedLanguage
-    ) -> Int {
-        if [.chinese, .japanese, .korean].contains(language) {
-            return 2
-        }
-
-        return 4
-    }
-
-    private func isValidDisplayTranslationOverlap(
-        stableCharacters: [Character],
-        overlapLength: Int,
-        targetLanguage: SupportedLanguage
-    ) -> Bool {
-        if [.chinese, .japanese, .korean].contains(targetLanguage) {
-            return true
-        }
-
-        let overlapStartIndex = stableCharacters.count - overlapLength
-        guard overlapStartIndex > 0 else {
-            return true
-        }
-
-        let precedingCharacter = stableCharacters[overlapStartIndex - 1]
-        return isDisplayTranslationBoundary(precedingCharacter)
-    }
-
-    private func isDisplayTranslationBoundary(_ character: Character) -> Bool {
-        character.unicodeScalars.allSatisfy { scalar in
-            CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).contains(scalar)
-        }
     }
 }

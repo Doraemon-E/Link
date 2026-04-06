@@ -238,7 +238,7 @@ struct HomeChatMessageBubble: View {
                     )
                 }
             case .speech:
-                speechCapsuleButton
+                speechCapsule
 
                 actionRow(alignment: .trailing) {
                     bubbleActionButton(
@@ -263,31 +263,34 @@ struct HomeChatMessageBubble: View {
         }
     }
 
+    @ViewBuilder
     private var translatedSection: some View {
-        alignedGroup(alignment: .leading, horizontalAlignment: .leading) {
-            languageChipRow(alignment: .leading) {
-                LanguageChip(
-                    language: targetLanguage,
-                    isBusy: isTargetLanguageSwitching,
-                    isDisabled: isTargetLanguageSwitchDisabled,
-                    action: onTargetLanguageSelection
-                )
-            }
-
-            bubble(role: .incomingTranslation) {
-                translatedBubbleBody
-            }
-
-            if showsTranslatedPlaybackButton {
-                actionRow(alignment: .leading) {
-                    bubbleActionButton(
-                        systemName: isPlayingTranslatedMessage ? "stop.fill" : "speaker.wave.2.fill",
-                        title: isPlayingTranslatedMessage ? "停止" : "朗读",
-                        tint: isPlayingTranslatedMessage ? Color.accentColor : Color.secondary,
-                        isDisabled: isTranslatedPlaybackDisabled,
-                        accessibilityLabel: isPlayingTranslatedMessage ? "停止播放译文语音" : "播放译文语音",
-                        action: onTranslatedPlayback
+        if shouldShowTranslatedSection {
+            alignedGroup(alignment: .leading, horizontalAlignment: .leading) {
+                languageChipRow(alignment: .leading) {
+                    LanguageChip(
+                        language: targetLanguage,
+                        isBusy: isTargetLanguageSwitching,
+                        isDisabled: isTargetLanguageSwitchDisabled,
+                        action: onTargetLanguageSelection
                     )
+                }
+
+                bubble(role: .incomingTranslation) {
+                    translatedBubbleBody
+                }
+
+                if showsTranslatedPlaybackButton {
+                    actionRow(alignment: .leading) {
+                        bubbleActionButton(
+                            systemName: isPlayingTranslatedMessage ? "stop.fill" : "speaker.wave.2.fill",
+                            title: isPlayingTranslatedMessage ? "停止" : "朗读",
+                            tint: isPlayingTranslatedMessage ? Color.accentColor : Color.secondary,
+                            isDisabled: isTranslatedPlaybackDisabled,
+                            accessibilityLabel: isPlayingTranslatedMessage ? "停止播放译文语音" : "播放译文语音",
+                            action: onTranslatedPlayback
+                        )
+                    }
                 }
             }
         }
@@ -323,43 +326,26 @@ struct HomeChatMessageBubble: View {
         }
     }
 
-    private var speechCapsuleButton: some View {
-        Button(action: onSourcePlayback) {
-            bubble(
-                role: .speechCapsule,
-                borderColor: hasPlayableSourceRecording ? Color.primary.opacity(0.06) : Color.clear
-            ) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(width: 34, height: 34)
-
-                        Image(systemName: isPlayingSourceMessage ? "stop.fill" : "waveform")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(sourcePlaybackGlyphColor)
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("原始语音")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-
-                        waveformRow
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: isPlayingSourceMessage ? "stop.fill" : "play.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(sourcePlaybackGlyphColor)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var speechCapsule: some View {
+        if isLiveSpeechPlaceholder {
+            bubble(role: .speechCapsule) {
+                liveSpeechCapsuleContent
             }
+            .accessibilityLabel("录音中")
+        } else {
+            Button(action: onSourcePlayback) {
+                bubble(
+                    role: .speechCapsule,
+                    borderColor: hasPlayableSourceRecording ? Color.primary.opacity(0.06) : Color.clear
+                ) {
+                    recordedSpeechCapsuleContent
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(isSourcePlaybackDisabled)
+            .accessibilityLabel(isPlayingSourceMessage ? "停止播放原始语音" : "播放原始语音")
         }
-        .buttonStyle(.plain)
-        .disabled(isSourcePlaybackDisabled)
-        .accessibilityLabel(isPlayingSourceMessage ? "停止播放原始语音" : "播放原始语音")
     }
 
     private var waveformRow: some View {
@@ -481,6 +467,10 @@ struct HomeChatMessageBubble: View {
     }
 
     private var sourceWaveformColor: Color {
+        if isLiveSpeechPlaceholder {
+            return Color.accentColor.opacity(0.92)
+        }
+
         if isSourcePlaybackDisabled {
             return Color.secondary.opacity(0.45)
         }
@@ -489,6 +479,10 @@ struct HomeChatMessageBubble: View {
     }
 
     private var sourcePlaybackGlyphColor: Color {
+        if isLiveSpeechPlaceholder {
+            return .accentColor
+        }
+
         if isSourcePlaybackDisabled {
             return Color.secondary.opacity(0.55)
         }
@@ -497,11 +491,86 @@ struct HomeChatMessageBubble: View {
     }
 
     private var speechTranscriptButtonTitle: String {
-        if isSpeechTranscriptToggleDisabled {
-            return "转写中"
+        return showsSpeechTranscript ? "收起转写" : "查看转写"
+    }
+
+    private var isLiveSpeechPlaceholder: Bool {
+        guard message.inputType == .speech,
+              let streamingState else {
+            return false
         }
 
-        return showsSpeechTranscript ? "收起转写" : "查看转写"
+        return streamingState.sourcePhase == .transcribing && !hasPlayableSourceRecording
+    }
+
+    private var shouldShowTranslatedSection: Bool {
+        if isLiveSpeechPlaceholder {
+            return false
+        }
+
+        if hasResolvedTranslatedText {
+            return true
+        }
+
+        guard let streamingState else {
+            return false
+        }
+
+        return streamingState.translationPhase != .idle
+    }
+
+    private var recordedSpeechCapsuleContent: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: isPlayingSourceMessage ? "stop.fill" : "waveform")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(sourcePlaybackGlyphColor)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("原始语音")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                waveformRow
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: isPlayingSourceMessage ? "stop.fill" : "play.fill")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(sourcePlaybackGlyphColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var liveSpeechCapsuleContent: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.14))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: "waveform")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(sourcePlaybackGlyphColor)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("录音中")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                LiveWaveformRow(barColor: sourceWaveformColor)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func content(
@@ -594,6 +663,47 @@ struct HomeChatMessageBubble: View {
             let phase = progress - (Double(index) * Self.phaseOffset)
             let wave = (sin(phase * .pi * 2) + 1) / 2
             return max(0, min(1, wave))
+        }
+    }
+
+    private struct LiveWaveformRow: View {
+        private static let cycleDuration = 1.4
+        private static let phaseOffset = 0.11
+        private let baseHeights: [CGFloat] = [6, 12, 8, 16, 10, 18, 9, 15, 7, 13, 6]
+
+        let barColor: Color
+
+        var body: some View {
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
+                let timestamp = context.date.timeIntervalSinceReferenceDate
+
+                HStack(alignment: .center, spacing: 3) {
+                    ForEach(Array(baseHeights.enumerated()), id: \.offset) { index, baseHeight in
+                        Capsule(style: .continuous)
+                            .fill(barColor)
+                            .frame(
+                                width: 3,
+                                height: animatedHeight(
+                                    for: index,
+                                    baseHeight: baseHeight,
+                                    timestamp: timestamp
+                                )
+                            )
+                    }
+                }
+                .frame(height: 20, alignment: .center)
+            }
+        }
+
+        private func animatedHeight(
+            for index: Int,
+            baseHeight: CGFloat,
+            timestamp: TimeInterval
+        ) -> CGFloat {
+            let progress = timestamp.remainder(dividingBy: Self.cycleDuration) / Self.cycleDuration
+            let phase = (progress - (Double(index) * Self.phaseOffset)) * .pi * 2
+            let wave = (sin(phase) + 1) / 2
+            return max(5, baseHeight + CGFloat(wave * 7))
         }
     }
 

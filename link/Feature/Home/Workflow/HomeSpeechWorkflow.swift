@@ -18,7 +18,7 @@ final class HomeSpeechWorkflow {
     private unowned let store: HomeStore
     private let sessionRepository: HomeSessionRepository
     private let conversationStreamingCoordinator: any ConversationStreamingCoordinator
-    private let translationService: TranslationService
+    private let messageWorkflow: HomeMessageWorkflow
     private let speechRecognitionService: SpeechRecognitionService
     private let microphoneRecordingService: MicrophoneRecordingService
     private let downloadWorkflow: HomeDownloadWorkflow
@@ -30,7 +30,7 @@ final class HomeSpeechWorkflow {
         store: HomeStore,
         sessionRepository: HomeSessionRepository,
         conversationStreamingCoordinator: any ConversationStreamingCoordinator,
-        translationService: TranslationService,
+        messageWorkflow: HomeMessageWorkflow,
         speechRecognitionService: SpeechRecognitionService,
         microphoneRecordingService: MicrophoneRecordingService,
         downloadWorkflow: HomeDownloadWorkflow,
@@ -39,7 +39,7 @@ final class HomeSpeechWorkflow {
         self.store = store
         self.sessionRepository = sessionRepository
         self.conversationStreamingCoordinator = conversationStreamingCoordinator
-        self.translationService = translationService
+        self.messageWorkflow = messageWorkflow
         self.speechRecognitionService = speechRecognitionService
         self.microphoneRecordingService = microphoneRecordingService
         self.downloadWorkflow = downloadWorkflow
@@ -97,7 +97,7 @@ final class HomeSpeechWorkflow {
             )
             liveSpeechSession = LiveSpeechSession(record: liveSession)
             applyLiveSpeechState(LiveUtteranceState(), to: liveSession)
-            startLiveSpeechStreaming(audioStream: audioStream, in: runtime)
+            startLiveSpeechTranscription(audioStream: audioStream, in: runtime)
             store.isRecordingSpeech = true
             store.isChatInputFocused = false
             scheduleSilenceAutoStop(in: runtime)
@@ -148,65 +148,68 @@ final class HomeSpeechWorkflow {
                 fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage,
                 targetLanguage: liveSpeechSession.record.targetLanguage
             )
-            if let prompt = try await downloadWorkflow.translationDownloadPrompt(
-                source: effectiveSourceLanguage,
-                target: liveSpeechSession.record.targetLanguage
-            ) {
-                downloadWorkflow.presentTranslationDownloadPrompt(prompt)
-                sessionRepository.finalizeLiveSpeechSession(
-                    liveSpeechSession.record,
-                    transcript: transcribedText,
-                    translatedText: TranslationError.modelNotInstalled(
-                        source: effectiveSourceLanguage,
-                        target: liveSpeechSession.record.targetLanguage
-                    ).userFacingMessage,
-                    sourceLanguage: effectiveSourceLanguage,
-                    audioURL: recordingResult.preservedRecordingURL?.absoluteString,
-                    in: runtime
-                )
-                store.streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.record.message.id)
-                store.speechErrorMessage = nil
-                self.liveSpeechSession = nil
-                return
-            }
+            let messageID = liveSpeechSession.record.message.id
+            let targetLanguage = liveSpeechSession.record.targetLanguage
 
-            let translatedText = try await translationService.translate(
-                text: transcribedText,
-                source: effectiveSourceLanguage,
-                target: liveSpeechSession.record.targetLanguage
-            )
-            let reconciledOutput = reconciledLiveSpeechOutput(
-                liveState: liveSpeechSession.latestState,
-                finalTranscript: transcribedText,
-                finalTranslation: translatedText
-            )
-            sessionRepository.finalizeLiveSpeechSession(
+            sessionRepository.finalizeLiveSpeechTranscript(
                 liveSpeechSession.record,
-                transcript: reconciledOutput.transcript,
-                translatedText: reconciledOutput.translation,
+                transcript: transcribedText,
                 sourceLanguage: effectiveSourceLanguage,
                 audioURL: recordingResult.preservedRecordingURL?.absoluteString,
                 in: runtime
             )
-            store.streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.record.message.id)
-            store.speechErrorMessage = nil
             self.liveSpeechSession = nil
+
+            do {
+                if let prompt = try await downloadWorkflow.translationDownloadPrompt(
+                    source: effectiveSourceLanguage,
+                    target: targetLanguage
+                ) {
+                    downloadWorkflow.presentTranslationDownloadPrompt(prompt)
+                    sessionRepository.updateTranslatedMessage(
+                        id: messageID,
+                        text: TranslationError.modelNotInstalled(
+                            source: effectiveSourceLanguage,
+                            target: targetLanguage
+                        ).userFacingMessage,
+                        in: runtime
+                    )
+                    store.streamingStatesByMessageID.removeValue(forKey: messageID)
+                    store.speechErrorMessage = nil
+                    return
+                }
+
+                messageWorkflow.startSpeechTranslation(
+                    for: messageID,
+                    transcript: transcribedText,
+                    sourceLanguage: effectiveSourceLanguage,
+                    targetLanguage: targetLanguage,
+                    in: runtime
+                )
+                store.speechErrorMessage = nil
+            } catch let error as TranslationError {
+                handleSpeechTranslationFailure(
+                    messageID: messageID,
+                    message: error.userFacingMessage,
+                    in: runtime
+                )
+            } catch {
+                handleSpeechTranslationFailure(
+                    messageID: messageID,
+                    message: "翻译失败了，请稍后再试。",
+                    in: runtime
+                )
+            }
         } catch let error as SpeechRecognitionError {
             microphoneRecordingService.cancelRecording()
-            await finalizeLiveSpeechSessionAfterFailure(
-                fallbackMessage: error.userFacingMessage,
-                in: runtime
-            )
-        } catch let error as TranslationError {
-            microphoneRecordingService.cancelRecording()
-            await finalizeLiveSpeechSessionAfterFailure(
-                fallbackMessage: error.userFacingMessage,
+            handleSpeechRecognitionFailure(
+                message: error.userFacingMessage,
                 in: runtime
             )
         } catch {
             microphoneRecordingService.cancelRecording()
-            await finalizeLiveSpeechSessionAfterFailure(
-                fallbackMessage: "语音识别失败了，请稍后再试。",
+            handleSpeechRecognitionFailure(
+                message: "语音识别失败了，请稍后再试。",
                 in: runtime
             )
         }
@@ -217,9 +220,10 @@ final class HomeSpeechWorkflow {
         store.speechErrorMessage = nil
         store.playbackErrorMessage = nil
         store.pendingVoiceStartAfterInstall = false
+        store.lastSpeechRecordingURL = nil
     }
 
-    private func startLiveSpeechStreaming(
+    private func startLiveSpeechTranscription(
         audioStream: AsyncStream<[Float]>,
         in runtime: HomeRuntimeContext
     ) {
@@ -229,32 +233,28 @@ final class HomeSpeechWorkflow {
 
         liveSpeechSession.liveTask?.cancel()
         let messageID = liveSpeechSession.record.message.id
-        let targetLanguage = liveSpeechSession.record.targetLanguage
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
 
             do {
-                let stream = self.conversationStreamingCoordinator.startLiveSpeechTranslation(
+                let stream = self.conversationStreamingCoordinator.startLiveSpeechTranscription(
                     messageID: messageID,
                     audioStream: audioStream,
-                    sourceLanguage: nil,
-                    targetLanguage: targetLanguage
+                    sourceLanguage: nil
                 )
 
                 for try await event in stream {
-                    self.handleLiveSpeechTranslationEvent(event, in: runtime)
+                    self.handleLiveSpeechTranscriptionEvent(event, in: runtime)
                 }
             } catch is CancellationError {
                 return
             } catch let error as SpeechRecognitionError {
                 self.store.speechErrorMessage = error.userFacingMessage
-            } catch let error as TranslationError {
-                self.store.speechErrorMessage = error.userFacingMessage
             } catch let error as ConversationStreamingCoordinatorError {
                 self.store.speechErrorMessage = error.localizedDescription
             } catch {
-                self.store.speechErrorMessage = "实时语音翻译暂时不可用，请稍后再试。"
+                self.store.speechErrorMessage = "实时语音识别暂时不可用，请稍后再试。"
             }
         }
 
@@ -262,8 +262,8 @@ final class HomeSpeechWorkflow {
         self.liveSpeechSession = liveSpeechSession
     }
 
-    private func handleLiveSpeechTranslationEvent(
-        _ event: LiveSpeechTranslationEvent,
+    private func handleLiveSpeechTranscriptionEvent(
+        _ event: LiveSpeechTranscriptionEvent,
         in runtime: HomeRuntimeContext
     ) {
         guard let liveSpeechSession else {
@@ -340,24 +340,20 @@ final class HomeSpeechWorkflow {
     ) {
         let transcriptText = state.fullTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let translationText = state.effectiveTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasVisiblePreviewTranslation = state.hasUnstableTranslation ||
-            state.hasDisplayTranslationBeyondStable
 
         store.streamingStatesByMessageID[liveSpeechSession.message.id] = ExchangeStreamingState(
             messageID: liveSpeechSession.message.id,
             sourceStableText: state.stableTranscript,
             sourceProvisionalText: state.provisionalTranscript,
             sourceLiveText: state.liveTranscript,
-            sourcePhase: transcriptText.isEmpty ? .transcribing : (store.isRecordingSpeech ? .transcribing : .completed),
+            sourcePhase: transcriptText.isEmpty
+                ? .transcribing
+                : (store.isRecordingSpeech ? .transcribing : .completed),
             sourceRevision: state.transcriptRevision,
-            translatedCommittedText: state.stableTranslation,
-            translatedLiveText: hasVisiblePreviewTranslation && !translationText.isEmpty ? translationText : nil,
-            translationPhase: translationText.isEmpty
-                ? .translating
-                : ((store.isRecordingSpeech || state.hasUnstableTranscript || hasVisiblePreviewTranslation) ? .typing : .completed),
-            translationRevision: state.translationRevision
+            translatedCommittedText: "",
+            translatedLiveText: nil,
+            translationPhase: .idle,
+            translationRevision: 0
         )
     }
 
@@ -388,90 +384,29 @@ final class HomeSpeechWorkflow {
         self.liveSpeechSession = nil
     }
 
-    private func fallbackTranscriptAndTranslation(
-        from state: LiveUtteranceState
-    ) -> (transcript: String, translation: String)? {
-        let transcript = state.fullTranscript
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let translation = state.effectiveTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !transcript.isEmpty, !translation.isEmpty else {
-            return nil
-        }
-
-        return (transcript, translation)
-    }
-
-    private func reconciledLiveSpeechOutput(
-        liveState: LiveUtteranceState,
-        finalTranscript: String,
-        finalTranslation: String
-    ) -> (transcript: String, translation: String) {
-        let liveTranscript = liveState.fullTranscript
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let liveTranslation = liveState.effectiveTranslation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return (
-            transcript: reconciledSpeechText(
-                finalText: finalTranscript,
-                liveText: liveTranscript
-            ),
-            translation: reconciledSpeechText(
-                finalText: finalTranslation,
-                liveText: liveTranslation
-            )
-        )
-    }
-
-    private func reconciledSpeechText(
-        finalText: String,
-        liveText: String
-    ) -> String {
-        let normalizedFinalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedLiveText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !normalizedFinalText.isEmpty else {
-            return normalizedLiveText
-        }
-
-        guard !normalizedLiveText.isEmpty else {
-            return normalizedFinalText
-        }
-
-        return normalizedFinalText
-    }
-
-    private func finalizeLiveSpeechSessionAfterFailure(
-        fallbackMessage: String,
+    private func handleSpeechRecognitionFailure(
+        message: String,
         in runtime: HomeRuntimeContext
-    ) async {
-        guard let liveSpeechSession else {
-            store.speechErrorMessage = fallbackMessage
-            return
-        }
-
-        if let liveTask = liveSpeechSession.liveTask {
-            await liveTask.value
-        }
-
-        if let fallback = fallbackTranscriptAndTranslation(from: liveSpeechSession.latestState) {
-            sessionRepository.finalizeLiveSpeechSession(
-                liveSpeechSession.record,
-                transcript: fallback.transcript,
-                translatedText: fallback.translation,
-                sourceLanguage: liveSpeechSession.latestState.detectedLanguage ?? liveSpeechSession.record.fallbackSourceLanguage,
-                audioURL: store.lastSpeechRecordingURL?.absoluteString,
-                in: runtime
-            )
-            store.streamingStatesByMessageID.removeValue(forKey: liveSpeechSession.record.message.id)
-            store.speechErrorMessage = nil
-            self.liveSpeechSession = nil
-        } else {
+    ) {
+        if liveSpeechSession != nil {
             discardLiveSpeechSession(in: runtime)
-            store.speechErrorMessage = fallbackMessage
         }
+
+        store.speechErrorMessage = message
+    }
+
+    private func handleSpeechTranslationFailure(
+        messageID: UUID,
+        message: String,
+        in runtime: HomeRuntimeContext
+    ) {
+        store.streamingStatesByMessageID.removeValue(forKey: messageID)
+        sessionRepository.updateTranslatedMessage(
+            id: messageID,
+            text: message,
+            in: runtime
+        )
+        store.speechErrorMessage = nil
     }
 
     private func resolvedSpeechSourceLanguage(
