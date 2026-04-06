@@ -8,21 +8,23 @@
 import SwiftUI
 
 struct HomeLanguageSheet: View {
-    @Binding var selectedLanguage: SupportedLanguage
-    @Binding var isPresented: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let selectedLanguage: SupportedLanguage
     let onCommitSelection: @MainActor @Sendable (SupportedLanguage) -> Void
 
     @State private var draftSelectedLanguage: SupportedLanguage
 
     init(
-        selectedLanguage: Binding<SupportedLanguage>,
-        isPresented: Binding<Bool>,
+        title: String,
+        selectedLanguage: SupportedLanguage,
         onCommitSelection: @escaping @MainActor @Sendable (SupportedLanguage) -> Void = { _ in }
     ) {
-        self._selectedLanguage = selectedLanguage
-        self._isPresented = isPresented
+        self.title = title
+        self.selectedLanguage = selectedLanguage
         self.onCommitSelection = onCommitSelection
-        _draftSelectedLanguage = State(initialValue: selectedLanguage.wrappedValue)
+        _draftSelectedLanguage = State(initialValue: selectedLanguage)
     }
 
     var body: some View {
@@ -31,7 +33,7 @@ struct HomeLanguageSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 20)
             .padding(.bottom, 12)
-            .navigationTitle("选择目标语言")
+            .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -103,14 +105,13 @@ struct HomeLanguageSheet: View {
 
     private func commitDraftSelection() {
         onCommitSelection(draftSelectedLanguage)
-        selectedLanguage = draftSelectedLanguage
-        isPresented = false
+        dismiss()
     }
 }
 
 #Preview {
     HomeLanguageSheet(
-        selectedLanguage: .constant(.english),
-        isPresented: .constant(true)
+        title: "选择目标语言",
+        selectedLanguage: .english
     )
 }

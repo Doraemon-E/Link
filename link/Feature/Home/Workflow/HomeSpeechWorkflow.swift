@@ -133,7 +133,10 @@ final class HomeSpeechWorkflow {
                 await liveTask.value
             }
 
-            let recognitionResult = try await speechRecognitionService.transcribe(samples: recordingResult.samples)
+            let recognitionResult = try await speechRecognitionService.transcribe(
+                samples: recordingResult.samples,
+                preferredLanguage: nil
+            )
             let transcribedText = recognitionResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !transcribedText.isEmpty else {

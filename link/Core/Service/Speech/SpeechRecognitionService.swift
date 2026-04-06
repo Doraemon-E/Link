@@ -71,7 +71,19 @@ nonisolated protocol SpeechRecognitionStreamingService: Sendable {
 }
 
 nonisolated protocol SpeechRecognitionService: Sendable {
-    func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult
+    func transcribe(
+        samples: [Float],
+        preferredLanguage: SupportedLanguage?
+    ) async throws -> SpeechRecognitionResult
+}
+
+extension SpeechRecognitionService {
+    func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult {
+        try await transcribe(
+            samples: samples,
+            preferredLanguage: nil
+        )
+    }
 }
 
 nonisolated enum SpeechRecognitionError: LocalizedError {

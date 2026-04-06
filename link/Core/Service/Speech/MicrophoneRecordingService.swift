@@ -320,7 +320,7 @@ final class MicrophoneRecordingService {
         }
     }
 
-    private func loadWhisperSamples(from url: URL) throws -> [Float] {
+    func loadWhisperSamples(from url: URL) throws -> [Float] {
         do {
             let sourceFile = try AVAudioFile(forReading: url)
             let sourceFormat = sourceFile.processingFormat

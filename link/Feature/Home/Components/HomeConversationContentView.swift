@@ -17,6 +17,8 @@ struct HomeConversationContentView: View {
     let onTranslatedPlayback: (ChatMessage) -> Void
     let onSourcePlayback: (ChatMessage) -> Void
     let onSpeechTranscriptToggle: (ChatMessage) -> Void
+    let onSourceLanguageSelection: (ChatMessage) -> Void
+    let onTargetLanguageSelection: (ChatMessage) -> Void
 
     var body: some View {
         Group {
@@ -32,7 +34,9 @@ struct HomeConversationContentView: View {
                     bottomSpacerHeight: messageListBottomSpacerHeight,
                     onTranslatedPlayback: onTranslatedPlayback,
                     onSourcePlayback: onSourcePlayback,
-                    onSpeechTranscriptToggle: onSpeechTranscriptToggle
+                    onSpeechTranscriptToggle: onSpeechTranscriptToggle,
+                    onSourceLanguageSelection: onSourceLanguageSelection,
+                    onTargetLanguageSelection: onTargetLanguageSelection
                 )
             }
         }

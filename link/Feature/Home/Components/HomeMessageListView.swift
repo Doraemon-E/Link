@@ -14,6 +14,8 @@ struct HomeMessageListView: View {
     let onTranslatedPlayback: (ChatMessage) -> Void
     let onSourcePlayback: (ChatMessage) -> Void
     let onSpeechTranscriptToggle: (ChatMessage) -> Void
+    let onSourceLanguageSelection: (ChatMessage) -> Void
+    let onTargetLanguageSelection: (ChatMessage) -> Void
 
     var body: some View {
         ScrollView {
@@ -22,6 +24,8 @@ struct HomeMessageListView: View {
                     HomeChatMessageBubble(
                         message: messageItem.message,
                         streamingState: messageItem.streamingState,
+                        sourceLanguage: messageItem.sourceLanguage,
+                        targetLanguage: messageItem.targetLanguage,
                         showsTranslatedPlaybackButton: messageItem.showsTranslatedPlaybackButton,
                         isPlayingTranslatedMessage: messageItem.isPlayingTranslatedMessage,
                         isTranslatedPlaybackDisabled: messageItem.isTranslatedPlaybackDisabled,
@@ -30,6 +34,10 @@ struct HomeMessageListView: View {
                         showsSpeechTranscript: messageItem.showsSpeechTranscript,
                         isSpeechTranscriptToggleDisabled: messageItem.isSpeechTranscriptToggleDisabled,
                         hasPlayableSourceRecording: messageItem.hasPlayableSourceRecording,
+                        isSourceLanguageSwitchDisabled: messageItem.isSourceLanguageSwitchDisabled,
+                        isTargetLanguageSwitchDisabled: messageItem.isTargetLanguageSwitchDisabled,
+                        isSourceLanguageSwitching: messageItem.isSourceLanguageSwitching,
+                        isTargetLanguageSwitching: messageItem.isTargetLanguageSwitching,
                         onTranslatedPlayback: {
                             onTranslatedPlayback(messageItem.message)
                         },
@@ -38,6 +46,12 @@ struct HomeMessageListView: View {
                         },
                         onSpeechTranscriptToggle: {
                             onSpeechTranscriptToggle(messageItem.message)
+                        },
+                        onSourceLanguageSelection: {
+                            onSourceLanguageSelection(messageItem.message)
+                        },
+                        onTargetLanguageSelection: {
+                            onTargetLanguageSelection(messageItem.message)
                         }
                     )
                     .id(messageItem.id)

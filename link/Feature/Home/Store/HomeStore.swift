@@ -10,7 +10,7 @@ import Observation
 
 @MainActor
 @Observable
-final class HomeStore {
+final class HomeStore: HomeMessageLanguageWorkflowStore {
     struct ViewState {
         let messageItems: [MessageItemState]
         let displayedMessageRenderKeys: [String]
@@ -24,6 +24,8 @@ final class HomeStore {
     struct MessageItemState: Identifiable {
         let message: ChatMessage
         let streamingState: ExchangeStreamingState?
+        let sourceLanguage: SupportedLanguage
+        let targetLanguage: SupportedLanguage
         let showsTranslatedPlaybackButton: Bool
         let isPlayingTranslatedMessage: Bool
         let isTranslatedPlaybackDisabled: Bool
@@ -32,6 +34,10 @@ final class HomeStore {
         let showsSpeechTranscript: Bool
         let isSpeechTranscriptToggleDisabled: Bool
         let hasPlayableSourceRecording: Bool
+        let isSourceLanguageSwitchDisabled: Bool
+        let isTargetLanguageSwitchDisabled: Bool
+        let isSourceLanguageSwitching: Bool
+        let isTargetLanguageSwitching: Bool
 
         var id: UUID {
             message.id
@@ -65,7 +71,7 @@ final class HomeStore {
             dependencies.appSettings.selectedTargetLanguage = selectedLanguage
         }
     }
-    var isLanguageSheetPresented = false
+    var languageSheetContext: HomeLanguageSheetContext?
     var isSessionHistoryPresented = false
     var isDownloadManagerPresented = false
     var isDownloadManagerLoading = false
@@ -77,6 +83,7 @@ final class HomeStore {
     var deferredDownloadPrompt: HomeLanguageDownloadPrompt?
     var activeDownloadPrompt: HomeLanguageDownloadPrompt?
     var messageErrorMessage: String?
+    var messageMutationErrorMessage: String?
     var downloadErrorMessage: String?
     var isRecordingSpeech = false
     var isTranscribingSpeech = false
@@ -88,6 +95,7 @@ final class HomeStore {
     var activePlaybackState: HomePlaybackState?
     var expandedSpeechTranscriptMessageIDs: Set<UUID> = []
     var streamingStatesByMessageID: [UUID: ExchangeStreamingState] = [:]
+    var messageLanguageSwitchSideByMessageID: [UUID: HomeMessageLanguageSide] = [:]
     var assetRecords: [ModelAssetRecord] = []
     var assetSummary: ModelAssetSummary = .empty
     var speechResumeRequestToken = 0
@@ -121,6 +129,16 @@ final class HomeStore {
         downloadWorkflow: downloadWorkflow,
         playbackController: playbackController
     )
+    @ObservationIgnored private lazy var messageLanguageWorkflow = HomeMessageLanguageWorkflow(
+        store: self,
+        sessionRepository: sessionRepository,
+        conversationStreamingCoordinator: conversationStreamingCoordinator,
+        translationService: dependencies.translationService,
+        speechRecognitionService: dependencies.speechRecognitionService,
+        recordingSampleLoader: dependencies.microphoneRecordingService,
+        downloadSupport: downloadWorkflow,
+        playbackController: playbackController
+    )
 
     init(dependencies: HomeDependencies) {
         self.dependencies = dependencies
@@ -144,7 +162,7 @@ final class HomeStore {
         )
         if !dependencies.appSettings.hasShownInitialTargetLanguagePicker {
             dependencies.appSettings.hasShownInitialTargetLanguagePicker = true
-            isLanguageSheetPresented = true
+            presentGlobalTargetLanguagePicker()
         }
     }
 
@@ -178,6 +196,27 @@ final class HomeStore {
         isSessionHistoryPresented = true
     }
 
+    func presentGlobalTargetLanguagePicker() {
+        languageSheetContext = HomeLanguageSheetContext(
+            origin: .globalTarget,
+            selectedLanguage: selectedLanguage
+        )
+    }
+
+    func presentMessageLanguagePicker(
+        for message: ChatMessage,
+        side: HomeMessageLanguageSide
+    ) {
+        guard !isMessageLanguageSwitchDisabled(for: message) else {
+            return
+        }
+
+        languageSheetContext = HomeLanguageSheetContext(
+            origin: .message(messageID: message.id, side: side),
+            selectedLanguage: resolvedLanguage(for: message, side: side)
+        )
+    }
+
     func startNewSession() {
         guard !isDraftSession else { return }
         playbackController.stop()
@@ -185,10 +224,20 @@ final class HomeStore {
         isChatInputFocused = false
     }
 
-    func selectSession(id sessionID: UUID) {
+    func selectSession(
+        id sessionID: UUID,
+        in runtime: HomeRuntimeContext
+    ) {
         playbackController.stop()
         sessionPresentation = .persisted(sessionID)
         isChatInputFocused = false
+        if let session = runtime.sessions.first(where: { $0.id == sessionID }) {
+            applyLanguageDefaults(from: session)
+        }
+
+        Task {
+            await refreshDownloadAvailabilityForCurrentSelection()
+        }
 
         DispatchQueue.main.async {
             self.isSessionHistoryPresented = false
@@ -208,6 +257,33 @@ final class HomeStore {
         Task {
             await refreshDownloadAvailabilityForCurrentSelection()
         }
+    }
+
+    func commitLanguageSheetSelection(
+        _ language: SupportedLanguage,
+        in runtime: HomeRuntimeContext
+    ) {
+        guard let context = languageSheetContext else {
+            return
+        }
+
+        languageSheetContext = nil
+
+        switch context.origin {
+        case .globalTarget:
+            commitTargetLanguageSelection(language)
+        case .message(let messageID, let side):
+            messageLanguageWorkflow.switchLanguage(
+                forMessageID: messageID,
+                side: side,
+                to: language,
+                in: runtime
+            )
+        }
+    }
+
+    func dismissLanguageSheet() {
+        languageSheetContext = nil
     }
 
     func presentDeferredDownloadPromptIfNeeded() {
@@ -230,8 +306,22 @@ final class HomeStore {
         downloadWorkflow.dismissDownloadPrompt()
     }
 
+    func openDownloadManagerForActiveTranslationPrompt() {
+        downloadWorkflow.openDownloadManagerForActiveTranslationPrompt()
+    }
+
     func dismissSpeechDownloadPrompt() {
         downloadWorkflow.dismissSpeechDownloadPrompt()
+    }
+
+    func openDownloadManagerForSpeechPrompt(
+        packageId: String,
+        shouldResumeRecording: Bool
+    ) {
+        downloadWorkflow.openDownloadManagerForSpeechPrompt(
+            packageId: packageId,
+            shouldResumeRecording: shouldResumeRecording
+        )
     }
 
     func refreshDownloadAvailabilityForCurrentSelection() async {
@@ -322,18 +412,29 @@ final class HomeStore {
 
     private func makeMessageItemState(for message: ChatMessage) -> MessageItemState {
         let streamingState = streamingStatesByMessageID[message.id]
+        let sourceLanguage = resolvedLanguage(for: message, side: .source)
+        let targetLanguage = resolvedLanguage(for: message, side: .target)
+        let isLanguageSwitchDisabled = isMessageLanguageSwitchDisabled(for: message)
+        let switchingSide = messageLanguageSwitchSideByMessageID[message.id]
+        let isMessageSwitching = switchingSide != nil
 
         return MessageItemState(
             message: message,
             streamingState: streamingState,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
             showsTranslatedPlaybackButton: playbackController.shouldShowTranslatedPlaybackButton(for: message),
             isPlayingTranslatedMessage: playbackController.isPlayingTranslatedMessage(message),
-            isTranslatedPlaybackDisabled: playbackController.isTranslatedPlaybackDisabled(for: message),
-            isSourcePlaybackDisabled: playbackController.isSourcePlaybackDisabled(for: message),
+            isTranslatedPlaybackDisabled: playbackController.isTranslatedPlaybackDisabled(for: message) || isMessageSwitching,
+            isSourcePlaybackDisabled: playbackController.isSourcePlaybackDisabled(for: message) || isMessageSwitching,
             isPlayingSourceMessage: playbackController.isPlayingSourceMessage(message),
             showsSpeechTranscript: isSpeechTranscriptExpanded(for: message),
-            isSpeechTranscriptToggleDisabled: playbackController.shouldAutoExpandSpeechTranscript(for: message),
-            hasPlayableSourceRecording: playbackController.hasPlayableSourceRecording(for: message)
+            isSpeechTranscriptToggleDisabled: playbackController.shouldAutoExpandSpeechTranscript(for: message) || isMessageSwitching,
+            hasPlayableSourceRecording: playbackController.hasPlayableSourceRecording(for: message),
+            isSourceLanguageSwitchDisabled: isLanguageSwitchDisabled,
+            isTargetLanguageSwitchDisabled: isLanguageSwitchDisabled,
+            isSourceLanguageSwitching: switchingSide == .source,
+            isTargetLanguageSwitching: switchingSide == .target
         )
     }
 
@@ -370,8 +471,11 @@ final class HomeStore {
         let translationRevision = streamingState?.translationRevision ?? 0
         let sourceText = streamingState?.sourceDisplayText ?? message.sourceText
         let translatedText = streamingState?.translatedDisplayText ?? message.translatedText
+        let sourceLanguage = resolvedLanguage(for: message, side: .source).rawValue
+        let targetLanguage = resolvedLanguage(for: message, side: .target).rawValue
+        let switchingSide = messageLanguageSwitchSideByMessageID[message.id]?.rawValue ?? ""
 
-        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceText)-\(translatedText)"
+        return "\(message.id.uuidString)-\(sourceRevision)-\(translationRevision)-\(sourceLanguage)-\(targetLanguage)-\(switchingSide)-\(sourceText)-\(translatedText)"
     }
 
     private func isSpeechTranscriptExpanded(for message: ChatMessage) -> Bool {
@@ -448,5 +552,38 @@ final class HomeStore {
         }
 
         return false
+    }
+
+    var isShowingLanguageSheet: Bool {
+        languageSheetContext != nil
+    }
+
+    private func resolvedLanguage(
+        for message: ChatMessage,
+        side: HomeMessageLanguageSide
+    ) -> SupportedLanguage {
+        switch side {
+        case .source:
+            return message.sourceLanguage ?? message.session?.sourceLanguage ?? sourceLanguage
+        case .target:
+            return message.targetLanguage ?? message.session?.targetLanguage ?? selectedLanguage
+        }
+    }
+
+    private func isMessageLanguageSwitchDisabled(for message: ChatMessage) -> Bool {
+        if messageLanguageSwitchSideByMessageID[message.id] != nil {
+            return true
+        }
+
+        guard let streamingState = streamingStatesByMessageID[message.id] else {
+            return false
+        }
+
+        return streamingState.sourcePhase.isInProgress || streamingState.translationPhase.isInProgress
+    }
+
+    private func applyLanguageDefaults(from session: ChatSession) {
+        sourceLanguage = session.sourceLanguage
+        selectedLanguage = session.targetLanguage
     }
 }

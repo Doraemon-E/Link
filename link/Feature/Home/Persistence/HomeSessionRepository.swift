@@ -42,6 +42,19 @@ final class HomeSessionRepository {
         runtime.sessions.first { $0.hasMessages }
     }
 
+    func message(
+        id: UUID,
+        in runtime: HomeRuntimeContext
+    ) -> ChatMessage? {
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { message in
+                message.id == id
+            }
+        )
+
+        return try? runtime.modelContext.fetch(descriptor).first
+    }
+
     @discardableResult
     func createNewSession(
         sourceLanguage: SupportedLanguage,
@@ -187,18 +200,73 @@ final class HomeSessionRepository {
         text: String,
         in runtime: HomeRuntimeContext
     ) {
-        let descriptor = FetchDescriptor<ChatMessage>(
-            predicate: #Predicate { message in
-                message.id == id
-            }
+        _ = updateMessage(
+            id: id,
+            translatedText: text,
+            in: runtime
         )
+    }
 
-        guard let message = try? runtime.modelContext.fetch(descriptor).first else {
-            return
+    @discardableResult
+    func updateMessage(
+        id: UUID,
+        sourceText: String? = nil,
+        translatedText: String? = nil,
+        sourceLanguage: SupportedLanguage? = nil,
+        targetLanguage: SupportedLanguage? = nil,
+        syncSessionLanguages: Bool = false,
+        in runtime: HomeRuntimeContext
+    ) -> ChatMessage? {
+        guard let message = message(id: id, in: runtime) else {
+            return nil
         }
 
-        message.translatedText = text
+        if let sourceText {
+            message.sourceText = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let translatedText {
+            message.translatedText = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let sourceLanguage {
+            message.sourceLanguage = sourceLanguage
+        }
+
+        if let targetLanguage {
+            message.targetLanguage = targetLanguage
+        }
+
+        if syncSessionLanguages, let session = message.session {
+            if let sourceLanguage {
+                session.sourceLanguage = sourceLanguage
+            }
+
+            if let targetLanguage {
+                session.targetLanguage = targetLanguage
+            }
+        }
+
         message.session?.updatedAt = .now
+        saveContext(in: runtime)
+        return message
+    }
+
+    func updateSessionLanguages(
+        _ session: ChatSession,
+        sourceLanguage: SupportedLanguage? = nil,
+        targetLanguage: SupportedLanguage? = nil,
+        in runtime: HomeRuntimeContext
+    ) {
+        if let sourceLanguage {
+            session.sourceLanguage = sourceLanguage
+        }
+
+        if let targetLanguage {
+            session.targetLanguage = targetLanguage
+        }
+
+        session.updatedAt = .now
         saveContext(in: runtime)
     }
 

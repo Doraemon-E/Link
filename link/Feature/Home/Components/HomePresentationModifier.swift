@@ -10,15 +10,22 @@ import SwiftUI
 struct HomePresentationModifier: ViewModifier {
     let store: HomeStore
     let viewState: HomeStore.ViewState
+    let runtimeContext: HomeRuntimeContext
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: boolBinding(\.isLanguageSheetPresented)) {
+            .sheet(
+                item: itemBinding(\.languageSheetContext),
+                onDismiss: store.dismissLanguageSheet
+            ) { context in
                 HomeLanguageSheet(
-                    selectedLanguage: binding(\.selectedLanguage),
-                    isPresented: boolBinding(\.isLanguageSheetPresented),
-                    onCommitSelection: { target in
-                        store.commitTargetLanguageSelection(target)
+                    title: context.title,
+                    selectedLanguage: context.selectedLanguage,
+                    onCommitSelection: { language in
+                        store.commitLanguageSheetSelection(
+                            language,
+                            in: runtimeContext
+                        )
                     }
                 )
             }
@@ -27,7 +34,10 @@ struct HomePresentationModifier: ViewModifier {
                     sessions: viewState.historySessions,
                     currentSessionID: viewState.currentSessionID,
                     onSelect: { sessionID in
-                        store.selectSession(id: sessionID)
+                        store.selectSession(
+                            id: sessionID,
+                            in: runtimeContext
+                        )
                     },
                     isPresented: boolBinding(\.isSessionHistoryPresented)
                 )
@@ -40,10 +50,8 @@ struct HomePresentationModifier: ViewModifier {
                 ),
                 presenting: store.activeDownloadPrompt
             ) { prompt in
-                Button("下载并安装") {
-                    Task {
-                        await store.installTranslationModel(packageIds: prompt.packageIds)
-                    }
+                Button("前往下载管理") {
+                    store.openDownloadManagerForActiveTranslationPrompt()
                 }
 
                 Button("取消", role: .cancel) {
@@ -60,16 +68,14 @@ struct HomePresentationModifier: ViewModifier {
                 ),
                 presenting: store.activeSpeechDownloadPrompt
             ) { prompt in
-                Button("下载并安装") {
+                Button("前往下载管理") {
                     let packageId = prompt.packageId
                     let shouldResumeRecording = store.pendingVoiceStartAfterInstall
 
-                    Task {
-                        await store.installSpeechModelAndResumeIfNeeded(
-                            packageId: packageId,
-                            shouldResumeRecording: shouldResumeRecording
-                        )
-                    }
+                    store.openDownloadManagerForSpeechPrompt(
+                        packageId: packageId,
+                        shouldResumeRecording: shouldResumeRecording
+                    )
                 }
 
                 Button("取消", role: .cancel) {
@@ -93,6 +99,14 @@ struct HomePresentationModifier: ViewModifier {
                 Button("知道了", role: .cancel) {}
             } message: {
                 Text(store.messageErrorMessage ?? "")
+            }
+            .alert(
+                "消息更新失败",
+                isPresented: messagePresenceBinding(\.messageMutationErrorMessage)
+            ) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(store.messageMutationErrorMessage ?? "")
             }
             .alert(
                 "语音识别失败",
@@ -127,6 +141,12 @@ struct HomePresentationModifier: ViewModifier {
         binding(keyPath)
     }
 
+    private func itemBinding<Value>(
+        _ keyPath: ReferenceWritableKeyPath<HomeStore, Value?>
+    ) -> Binding<Value?> {
+        binding(keyPath)
+    }
+
     private func presenceBinding<Value>(
         for keyPath: KeyPath<HomeStore, Value?>,
         onDismiss: @escaping () -> Void
@@ -158,12 +178,14 @@ struct HomePresentationModifier: ViewModifier {
 extension View {
     func homePresentation(
         store: HomeStore,
-        viewState: HomeStore.ViewState
+        viewState: HomeStore.ViewState,
+        runtimeContext: HomeRuntimeContext
     ) -> some View {
         modifier(
             HomePresentationModifier(
                 store: store,
-                viewState: viewState
+                viewState: viewState,
+                runtimeContext: runtimeContext
             )
         )
     }

@@ -66,7 +66,10 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         }
     }
 
-    func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult {
+    func transcribe(
+        samples: [Float],
+        preferredLanguage: SupportedLanguage? = nil
+    ) async throws -> SpeechRecognitionResult {
         guard !samples.isEmpty else {
             throw SpeechRecognitionError.recordingTooShort
         }
@@ -77,7 +80,8 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         return try runTranscription(
             samples: samples,
             context: context,
-            mode: .final
+            mode: .final,
+            preferredLanguage: preferredLanguage
         )
     }
 
@@ -261,7 +265,8 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
             let result = try runTranscription(
                 samples: inferenceSamples,
                 context: context,
-                mode: .streaming
+                mode: .streaming,
+                preferredLanguage: nil
             )
             let pauseStrength = pauseStrength(
                 trailingSilenceDuration: gateUpdate.trailingSilenceDuration,
@@ -302,7 +307,8 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
             let result = try runTranscription(
                 samples: session.activeUtteranceSamples,
                 context: context,
-                mode: .final
+                mode: .final,
+                preferredLanguage: nil
             )
             return session.stabilizer.consume(
                 candidate: result.text,
@@ -326,69 +332,85 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
     private func runTranscription(
         samples: [Float],
         context: OpaquePointer,
-        mode: TranscriptionMode
+        mode: TranscriptionMode,
+        preferredLanguage: SupportedLanguage?
     ) throws -> SpeechRecognitionResult {
-        let params = makeWhisperParams(for: mode)
-
-        log(
-            "Whisper params[\(mode)]: threads=\(params.n_threads), detectLanguage=\(params.detect_language), " +
-            "noTimestamps=\(params.no_timestamps), singleSegment=\(params.single_segment), " +
-            "maxTokens=\(params.max_tokens), audioCtx=\(params.audio_ctx)"
-        )
-
-        return try samples.withUnsafeBufferPointer { buffer -> SpeechRecognitionResult in
-            let status = whisper_full(context, params, buffer.baseAddress, Int32(buffer.count))
-            log("whisper_full finished with status=\(status), sampleCount=\(buffer.count), mode=\(mode)")
-            guard status == 0 else {
-                throw SpeechRecognitionError.transcriptionFailed("Whisper returned status \(status).")
-            }
-
-            let segmentCount = Int(whisper_full_n_segments(context))
-            log("Whisper produced segmentCount=\(segmentCount)")
-            var textParts: [String] = []
-            textParts.reserveCapacity(segmentCount)
-
-            for index in 0..<segmentCount {
-                guard let segmentText = whisper_full_get_segment_text(context, Int32(index)) else {
-                    log("Segment[\(index)] is nil")
-                    continue
-                }
-
-                let rawText = String(cString: segmentText)
-                let text = sanitizeSegmentText(rawText)
-                guard !text.isEmpty else {
-                    continue
-                }
-
-                log("Segment[\(index)]=\(summarize(text))")
-                textParts.append(text)
-            }
-
-            let transcribedText = textParts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !transcribedText.isEmpty else {
-                log("Transcription result is empty after joining \(segmentCount) segments.")
-                throw SpeechRecognitionError.emptyTranscription
-            }
-
-            let languageID = whisper_full_lang_id(context)
-            let detectedLanguage: String?
-            if languageID >= 0, let languageCString = whisper_lang_str(languageID) {
-                detectedLanguage = String(cString: languageCString)
-            } else {
-                detectedLanguage = nil
-            }
-
-            log("Detected language=\(detectedLanguage ?? "nil"), text=\(summarize(transcribedText))")
-
-            return SpeechRecognitionResult(
-                text: transcribedText,
-                detectedLanguage: detectedLanguage
+        let execute = { [self] (languageCString: UnsafePointer<CChar>?) throws -> SpeechRecognitionResult in
+            let params = self.makeWhisperParams(
+                for: mode,
+                preferredLanguageCString: languageCString
             )
+
+            self.log(
+                "Whisper params[\(mode)]: threads=\(params.n_threads), detectLanguage=\(params.detect_language), " +
+                "noTimestamps=\(params.no_timestamps), singleSegment=\(params.single_segment), " +
+                "maxTokens=\(params.max_tokens), audioCtx=\(params.audio_ctx), " +
+                "language=\(preferredLanguage?.whisperLanguageCode ?? "auto")"
+            )
+
+            return try samples.withUnsafeBufferPointer { buffer -> SpeechRecognitionResult in
+                let status = whisper_full(context, params, buffer.baseAddress, Int32(buffer.count))
+                self.log("whisper_full finished with status=\(status), sampleCount=\(buffer.count), mode=\(mode)")
+                guard status == 0 else {
+                    throw SpeechRecognitionError.transcriptionFailed("Whisper returned status \(status).")
+                }
+
+                let segmentCount = Int(whisper_full_n_segments(context))
+                self.log("Whisper produced segmentCount=\(segmentCount)")
+                var textParts: [String] = []
+                textParts.reserveCapacity(segmentCount)
+
+                for index in 0..<segmentCount {
+                    guard let segmentText = whisper_full_get_segment_text(context, Int32(index)) else {
+                        self.log("Segment[\(index)] is nil")
+                        continue
+                    }
+
+                    let rawText = String(cString: segmentText)
+                    let text = self.sanitizeSegmentText(rawText)
+                    guard !text.isEmpty else {
+                        continue
+                    }
+
+                    self.log("Segment[\(index)]=\(self.summarize(text))")
+                    textParts.append(text)
+                }
+
+                let transcribedText = textParts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !transcribedText.isEmpty else {
+                    self.log("Transcription result is empty after joining \(segmentCount) segments.")
+                    throw SpeechRecognitionError.emptyTranscription
+                }
+
+                let languageID = whisper_full_lang_id(context)
+                let detectedLanguage: String?
+                if languageID >= 0, let languageCString = whisper_lang_str(languageID) {
+                    detectedLanguage = String(cString: languageCString)
+                } else {
+                    detectedLanguage = nil
+                }
+
+                self.log("Detected language=\(detectedLanguage ?? "nil"), text=\(self.summarize(transcribedText))")
+
+                return SpeechRecognitionResult(
+                    text: transcribedText,
+                    detectedLanguage: detectedLanguage
+                )
+            }
         }
+
+        if let preferredLanguage {
+            return try preferredLanguage.whisperLanguageCode.withCString { languageCString in
+                try execute(languageCString)
+            }
+        }
+
+        return try execute(nil)
     }
 
     private func makeWhisperParams(
-        for mode: TranscriptionMode
+        for mode: TranscriptionMode,
+        preferredLanguageCString: UnsafePointer<CChar>?
     ) -> whisper_full_params {
         var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
         params.translate = false
@@ -400,7 +422,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         params.print_progress = false
         params.print_realtime = false
         params.print_timestamps = false
-        params.language = nil
+        params.language = preferredLanguageCString
         params.n_threads = contextThreadCount()
         params.no_speech_thold = streamingConfiguration.inference.noSpeechThreshold
 

@@ -86,10 +86,54 @@ struct HomeChatMessageBubble: View {
         }
     }
 
+    private struct LanguageChip: View {
+        let language: SupportedLanguage
+        let isBusy: Bool
+        let isDisabled: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    if isBusy {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(.accentColor)
+                    } else {
+                        Text(language.flagEmoji)
+                            .font(.caption)
+                    }
+
+                    Text(language.displayName)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+                .foregroundStyle(
+                    isDisabled
+                        ? Color.secondary.opacity(0.78)
+                        : Color.primary.opacity(0.88)
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(uiColor: .systemBackground).opacity(0.92))
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
+        }
+    }
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let message: ChatMessage
     let streamingState: ExchangeStreamingState?
+    let sourceLanguage: SupportedLanguage
+    let targetLanguage: SupportedLanguage
     let showsTranslatedPlaybackButton: Bool
     let isPlayingTranslatedMessage: Bool
     let isTranslatedPlaybackDisabled: Bool
@@ -98,9 +142,61 @@ struct HomeChatMessageBubble: View {
     let showsSpeechTranscript: Bool
     let isSpeechTranscriptToggleDisabled: Bool
     let hasPlayableSourceRecording: Bool
+    let isSourceLanguageSwitchDisabled: Bool
+    let isTargetLanguageSwitchDisabled: Bool
+    let isSourceLanguageSwitching: Bool
+    let isTargetLanguageSwitching: Bool
     let onTranslatedPlayback: () -> Void
     let onSourcePlayback: () -> Void
     let onSpeechTranscriptToggle: () -> Void
+    let onSourceLanguageSelection: () -> Void
+    let onTargetLanguageSelection: () -> Void
+
+    init(
+        message: ChatMessage,
+        streamingState: ExchangeStreamingState?,
+        sourceLanguage: SupportedLanguage = .chinese,
+        targetLanguage: SupportedLanguage = .english,
+        showsTranslatedPlaybackButton: Bool,
+        isPlayingTranslatedMessage: Bool,
+        isTranslatedPlaybackDisabled: Bool,
+        isSourcePlaybackDisabled: Bool,
+        isPlayingSourceMessage: Bool,
+        showsSpeechTranscript: Bool,
+        isSpeechTranscriptToggleDisabled: Bool,
+        hasPlayableSourceRecording: Bool,
+        isSourceLanguageSwitchDisabled: Bool = false,
+        isTargetLanguageSwitchDisabled: Bool = false,
+        isSourceLanguageSwitching: Bool = false,
+        isTargetLanguageSwitching: Bool = false,
+        onTranslatedPlayback: @escaping () -> Void,
+        onSourcePlayback: @escaping () -> Void,
+        onSpeechTranscriptToggle: @escaping () -> Void,
+        onSourceLanguageSelection: @escaping () -> Void = {},
+        onTargetLanguageSelection: @escaping () -> Void = {}
+    ) {
+        self.message = message
+        self.streamingState = streamingState
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
+        self.showsTranslatedPlaybackButton = showsTranslatedPlaybackButton
+        self.isPlayingTranslatedMessage = isPlayingTranslatedMessage
+        self.isTranslatedPlaybackDisabled = isTranslatedPlaybackDisabled
+        self.isSourcePlaybackDisabled = isSourcePlaybackDisabled
+        self.isPlayingSourceMessage = isPlayingSourceMessage
+        self.showsSpeechTranscript = showsSpeechTranscript
+        self.isSpeechTranscriptToggleDisabled = isSpeechTranscriptToggleDisabled
+        self.hasPlayableSourceRecording = hasPlayableSourceRecording
+        self.isSourceLanguageSwitchDisabled = isSourceLanguageSwitchDisabled
+        self.isTargetLanguageSwitchDisabled = isTargetLanguageSwitchDisabled
+        self.isSourceLanguageSwitching = isSourceLanguageSwitching
+        self.isTargetLanguageSwitching = isTargetLanguageSwitching
+        self.onTranslatedPlayback = onTranslatedPlayback
+        self.onSourcePlayback = onSourcePlayback
+        self.onSpeechTranscriptToggle = onSpeechTranscriptToggle
+        self.onSourceLanguageSelection = onSourceLanguageSelection
+        self.onTargetLanguageSelection = onTargetLanguageSelection
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -113,6 +209,15 @@ struct HomeChatMessageBubble: View {
     @ViewBuilder
     private var sourceSection: some View {
         alignedGroup(alignment: .trailing, horizontalAlignment: .trailing) {
+            languageChipRow(alignment: .trailing) {
+                LanguageChip(
+                    language: sourceLanguage,
+                    isBusy: isSourceLanguageSwitching,
+                    isDisabled: isSourceLanguageSwitchDisabled,
+                    action: onSourceLanguageSelection
+                )
+            }
+
             switch message.inputType {
             case .text:
                 bubble(role: .outgoingSource) {
@@ -160,6 +265,15 @@ struct HomeChatMessageBubble: View {
 
     private var translatedSection: some View {
         alignedGroup(alignment: .leading, horizontalAlignment: .leading) {
+            languageChipRow(alignment: .leading) {
+                LanguageChip(
+                    language: targetLanguage,
+                    isBusy: isTargetLanguageSwitching,
+                    isDisabled: isTargetLanguageSwitchDisabled,
+                    action: onTargetLanguageSelection
+                )
+            }
+
             bubble(role: .incomingTranslation) {
                 translatedBubbleBody
             }
@@ -522,6 +636,16 @@ struct HomeChatMessageBubble: View {
     }
 
     private func actionRow<Content: View>(
+        alignment: Alignment,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 8) {
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
+    }
+
+    private func languageChipRow<Content: View>(
         alignment: Alignment,
         @ViewBuilder content: () -> Content
     ) -> some View {

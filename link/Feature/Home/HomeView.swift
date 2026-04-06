@@ -40,7 +40,7 @@ struct HomeView: View {
                     messageListBottomAnchorID: Self.messageListBottomAnchorID,
                     messageListBottomSpacerHeight: messageListBottomSpacerHeight,
                     onOpenLanguagePicker: {
-                        store.isLanguageSheetPresented = true
+                        store.presentGlobalTargetLanguagePicker()
                     },
                     onDismissInputFocus: dismissChatInputFocus,
                     onTranslatedPlayback: { message in
@@ -51,6 +51,18 @@ struct HomeView: View {
                     },
                     onSpeechTranscriptToggle: { message in
                         store.toggleSpeechTranscript(for: message)
+                    },
+                    onSourceLanguageSelection: { message in
+                        store.presentMessageLanguagePicker(
+                            for: message,
+                            side: .source
+                        )
+                    },
+                    onTargetLanguageSelection: { message in
+                        store.presentMessageLanguagePicker(
+                            for: message,
+                            side: .target
+                        )
                     }
                 )
                 .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +78,7 @@ struct HomeView: View {
                     store.onAppear(in: runtimeContext)
                     scrollToBottom(with: proxy, animated: false)
                 }
-                .onChange(of: viewState.displayedMessageRenderKeys) { _, _ in
+                .onChange(of: viewState.messageItems.map(\.id)) { _, _ in
                     scrollToBottom(with: proxy)
                 }
                 .onChange(of: chatInputBarHeight) { oldValue, newValue in
@@ -78,11 +90,15 @@ struct HomeView: View {
                 downloadManagerView
             }
         }
-        .homePresentation(store: store, viewState: viewState)
+        .homePresentation(
+            store: store,
+            viewState: viewState,
+            runtimeContext: runtimeContext
+        )
         .task {
             await store.refreshDownloadAvailabilityForCurrentSelection()
         }
-        .onChange(of: store.isLanguageSheetPresented) { _, isPresented in
+        .onChange(of: store.isShowingLanguageSheet) { _, isPresented in
             if !isPresented {
                 store.presentDeferredDownloadPromptIfNeeded()
             }

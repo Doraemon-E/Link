@@ -11,7 +11,7 @@ import Foundation
 final class HomeDownloadWorkflow {
     private static let minimumLoadingDuration: TimeInterval = 2.0
 
-    private unowned let store: HomeStore
+    private weak var store: HomeStore?
     private let dependencies: HomeDependencies
     private var downloadObservationTask: Task<Void, Never>?
     private var downloadMilestoneSignature = ""
@@ -34,15 +34,18 @@ final class HomeDownloadWorkflow {
             let stream = await self.dependencies.modelAssetService.snapshotStream()
 
             for await snapshot in stream {
-                self.store.assetRecords = snapshot.records
-                self.store.assetSummary = snapshot.summary
+                guard let store = self.store else { break }
+                store.assetRecords = snapshot.records
+                store.assetSummary = snapshot.summary
                 self.handleAssetMilestones(for: snapshot)
             }
         }
     }
 
     func presentDeferredDownloadPromptIfNeeded() {
-        guard !store.isLanguageSheetPresented, let deferredDownloadPrompt = store.deferredDownloadPrompt else {
+        guard let store,
+              !store.isShowingLanguageSheet,
+              let deferredDownloadPrompt = store.deferredDownloadPrompt else {
             return
         }
 
@@ -55,7 +58,9 @@ final class HomeDownloadWorkflow {
     }
 
     func prepareDownloadManagerIfNeeded() async {
-        guard !store.hasPreparedDownloadManager, !isPreparingDownloadManager else {
+        guard let store,
+              !store.hasPreparedDownloadManager,
+              !isPreparingDownloadManager else {
             return
         }
 
@@ -76,6 +81,7 @@ final class HomeDownloadWorkflow {
     }
 
     func presentDownloadPrompt() {
+        guard let store else { return }
         guard let downloadableLanguagePrompt = store.downloadableLanguagePrompt else {
             openDownloadManager()
             return
@@ -85,21 +91,41 @@ final class HomeDownloadWorkflow {
     }
 
     func dismissDownloadPrompt() {
-        store.activeDownloadPrompt = nil
+        store?.activeDownloadPrompt = nil
     }
 
     func presentTranslationDownloadPrompt(_ prompt: HomeLanguageDownloadPrompt) {
+        guard let store else { return }
         store.downloadableLanguagePrompt = prompt
         store.deferredDownloadPrompt = nil
         store.activeDownloadPrompt = prompt
     }
 
     func dismissSpeechDownloadPrompt() {
+        store?.activeSpeechDownloadPrompt = nil
+        store?.pendingVoiceStartAfterInstall = false
+        pendingSpeechResumePackageID = nil
+    }
+
+    func openDownloadManagerForActiveTranslationPrompt() {
+        guard let store else { return }
+        store.activeDownloadPrompt = nil
+        presentDownloadManager()
+    }
+
+    func openDownloadManagerForSpeechPrompt(
+        packageId: String,
+        shouldResumeRecording: Bool
+    ) {
+        guard let store else { return }
         store.activeSpeechDownloadPrompt = nil
-        store.pendingVoiceStartAfterInstall = false
+        store.pendingVoiceStartAfterInstall = shouldResumeRecording
+        pendingSpeechResumePackageID = shouldResumeRecording ? packageId : nil
+        presentDownloadManager()
     }
 
     func refreshDownloadAvailabilityForCurrentSelection() async {
+        guard let store else { return }
         let source = store.sourceLanguage
         let target = store.selectedLanguage
         let prompt = await downloadPromptIfNeeded(source: source, target: target)
@@ -119,6 +145,7 @@ final class HomeDownloadWorkflow {
     func installTranslationModel(packageIds: [String]) async {
         guard !packageIds.isEmpty else { return }
 
+        guard let store else { return }
         store.downloadErrorMessage = nil
         store.activeDownloadPrompt = nil
         presentDownloadManager()
@@ -130,6 +157,7 @@ final class HomeDownloadWorkflow {
         packageId: String,
         shouldResumeRecording: Bool
     ) async {
+        guard let store else { return }
         store.speechErrorMessage = nil
         store.activeSpeechDownloadPrompt = nil
         presentDownloadManager()
@@ -158,11 +186,11 @@ final class HomeDownloadWorkflow {
             try await dependencies.modelAssetService.removeInstalledAsset(id: itemID)
             await refreshDownloadAvailabilityForCurrentSelection()
         } catch let error as TranslationError {
-            store.downloadErrorMessage = error.userFacingMessage
+            store?.downloadErrorMessage = error.userFacingMessage
         } catch let error as SpeechRecognitionError {
-            store.speechErrorMessage = error.userFacingMessage
+            store?.speechErrorMessage = error.userFacingMessage
         } catch {
-            store.downloadErrorMessage = "删除模型失败，请稍后再试。"
+            store?.downloadErrorMessage = "删除模型失败，请稍后再试。"
         }
     }
 
@@ -236,7 +264,8 @@ final class HomeDownloadWorkflow {
             }
         }
 
-        guard store.pendingVoiceStartAfterInstall,
+        guard let store,
+              store.pendingVoiceStartAfterInstall,
               let packageID = pendingSpeechResumePackageID else {
             return
         }
@@ -270,6 +299,7 @@ final class HomeDownloadWorkflow {
     }
 
     private func presentDownloadManager() {
+        guard let store else { return }
         if !store.hasPreparedDownloadManager {
             store.isDownloadManagerLoading = true
         }
