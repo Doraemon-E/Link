@@ -299,6 +299,7 @@ final class MicrophoneRecordingService {
         }
     }
 
+    // TODO: 注意，这里的路径感觉不是很规范，后面优化一下
     private func preserveRecording(at url: URL) throws -> URL {
         let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
