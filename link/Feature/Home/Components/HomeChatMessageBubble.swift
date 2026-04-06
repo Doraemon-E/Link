@@ -180,30 +180,32 @@ struct HomeChatMessageBubble: View {
     }
 
     private var translatedBubbleBody: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let statusText = translatedStatusText {
-                HStack(spacing: 6) {
-                    if isTranslationActive {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(translatedStatusIndicatorColor)
-                    } else if isTranslationFailed {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(translatedFailureAccentColor)
+        Group {
+            if shouldShowTranslationThinkingIndicator {
+                TranslationThinkingIndicator()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let statusText = translatedStatusText {
+                        HStack(spacing: 6) {
+                            if isTranslationFailed {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(translatedFailureAccentColor)
+                            }
+
+                            Text(statusText)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(translatedStatusColor)
+                        }
                     }
 
-                    Text(statusText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(translatedStatusColor)
+                    Text(translatedContent.text)
+                        .font(.body)
+                        .foregroundStyle(translatedTextColor)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-
-            Text(translatedContent.text)
-                .font(.body)
-                .foregroundStyle(translatedTextColor)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -322,10 +324,6 @@ struct HomeChatMessageBubble: View {
         return translatedContent.isPlaceholder ? Color.white.opacity(0.78) : Color.white.opacity(0.84)
     }
 
-    private var translatedStatusIndicatorColor: Color {
-        Color.white.opacity(0.92)
-    }
-
     private var translatedFailureAccentColor: Color {
         Color.white.opacity(0.94)
     }
@@ -338,8 +336,24 @@ struct HomeChatMessageBubble: View {
         return translatedContent.isPlaceholder ? Color.white.opacity(0.84) : .white
     }
 
-    private var isTranslationActive: Bool {
-        streamingState?.isTranslationActive == true
+    private var shouldShowTranslationThinkingIndicator: Bool {
+        guard let streamingState else { return false }
+
+        if case .translating = streamingState.translationPhase {
+            return !hasResolvedTranslatedText
+        }
+
+        return false
+    }
+
+    private var hasResolvedTranslatedText: Bool {
+        let streamingText = streamingState?.translatedDisplayText
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !streamingText.isEmpty {
+            return true
+        }
+
+        return !message.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var isTranslationFailed: Bool {
@@ -435,6 +449,38 @@ struct HomeChatMessageBubble: View {
         Text(stableText).foregroundColor(baseColor) +
         Text(provisionalText).foregroundColor(baseColor.opacity(0.72)) +
         Text(liveText).foregroundColor(baseColor.opacity(0.48))
+    }
+
+    private struct TranslationThinkingIndicator: View {
+        private static let cycleDuration = 0.9
+        private static let phaseOffset = 0.18
+
+        var body: some View {
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
+                let timestamp = context.date.timeIntervalSinceReferenceDate
+
+                HStack(spacing: 2) {
+                    ForEach(0..<3, id: \.self) { index in
+                        let emphasis = dotEmphasis(for: index, timestamp: timestamp)
+
+                        Text("·")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(Color.white.opacity(0.42 + (0.46 * emphasis)))
+                            .scaleEffect(0.9 + (0.22 * emphasis))
+                            .frame(width: 10, alignment: .center)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("翻译中")
+            }
+        }
+
+        private func dotEmphasis(for index: Int, timestamp: TimeInterval) -> Double {
+            let progress = timestamp.remainder(dividingBy: Self.cycleDuration) / Self.cycleDuration
+            let phase = progress - (Double(index) * Self.phaseOffset)
+            let wave = (sin(phase * .pi * 2) + 1) / 2
+            return max(0, min(1, wave))
+        }
     }
 
     private func alignedGroup<Content: View>(
@@ -597,6 +643,46 @@ struct HomeChatMessageBubble: View {
                     translatedLiveText: "Please help me book two tickets for Friday night.",
                     translationPhase: .typing,
                     translationRevision: 2
+                ),
+                showsTranslatedPlaybackButton: false,
+                isPlayingTranslatedMessage: false,
+                isTranslatedPlaybackDisabled: true,
+                isSourcePlaybackDisabled: false,
+                isPlayingSourceMessage: false,
+                showsSpeechTranscript: false,
+                isSpeechTranscriptToggleDisabled: false,
+                hasPlayableSourceRecording: false,
+                onTranslatedPlayback: {},
+                onSourcePlayback: {},
+                onSpeechTranscriptToggle: {}
+            )
+        }
+        .padding()
+    }
+    .background(Color(uiColor: .systemGroupedBackground))
+}
+
+#Preview("Translation Loading") {
+    ScrollView {
+        VStack(spacing: 18) {
+            let message = PreviewFactory.textMessage(
+                sourceText: "请帮我联系前台确认一下入住时间。",
+                translatedText: ""
+            )
+
+            HomeChatMessageBubble(
+                message: message,
+                streamingState: ExchangeStreamingState(
+                    messageID: message.id,
+                    sourceStableText: message.sourceText,
+                    sourceProvisionalText: "",
+                    sourceLiveText: "",
+                    sourcePhase: .completed,
+                    sourceRevision: 0,
+                    translatedCommittedText: "",
+                    translatedLiveText: nil,
+                    translationPhase: .translating,
+                    translationRevision: 0
                 ),
                 showsTranslatedPlaybackButton: false,
                 isPlayingTranslatedMessage: false,

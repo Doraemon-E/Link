@@ -22,7 +22,7 @@ nonisolated enum MessagePhase: Sendable, Equatable {
         case .transcribing:
             return "正在识别"
         case .translating:
-            return "翻译中"
+            return nil
         case .typing:
             return nil
         case .failed:
@@ -37,7 +37,7 @@ nonisolated enum MessagePhase: Sendable, Equatable {
         case .transcribing:
             return "正在识别语音…"
         case .translating:
-            return "翻译中…"
+            return nil
         case .typing:
             return nil
         case .failed(let message):
