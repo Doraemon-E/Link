@@ -83,10 +83,6 @@ actor MarianTranslationService: TranslationService {
 
     func translate(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
         let route = try await route(source: source, target: target)
-        debugLog(
-            "route \(source.displayName)->\(target.displayName): " +
-            route.steps.map { "\($0.source.displayName)->\($0.target.displayName)" }.joined(separator: ", ")
-        )
 
         guard !route.steps.isEmpty else {
             return text
@@ -94,13 +90,11 @@ actor MarianTranslationService: TranslationService {
 
         var translatedText = text
         for step in route.steps {
-            debugLog("step input \(step.source.displayName)->\(step.target.displayName): \"\(translatedText)\"")
             translatedText = try await translateDirect(
                 text: translatedText,
                 source: step.source,
                 target: step.target
             )
-            debugLog("step output \(step.source.displayName)->\(step.target.displayName): \"\(translatedText)\"")
         }
 
         return translatedText
@@ -159,12 +153,8 @@ actor MarianTranslationService: TranslationService {
             throw TranslationError.unsupportedLanguagePair(source: source, target: target)
         }
 
-        let modelInputText = preparedInputText(
-            text
-        )
-
         let inputTokenIDs = try state.tokenizer.encode(
-            modelInputText,
+            preparedInputText(text),
             maxLength: state.manifest.generation.maxInputLength,
             eosTokenID: state.manifest.generation.eosTokenId
         )
@@ -198,15 +188,6 @@ actor MarianTranslationService: TranslationService {
             manifest: state.manifest
         )
 
-        debugLog(
-            "translateDirect start package=\(state.packageID) " +
-            "\(source.displayName)->\(target.displayName) " +
-            "text=\"\(text)\" modelInput=\"\(modelInputText)\" " +
-            "inputTokenIDs=\(formattedTokenIDs(inputTokenIDs)) " +
-            "maxDecoderSteps=\(maxDecoderSteps) " +
-            "suppressedTokenIDs=\(formattedTokenIDs(Array(state.suppressedTokenIDs).sorted()))"
-        )
-
         for _ in 0 ..< maxDecoderSteps {
             let nextTokenID: Int64 = try autoreleasepool {
                 let decoderInputs = try [
@@ -237,19 +218,6 @@ actor MarianTranslationService: TranslationService {
                 )
             }
 
-            if generatedTokenIDs.isEmpty {
-                let firstTokenDescription = state.tokenizer.debugTokenDescription(
-                    nextTokenID,
-                    eosTokenID: state.manifest.generation.eosTokenId,
-                    padTokenID: state.manifest.generation.padTokenId
-                )
-                debugLog(
-                    "first nextTokenID package=\(state.packageID): \(nextTokenID), " +
-                    "token=\"\(firstTokenDescription)\", " +
-                    "isEOS=\(nextTokenID == Int64(state.manifest.generation.eosTokenId))"
-                )
-            }
-
             if nextTokenID == Int64(state.manifest.generation.eosTokenId) {
                 break
             }
@@ -263,22 +231,8 @@ actor MarianTranslationService: TranslationService {
             eosTokenID: state.manifest.generation.eosTokenId,
             padTokenID: state.manifest.generation.padTokenId
         )
-        let generatedTokenDescriptions = formattedTokenDescriptions(
-            generatedTokenIDs,
-            tokenizer: state.tokenizer,
-            eosTokenID: state.manifest.generation.eosTokenId,
-            padTokenID: state.manifest.generation.padTokenId
-        )
-
-        debugLog(
-            "translateDirect result package=\(state.packageID) " +
-            "generatedTokenIDs=\(formattedTokenIDs(generatedTokenIDs)) " +
-            "generatedTokens=\(generatedTokenDescriptions) " +
-            "decoded=\"\(translatedText)\""
-        )
 
         guard !translatedText.isEmpty else {
-            debugLog("translateDirect empty output package=\(state.packageID)")
             throw TranslationError.emptyOutput
         }
 
@@ -388,9 +342,8 @@ actor MarianTranslationService: TranslationService {
         )
 
         if FileManager.default.fileExists(atPath: generationConfigURL.path) {
-            do {
-                let data = try Data(contentsOf: generationConfigURL)
-                let generationConfig = try JSONDecoder().decode(GenerationConfigOverrides.self, from: data)
+            if let data = try? Data(contentsOf: generationConfigURL),
+               let generationConfig = try? JSONDecoder().decode(GenerationConfigOverrides.self, from: data) {
                 suppressedTokenIDs.formUnion((generationConfig.badWordsIds ?? []).compactMap { tokenIDs in
                     guard tokenIDs.count == 1 else {
                         return nil
@@ -398,54 +351,10 @@ actor MarianTranslationService: TranslationService {
 
                     return Int64(tokenIDs[0])
                 })
-            } catch {
-                debugLog("failed to load suppressed token ids from generation_config.json: \(error.localizedDescription)")
             }
         }
 
         return suppressedTokenIDs
-    }
-
-    private func formattedTokenIDs(_ tokenIDs: [Int64], limit: Int = 24) -> String {
-        if tokenIDs.isEmpty {
-            return "[]"
-        }
-
-        let prefix = tokenIDs.prefix(limit).map(String.init).joined(separator: ", ")
-        if tokenIDs.count <= limit {
-            return "[\(prefix)]"
-        }
-
-        return "[\(prefix), ...] (count=\(tokenIDs.count))"
-    }
-
-    private func formattedTokenDescriptions(
-        _ tokenIDs: [Int64],
-        tokenizer: TokenizerAdapter,
-        eosTokenID: Int,
-        padTokenID: Int,
-        limit: Int = 12
-    ) -> String {
-        if tokenIDs.isEmpty {
-            return "[]"
-        }
-
-        let descriptions = tokenIDs.prefix(limit).map {
-            "\"\(tokenizer.debugTokenDescription($0, eosTokenID: eosTokenID, padTokenID: padTokenID))\""
-        }
-        let prefix = descriptions.joined(separator: ", ")
-
-        if tokenIDs.count <= limit {
-            return "[\(prefix)]"
-        }
-
-        return "[\(prefix), ...] (count=\(tokenIDs.count))"
-    }
-
-    private func debugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        print("[TranslationService] \(message())")
-#endif
     }
 
     private func makeInt64Tensor(_ values: [Int64], shape: [Int]) throws -> ORTValue {

@@ -10,7 +10,6 @@ import Foundation
 nonisolated protocol TokenizerAdapter {
     func encode(_ text: String, maxLength: Int, eosTokenID: Int) throws -> [Int64]
     func decode(_ tokenIDs: [Int64], eosTokenID: Int, padTokenID: Int) throws -> String
-    func debugTokenDescription(_ tokenID: Int64, eosTokenID: Int, padTokenID: Int) -> String
 }
 
 nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
@@ -436,24 +435,6 @@ nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return sentence
-    }
-
-    func debugTokenDescription(_ tokenID: Int64, eosTokenID: Int, padTokenID: Int) -> String {
-        let rawID = Int(tokenID)
-
-        if rawID == eosTokenID {
-            return "<eos>"
-        }
-
-        if rawID == padTokenID {
-            return "<pad>"
-        }
-
-        guard let token = reverseVocabulary[rawID] else {
-            return "<missing:\(rawID)>"
-        }
-
-        return token
     }
 
     private func encodeWithUnigramViterbi(_ characters: [Character]) -> [Int64] {
