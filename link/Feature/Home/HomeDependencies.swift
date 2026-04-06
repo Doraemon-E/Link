@@ -10,6 +10,7 @@ import Foundation
 @MainActor
 struct HomeDependencies {
     let appSettings: AppSettings
+    let textLanguageRecognitionService: TextLanguageRecognitionService
     let translationService: TranslationService
     let speechRecognitionService: SpeechRecognitionService
     let textToSpeechService: TextToSpeechService

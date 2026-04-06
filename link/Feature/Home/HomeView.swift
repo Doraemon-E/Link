@@ -12,7 +12,6 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
     @State private var store: HomeStore
-    @State private var languageSheetMode: HomeLanguageSheet.Mode = .full
 
     init(dependencies: HomeDependencies) {
         _store = State(
@@ -79,22 +78,10 @@ struct HomeView: View {
         }
         .sheet(isPresented: $store.isLanguageSheetPresented) {
             HomeLanguageSheet(
-                sourceLanguage: $store.sourceLanguage,
                 selectedLanguage: $store.selectedLanguage,
                 isPresented: $store.isLanguageSheetPresented,
-                mode: languageSheetMode,
-                onResolveSelection: { source, target in
-                    await store.resolveLanguageSelection(source: source, target: target)
-                },
-                onCommitSelection: { source, target in
-                    store.commitLanguageSelection(source: source, target: target)
-                },
-                onCommitSelectionRequiringDownload: { source, target, prompt in
-                    store.commitLanguageSelectionRequiringDownload(
-                        source: source,
-                        target: target,
-                        prompt: prompt
-                    )
+                onCommitSelection: { target in
+                    store.commitTargetLanguageSelection(target)
                 }
             )
         }
@@ -176,6 +163,21 @@ struct HomeView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(store.downloadErrorMessage ?? "")
+        }
+        .alert(
+            "输入语言识别失败",
+            isPresented: Binding(
+                get: { store.messageErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        store.messageErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(store.messageErrorMessage ?? "")
         }
         .alert(
             "语音识别失败",
@@ -288,10 +290,10 @@ struct HomeView: View {
 
             if shouldShowLanguagePickerHero {
                 Button {
-                    languageSheetMode = .targetOnly
                     store.isLanguageSheetPresented = true
                 } label: {
                     HomeHeroLanguageChip(
+                        flagEmoji: store.selectedLanguage.flagEmoji,
                         title: store.selectedLanguage.displayName
                     )
                 }
@@ -398,18 +400,17 @@ struct HomeView: View {
 
     private var toolbarLanguagePickerButton: some View {
         Button {
-            languageSheetMode = .full
             store.isLanguageSheetPresented = true
         } label: {
             HomeToolbarTranslationItem(
-                sourceTitle: store.sourceLanguage.displayName,
-                targetTitle: store.selectedLanguage.displayName
+                flagEmoji: store.selectedLanguage.flagEmoji,
+                title: store.selectedLanguage.displayName
             )
-            .frame(maxWidth: 250)
+            .frame(maxWidth: 200)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("翻译语言")
-        .accessibilityValue("\(store.sourceLanguage.displayName)到\(store.selectedLanguage.displayName)")
+        .accessibilityLabel("目标语言")
+        .accessibilityValue(store.selectedLanguage.displayName)
     }
 
     private func toolbarIconButton<Label: View>(
@@ -503,6 +504,7 @@ private struct HomeDownloadToolbarIcon: View {
             appSettings: AppSettings(
                 userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard
             ),
+            textLanguageRecognitionService: SystemTextLanguageRecognitionService(),
             translationService: MarianTranslationService(modelProvider: translationPackageManager),
             speechRecognitionService: WhisperSpeechRecognitionService(
                 packageManager: speechPackageManager

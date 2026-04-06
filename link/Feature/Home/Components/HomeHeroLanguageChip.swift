@@ -8,15 +8,20 @@
 import SwiftUI
 
 struct HomeHeroLanguageChip: View {
+    let flagEmoji: String
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-            .layoutPriority(1)
-//        .frame(maxWidth: .infinity)
+        HStack(spacing: 12) {
+            Text(flagEmoji)
+                .font(.title2)
+
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .layoutPriority(1)
+        }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .glassEffect()
@@ -25,8 +30,8 @@ struct HomeHeroLanguageChip: View {
 
 #Preview {
     VStack(spacing: 16) {
-        HomeHeroLanguageChip(title: "英文")
-        HomeHeroLanguageChip(title: "English")
+        HomeHeroLanguageChip(flagEmoji: "🇺🇸", title: "英文")
+        HomeHeroLanguageChip(flagEmoji: "🇯🇵", title: "日文")
     }
     .padding()
 }

@@ -13,11 +13,17 @@ import Observation
 final class AppSettings {
     private enum UserDefaultsKey {
         static let selectedTargetLanguage = "app.selectedTargetLanguage"
+        static let hasShownInitialTargetLanguagePicker = "app.hasShownInitialTargetLanguagePicker"
     }
 
     var selectedTargetLanguage: SupportedLanguage {
         didSet {
             persistSelectedTargetLanguage()
+        }
+    }
+    var hasShownInitialTargetLanguagePicker: Bool {
+        didSet {
+            persistHasShownInitialTargetLanguagePicker()
         }
     }
 
@@ -26,10 +32,18 @@ final class AppSettings {
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         self.selectedTargetLanguage = Self.loadSelectedTargetLanguage(from: userDefaults)
+        self.hasShownInitialTargetLanguagePicker = Self.loadHasShownInitialTargetLanguagePicker(from: userDefaults)
     }
 
     private func persistSelectedTargetLanguage() {
         userDefaults.set(selectedTargetLanguage.rawValue, forKey: UserDefaultsKey.selectedTargetLanguage)
+    }
+
+    private func persistHasShownInitialTargetLanguagePicker() {
+        userDefaults.set(
+            hasShownInitialTargetLanguagePicker,
+            forKey: UserDefaultsKey.hasShownInitialTargetLanguagePicker
+        )
     }
 
     private static func loadSelectedTargetLanguage(from userDefaults: UserDefaults) -> SupportedLanguage {
@@ -41,5 +55,9 @@ final class AppSettings {
         }
 
         return language
+    }
+
+    private static func loadHasShownInitialTargetLanguagePicker(from userDefaults: UserDefaults) -> Bool {
+        userDefaults.bool(forKey: UserDefaultsKey.hasShownInitialTargetLanguagePicker)
     }
 }

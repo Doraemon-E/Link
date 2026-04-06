@@ -24,6 +24,7 @@ struct linkApp: App {
         )
         self.dependencies = HomeDependencies(
             appSettings: AppSettings(),
+            textLanguageRecognitionService: SystemTextLanguageRecognitionService(),
             translationService: MarianTranslationService(modelProvider: translationPackageManager),
             speechRecognitionService: WhisperSpeechRecognitionService(packageManager: speechPackageManager),
             textToSpeechService: SystemTextToSpeechService(),

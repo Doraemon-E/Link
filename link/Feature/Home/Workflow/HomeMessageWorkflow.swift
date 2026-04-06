@@ -17,6 +17,7 @@ final class HomeMessageWorkflow {
     private unowned let store: HomeStore
     private let sessionRepository: HomeSessionRepository
     private let conversationStreamingCoordinator: any ConversationStreamingCoordinator
+    private let textLanguageRecognitionService: TextLanguageRecognitionService
     private let downloadWorkflow: HomeDownloadWorkflow
     private var translationTasksByMessageID: [UUID: Task<Void, Never>] = [:]
 
@@ -24,11 +25,13 @@ final class HomeMessageWorkflow {
         store: HomeStore,
         sessionRepository: HomeSessionRepository,
         conversationStreamingCoordinator: any ConversationStreamingCoordinator,
+        textLanguageRecognitionService: TextLanguageRecognitionService,
         downloadWorkflow: HomeDownloadWorkflow
     ) {
         self.store = store
         self.sessionRepository = sessionRepository
         self.conversationStreamingCoordinator = conversationStreamingCoordinator
+        self.textLanguageRecognitionService = textLanguageRecognitionService
         self.downloadWorkflow = downloadWorkflow
     }
 
@@ -41,11 +44,22 @@ final class HomeMessageWorkflow {
             return
         }
 
-        let source = store.sourceLanguage
         let target = store.selectedLanguage
+        store.messageErrorMessage = nil
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+
+            let source: SupportedLanguage
+            do {
+                source = try await self.resolveSourceLanguage(for: trimmedText)
+            } catch let error as TextLanguageRecognitionError {
+                self.store.messageErrorMessage = error.userFacingMessage
+                return
+            } catch {
+                self.store.messageErrorMessage = "暂时无法识别输入语言，请稍后再试。"
+                return
+            }
 
             if let prompt = await self.downloadWorkflow.downloadPromptIfNeeded(
                 source: source,
@@ -65,6 +79,11 @@ final class HomeMessageWorkflow {
                 clearInput: true
             )
         }
+    }
+
+    private func resolveSourceLanguage(for text: String) async throws -> SupportedLanguage {
+        let result = try await textLanguageRecognitionService.recognizeLanguage(for: text)
+        return result.language
     }
 
     private func submitMessage(

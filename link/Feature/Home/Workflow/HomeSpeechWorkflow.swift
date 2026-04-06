@@ -226,7 +226,6 @@ final class HomeSpeechWorkflow {
 
         liveSpeechSession.liveTask?.cancel()
         let messageID = liveSpeechSession.record.message.id
-        let fallbackSourceLanguage = liveSpeechSession.record.fallbackSourceLanguage
         let targetLanguage = liveSpeechSession.record.targetLanguage
 
         let task = Task { @MainActor [weak self] in
@@ -236,7 +235,7 @@ final class HomeSpeechWorkflow {
                 let stream = self.conversationStreamingCoordinator.startLiveSpeechTranslation(
                     messageID: messageID,
                     audioStream: audioStream,
-                    sourceLanguage: fallbackSourceLanguage,
+                    sourceLanguage: nil,
                     targetLanguage: targetLanguage
                 )
 

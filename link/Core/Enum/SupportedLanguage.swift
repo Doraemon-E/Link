@@ -20,6 +20,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
     case italian
 
     private struct Definition: Sendable {
+        let flagEmoji: String
         let displayName: String
         let compactDisplayName: String
         let translationModelCode: String
@@ -37,6 +38,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
 
     var id: String { rawValue }
 
+    var flagEmoji: String { definition.flagEmoji }
     var displayName: String { definition.displayName }
     var compactDisplayName: String { definition.compactDisplayName }
     var translationModelCode: String { definition.translationModelCode }
@@ -90,6 +92,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
 
     private static let definitions: [Self: Definition] = [
         .chinese: Definition(
+            flagEmoji: "🇨🇳",
             displayName: "中文",
             compactDisplayName: "中",
             translationModelCode: "zho",
@@ -99,6 +102,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["zh"]
         ),
         .english: Definition(
+            flagEmoji: "🇺🇸",
             displayName: "英文",
             compactDisplayName: "英",
             translationModelCode: "eng",
@@ -108,6 +112,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["en"]
         ),
         .japanese: Definition(
+            flagEmoji: "🇯🇵",
             displayName: "日文",
             compactDisplayName: "日",
             translationModelCode: "jpn",
@@ -117,6 +122,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["ja"]
         ),
         .korean: Definition(
+            flagEmoji: "🇰🇷",
             displayName: "韩文",
             compactDisplayName: "韩",
             translationModelCode: "kor",
@@ -126,6 +132,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["ko"]
         ),
         .french: Definition(
+            flagEmoji: "🇫🇷",
             displayName: "法文",
             compactDisplayName: "法",
             translationModelCode: "fra",
@@ -135,6 +142,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["fr"]
         ),
         .german: Definition(
+            flagEmoji: "🇩🇪",
             displayName: "德文",
             compactDisplayName: "德",
             translationModelCode: "deu",
@@ -144,6 +152,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["de"]
         ),
         .russian: Definition(
+            flagEmoji: "🇷🇺",
             displayName: "俄文",
             compactDisplayName: "俄",
             translationModelCode: "rus",
@@ -153,6 +162,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["ru"]
         ),
         .spanish: Definition(
+            flagEmoji: "🇪🇸",
             displayName: "西班牙文",
             compactDisplayName: "西",
             translationModelCode: "spa",
@@ -162,6 +172,7 @@ nonisolated enum SupportedLanguage: String, CaseIterable, Codable, Identifiable,
             naturalLanguageCodePrefixes: ["es"]
         ),
         .italian: Definition(
+            flagEmoji: "🇮🇹",
             displayName: "意大利文",
             compactDisplayName: "意",
             translationModelCode: "ita",

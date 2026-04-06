@@ -37,57 +37,6 @@ final class HomeDownloadWorkflow {
         }
     }
 
-    func resolveLanguageSelection(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) async -> HomeLanguageSelectionResolution {
-        do {
-            let requirement = try await translationDownloadRequirement(
-                source: source,
-                target: target
-            )
-
-            if requirement.isReady {
-                return .ready
-            }
-
-            return .requiresDownload(
-                HomeLanguageDownloadPrompt(
-                    sourceLanguage: source,
-                    targetLanguage: target,
-                    requirement: requirement
-                )
-            )
-        } catch let error as TranslationError {
-            return .failure(error.userFacingMessage)
-        } catch {
-            return .failure("暂时无法检查翻译模型，请稍后再试。")
-        }
-    }
-
-    func commitLanguageSelection(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) {
-        store.sourceLanguage = source
-        store.selectedLanguage = target
-        store.downloadableLanguagePrompt = nil
-        store.deferredDownloadPrompt = nil
-        store.activeDownloadPrompt = nil
-    }
-
-    func commitLanguageSelectionRequiringDownload(
-        source: SupportedLanguage,
-        target: SupportedLanguage,
-        prompt: HomeLanguageDownloadPrompt
-    ) {
-        store.sourceLanguage = source
-        store.selectedLanguage = target
-        store.downloadableLanguagePrompt = prompt
-        store.deferredDownloadPrompt = prompt
-        store.activeDownloadPrompt = nil
-    }
-
     func presentDeferredDownloadPromptIfNeeded() {
         guard !store.isLanguageSheetPresented, let deferredDownloadPrompt = store.deferredDownloadPrompt else {
             return

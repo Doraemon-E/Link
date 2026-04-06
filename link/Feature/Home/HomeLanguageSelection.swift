@@ -52,12 +52,6 @@ struct HomeLanguageDownloadPrompt: Identifiable, Equatable, Sendable {
     }
 }
 
-enum HomeLanguageSelectionResolution: Equatable, Sendable {
-    case ready
-    case requiresDownload(HomeLanguageDownloadPrompt)
-    case failure(String)
-}
-
 extension Int64 {
     var formattedModelSize: String {
         ByteCountFormatter.string(fromByteCount: self, countStyle: .file)

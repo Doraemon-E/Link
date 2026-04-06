@@ -8,21 +8,15 @@
 import SwiftUI
 
 struct HomeToolbarTranslationItem: View {
-    let sourceTitle: String
-    let targetTitle: String
+    let flagEmoji: String
+    let title: String
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(sourceTitle)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+            Text(flagEmoji)
+                .font(.body)
 
-            Image(systemName: "arrow.right")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(Color.accentColor)
-
-            Text(targetTitle)
+            Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
@@ -36,8 +30,8 @@ struct HomeToolbarTranslationItem: View {
 
 #Preview {
     HomeToolbarTranslationItem(
-        sourceTitle: "中文",
-        targetTitle: "英文"
+        flagEmoji: "🇺🇸",
+        title: "英文"
     )
     .padding()
 }

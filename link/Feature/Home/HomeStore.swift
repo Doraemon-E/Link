@@ -33,6 +33,7 @@ final class HomeStore {
     var downloadableLanguagePrompt: HomeLanguageDownloadPrompt?
     var deferredDownloadPrompt: HomeLanguageDownloadPrompt?
     var activeDownloadPrompt: HomeLanguageDownloadPrompt?
+    var messageErrorMessage: String?
     var downloadErrorMessage: String?
     var isRecordingSpeech = false
     var isTranscribingSpeech = false
@@ -62,6 +63,7 @@ final class HomeStore {
         store: self,
         sessionRepository: sessionRepository,
         conversationStreamingCoordinator: conversationStreamingCoordinator,
+        textLanguageRecognitionService: dependencies.textLanguageRecognitionService,
         downloadWorkflow: downloadWorkflow
     )
     @ObservationIgnored private lazy var speechWorkflow = HomeSpeechWorkflow(
@@ -95,6 +97,10 @@ final class HomeStore {
             in: runtime,
             presentation: &sessionPresentation
         )
+        if !dependencies.appSettings.hasShownInitialTargetLanguagePicker {
+            dependencies.appSettings.hasShownInitialTargetLanguagePicker = true
+            isLanguageSheetPresented = true
+        }
         Task {
             await dependencies.modelAssetService.warmUp()
         }
@@ -176,30 +182,15 @@ final class HomeStore {
         messageWorkflow.sendCurrentMessage(in: runtime)
     }
 
-    func resolveLanguageSelection(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) async -> HomeLanguageSelectionResolution {
-        await downloadWorkflow.resolveLanguageSelection(source: source, target: target)
-    }
+    func commitTargetLanguageSelection(_ target: SupportedLanguage) {
+        selectedLanguage = target
+        downloadableLanguagePrompt = nil
+        deferredDownloadPrompt = nil
+        activeDownloadPrompt = nil
 
-    func commitLanguageSelection(
-        source: SupportedLanguage,
-        target: SupportedLanguage
-    ) {
-        downloadWorkflow.commitLanguageSelection(source: source, target: target)
-    }
-
-    func commitLanguageSelectionRequiringDownload(
-        source: SupportedLanguage,
-        target: SupportedLanguage,
-        prompt: HomeLanguageDownloadPrompt
-    ) {
-        downloadWorkflow.commitLanguageSelectionRequiringDownload(
-            source: source,
-            target: target,
-            prompt: prompt
-        )
+        Task {
+            await refreshDownloadAvailabilityForCurrentSelection()
+        }
     }
 
     func presentDeferredDownloadPromptIfNeeded() {
