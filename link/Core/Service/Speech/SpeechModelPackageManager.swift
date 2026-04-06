@@ -21,10 +21,6 @@ actor SpeechModelPackageManager {
         self.baseDirectoryURLOverride = baseDirectoryURLOverride
     }
 
-    func warmUpCatalog() async {
-        await catalogRepository.warmUpCatalog()
-    }
-
     func defaultPackageMetadata() async throws -> SpeechModelPackage? {
         try await catalogRepository.defaultPackage()
     }
@@ -80,15 +76,6 @@ actor SpeechModelPackageManager {
         return summaries
     }
 
-    func install(packageId: String) async throws -> SpeechModelInstallation {
-        guard let package = try await catalogRepository.package(packageId: packageId) else {
-            log("Missing package metadata for packageId=\(packageId)")
-            throw SpeechRecognitionError.packageMissing(packageId)
-        }
-
-        return try await install(package: package, archiveURLOverride: nil)
-    }
-
     func install(packageId: String, archiveURL: URL) async throws -> SpeechModelInstallation {
         guard let package = try await catalogRepository.package(packageId: packageId) else {
             log("Missing package metadata for packageId=\(packageId)")
@@ -99,12 +86,7 @@ actor SpeechModelPackageManager {
     }
 
     func remove(packageId: String) async throws {
-        for candidatePackageId in candidatePackageIDs(for: packageId) {
-            let packageURL = try packageDirectoryURL(for: candidatePackageId)
-            if FileManager.default.fileExists(atPath: packageURL.path) {
-                try FileManager.default.removeItem(at: packageURL)
-            }
-        }
+        try removeCandidatePackageDirectories(for: packageId, ignoringErrors: false)
 
         var index = try loadInstalledIndex()
         let normalizedPackageId = SpeechModelPackage.normalizePackageId(packageId)
@@ -598,13 +580,28 @@ actor SpeechModelPackageManager {
         return try ModelAssetStoragePaths.packageDirectoryURL(for: .speech, packageId: packageId)
     }
 
-    private func removeStaleInstallationIfNeeded(packageId: String) throws {
+    private func removeCandidatePackageDirectories(
+        for packageId: String,
+        ignoringErrors: Bool
+    ) throws {
         for candidatePackageId in candidatePackageIDs(for: packageId) {
             let packageURL = try packageDirectoryURL(for: candidatePackageId)
-            if FileManager.default.fileExists(atPath: packageURL.path) {
-                try? FileManager.default.removeItem(at: packageURL)
+            guard FileManager.default.fileExists(atPath: packageURL.path) else {
+                continue
+            }
+
+            do {
+                try FileManager.default.removeItem(at: packageURL)
+            } catch {
+                guard ignoringErrors else {
+                    throw error
+                }
             }
         }
+    }
+
+    private func removeStaleInstallationIfNeeded(packageId: String) throws {
+        try removeCandidatePackageDirectories(for: packageId, ignoringErrors: true)
 
         var index = try loadInstalledIndex()
         let originalCount = index.packages.count
