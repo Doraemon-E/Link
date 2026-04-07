@@ -10,7 +10,11 @@ import SwiftData
 
 @MainActor
 final class HomeSessionRepository {
-    static func localAudioFileURL(from audioURL: String?) -> URL? {
+    static func localAudioFileURL(
+        from audioURL: String?,
+        fileManager: FileManager = .default,
+        applicationSupportURL: URL? = nil
+    ) -> URL? {
         guard let audioURL = audioURL?.trimmingCharacters(in: .whitespacesAndNewlines),
               !audioURL.isEmpty else {
             return nil
@@ -21,7 +25,11 @@ final class HomeSessionRepository {
         }
 
         guard audioURL.hasPrefix("/") else {
-            return nil
+            return try? SpeechRecordingStoragePaths.recordingFileURL(
+                fromRelativePath: audioURL,
+                fileManager: fileManager,
+                applicationSupportURL: applicationSupportURL
+            )
         }
 
         return URL(fileURLWithPath: audioURL).standardizedFileURL

@@ -315,7 +315,10 @@ final class HomeSpeechWorkflow {
             completedCapture.liveSpeechSession.record,
             transcript: completedCapture.transcript,
             sourceLanguage: completedCapture.sourceLanguage,
-            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
+            audioURL: managedRecordingReference(
+                for: messageID,
+                preservedRecordingURL: completedCapture.preservedRecordingURL
+            ),
             in: runtime
         )
 
@@ -381,7 +384,10 @@ final class HomeSpeechWorkflow {
             completedCapture.liveSpeechSession.record,
             transcript: completedCapture.transcript,
             sourceLanguage: completedCapture.sourceLanguage,
-            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
+            audioURL: managedRecordingReference(
+                for: messageID,
+                preservedRecordingURL: completedCapture.preservedRecordingURL
+            ),
             in: runtime
         )
 
@@ -1372,5 +1378,22 @@ final class HomeSpeechWorkflow {
         if store?.lastSpeechRecordingURL == url {
             store?.lastSpeechRecordingURL = nil
         }
+    }
+
+    private func managedRecordingReference(
+        for messageID: UUID,
+        preservedRecordingURL: URL?
+    ) -> String? {
+        guard let preservedRecordingURL else {
+            return nil
+        }
+
+        let pathExtension = preservedRecordingURL.pathExtension.isEmpty
+            ? "caf"
+            : preservedRecordingURL.pathExtension
+        return SpeechRecordingStoragePaths.recordingRelativePath(
+            for: messageID,
+            pathExtension: pathExtension
+        )
     }
 }

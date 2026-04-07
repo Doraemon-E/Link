@@ -24,9 +24,16 @@ final class HomeSpeechWorkflowTests: XCTestCase {
 
         let firstSession = try fetchSingleSession(in: harness.modelContext)
         let firstMessage = try XCTUnwrap(firstSession.sortedMessages.first)
-        let firstAudioURL = try fileURL(from: firstMessage.audioURL)
+        let firstAudioURL = try fileURL(
+            from: firstMessage.audioURL,
+            applicationSupportURL: harness.recordingService.applicationSupportURL
+        )
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: firstAudioURL.path))
+        XCTAssertEqual(
+            firstMessage.audioURL,
+            SpeechRecordingStoragePaths.recordingRelativePath(for: firstMessage.id)
+        )
         XCTAssertEqual(harness.messageWorkflow.calls.count, 1)
 
         harness.speechRecognitionService.result = SpeechRecognitionResult(
@@ -41,7 +48,10 @@ final class HomeSpeechWorkflowTests: XCTestCase {
 
         let refreshedFirstMessage = messages[0]
         let secondMessage = messages[1]
-        let secondAudioURL = try fileURL(from: secondMessage.audioURL)
+        let secondAudioURL = try fileURL(
+            from: secondMessage.audioURL,
+            applicationSupportURL: harness.recordingService.applicationSupportURL
+        )
 
         XCTAssertEqual(harness.recordingService.stopMessageIDs, [refreshedFirstMessage.id, secondMessage.id])
         XCTAssertNotEqual(refreshedFirstMessage.audioURL, secondMessage.audioURL)
@@ -49,6 +59,10 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: secondAudioURL.path))
         XCTAssertEqual(firstAudioURL.lastPathComponent, "\(refreshedFirstMessage.id.uuidString).caf")
         XCTAssertEqual(secondAudioURL.lastPathComponent, "\(secondMessage.id.uuidString).caf")
+        XCTAssertEqual(
+            secondMessage.audioURL,
+            SpeechRecordingStoragePaths.recordingRelativePath(for: secondMessage.id)
+        )
         XCTAssertEqual(harness.messageWorkflow.calls.count, 2)
     }
 
@@ -71,10 +85,17 @@ final class HomeSpeechWorkflowTests: XCTestCase {
 
         let session = try fetchSingleSession(in: harness.modelContext)
         let message = try XCTUnwrap(session.sortedMessages.first)
-        let audioURL = try fileURL(from: message.audioURL)
+        let audioURL = try fileURL(
+            from: message.audioURL,
+            applicationSupportURL: harness.recordingService.applicationSupportURL
+        )
 
         XCTAssertNotNil(harness.downloadSupport.presentedTranslationPrompt)
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        XCTAssertEqual(
+            message.audioURL,
+            SpeechRecordingStoragePaths.recordingRelativePath(for: message.id)
+        )
         XCTAssertEqual(
             message.translatedText,
             TranslationError.modelNotInstalled(source: .english, target: .japanese).userFacingMessage
@@ -101,7 +122,10 @@ final class HomeSpeechWorkflowTests: XCTestCase {
 
         let session = try fetchSingleSession(in: harness.modelContext)
         let message = try XCTUnwrap(session.sortedMessages.first)
-        let audioURL = try fileURL(from: message.audioURL)
+        let audioURL = try fileURL(
+            from: message.audioURL,
+            applicationSupportURL: harness.recordingService.applicationSupportURL
+        )
 
         XCTAssertEqual(message.sourceLanguage, .japanese)
         XCTAssertEqual(
@@ -110,6 +134,10 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         )
         XCTAssertNotNil(harness.downloadSupport.presentedTranslationPrompt)
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        XCTAssertEqual(
+            message.audioURL,
+            SpeechRecordingStoragePaths.recordingRelativePath(for: message.id)
+        )
         XCTAssertTrue(harness.messageWorkflow.calls.isEmpty)
         XCTAssertTrue(harness.store.streamingStatesByMessageID.isEmpty)
     }
@@ -162,7 +190,10 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         let messages = session.sortedMessages
         XCTAssertEqual(messages.count, 2)
         XCTAssertEqual(messages[0].audioURL, legacyAudioURL)
-        XCTAssertNotEqual(messages[1].audioURL, legacyAudioURL)
+        XCTAssertEqual(
+            messages[1].audioURL,
+            SpeechRecordingStoragePaths.recordingRelativePath(for: messages[1].id)
+        )
     }
 
     func testImmersivePreviewAccumulatesCommittedSegmentsAndActiveTail() async throws {
@@ -583,9 +614,17 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         return try XCTUnwrap(sessions.first)
     }
 
-    private func fileURL(from audioURL: String?) throws -> URL {
+    private func fileURL(
+        from audioURL: String?,
+        applicationSupportURL: URL? = nil
+    ) throws -> URL {
         let audioURL = try XCTUnwrap(audioURL)
-        return try XCTUnwrap(URL(string: audioURL))
+        return try XCTUnwrap(
+            HomeSessionRepository.localAudioFileURL(
+                from: audioURL,
+                applicationSupportURL: applicationSupportURL
+            )
+        )
     }
 
     private func makeTranslationPrompt(

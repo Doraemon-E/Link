@@ -571,25 +571,11 @@ final class HomeMessageLanguageWorkflow {
     }
 
     private func resolvedAudioURL(for message: ChatMessage) -> URL? {
-        guard let audioURLString = message.audioURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !audioURLString.isEmpty else {
+        guard let url = HomeSessionRepository.localAudioFileURL(from: message.audioURL) else {
             return nil
         }
 
-        let url: URL?
-        if let parsedURL = URL(string: audioURLString), parsedURL.isFileURL {
-            url = parsedURL
-        } else if audioURLString.hasPrefix("/") {
-            url = URL(fileURLWithPath: audioURLString)
-        } else {
-            url = nil
-        }
-
-        guard let url, FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-
-        return url
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     private func clearStreamingState(for messageID: UUID) {

@@ -290,7 +290,7 @@ final class HomePlaybackController {
     }
 
     private func resolvedAudioURL(for message: ChatMessage) -> URL? {
-        guard let url = parsedLocalAudioURL(for: message) else {
+        guard let url = HomeSessionRepository.localAudioFileURL(from: message.audioURL) else {
             return nil
         }
 
@@ -303,7 +303,7 @@ final class HomePlaybackController {
             return "这条语音还没有可播放的原始录音。"
         }
 
-        guard let url = parsedLocalAudioURL(from: audioURLString) else {
+        guard let url = HomeSessionRepository.localAudioFileURL(from: audioURLString) else {
             return "这条语音的录音地址无效，暂时无法播放。"
         }
 
@@ -312,27 +312,6 @@ final class HomePlaybackController {
         }
 
         return "这条语音暂时无法播放原始录音。"
-    }
-
-    private func parsedLocalAudioURL(for message: ChatMessage) -> URL? {
-        guard let audioURLString = message.audioURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !audioURLString.isEmpty else {
-            return nil
-        }
-
-        return parsedLocalAudioURL(from: audioURLString)
-    }
-
-    private func parsedLocalAudioURL(from audioURLString: String) -> URL? {
-        if let url = URL(string: audioURLString), url.isFileURL {
-            return url
-        }
-
-        guard audioURLString.hasPrefix("/") else {
-            return nil
-        }
-
-        return URL(fileURLWithPath: audioURLString)
     }
 
     private func clearPlaybackState(for playbackID: UUID) {

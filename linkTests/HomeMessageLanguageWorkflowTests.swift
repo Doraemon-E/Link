@@ -169,6 +169,42 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
         XCTAssertEqual(harness.coordinator.speechRequests.first?.text, "こんにちは")
     }
 
+    func testSpeechSourceSwitchRetranscribesManagedRelativeRecordingPath() async throws {
+        let managedAudio = try makeManagedAudioRecording()
+        defer {
+            try? FileManager.default.removeItem(at: managedAudio.fileURL)
+        }
+
+        let harness = try makeHarness(
+            inputType: .speech,
+            sourceText: "Hello there",
+            translatedText: "你好",
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            audioReference: managedAudio.reference
+        )
+        harness.recordingLoader.samples = [0.1, 0.2, 0.3]
+        harness.speechRecognitionService.result = SpeechRecognitionResult(
+            text: "こんにちは",
+            detectedLanguage: "ja"
+        )
+        harness.coordinator.speechResult = "你好啊"
+
+        harness.workflow.switchLanguage(
+            forMessageID: harness.message.id,
+            side: .source,
+            to: .japanese,
+            in: harness.runtime
+        )
+
+        try await waitUntil {
+            harness.message.sourceLanguage == .japanese
+        }
+
+        XCTAssertEqual(harness.recordingLoader.loadedURLs, [managedAudio.fileURL])
+        XCTAssertEqual(harness.coordinator.speechRequests.first?.text, "こんにちは")
+    }
+
     func testRetrySpeechTranslationRetranslatesUsingSavedTranscript() async throws {
         let harness = try makeHarness(
             inputType: .speech,
@@ -321,7 +357,8 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
         translatedText: String,
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage,
-        audioURL: URL? = nil
+        audioURL: URL? = nil,
+        audioReference: String? = nil
     ) throws -> WorkflowHarness {
         let modelConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
@@ -342,7 +379,7 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
             translatedText: translatedText,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
-            audioURL: audioURL?.absoluteString,
+            audioURL: audioReference ?? audioURL?.absoluteString,
             sequence: 0,
             session: session
         )
@@ -409,6 +446,17 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
         let data = Data("audio".utf8)
         FileManager.default.createFile(atPath: url.path, contents: data)
         return url
+    }
+
+    private func makeManagedAudioRecording() throws -> (reference: String, fileURL: URL) {
+        let messageID = UUID()
+        let reference = SpeechRecordingStoragePaths.recordingRelativePath(for: messageID)
+        try SpeechRecordingStoragePaths.ensureRecordingsDirectoryExists()
+        let fileURL = try XCTUnwrap(
+            SpeechRecordingStoragePaths.recordingFileURL(fromRelativePath: reference)
+        )
+        FileManager.default.createFile(atPath: fileURL.path, contents: Data("audio".utf8))
+        return (reference, fileURL)
     }
 
     private func makeTranslationPrompt(

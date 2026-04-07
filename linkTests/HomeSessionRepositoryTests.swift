@@ -122,6 +122,48 @@ final class HomeSessionRepositoryTests: XCTestCase {
         XCTAssertTrue(try fetchMessages(in: modelContext).isEmpty)
     }
 
+    func testDeleteSessionRemovesManagedRelativeAudioFiles() throws {
+        let repository = HomeSessionRepository()
+        let modelContext = try makeModelContext()
+        let messageID = UUID()
+        let audioRelativePath = SpeechRecordingStoragePaths.recordingRelativePath(for: messageID)
+        let audioFileURL = try XCTUnwrap(
+            SpeechRecordingStoragePaths.recordingFileURL(fromRelativePath: audioRelativePath)
+        )
+        defer {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
+
+        try SpeechRecordingStoragePaths.ensureRecordingsDirectoryExists()
+        FileManager.default.createFile(atPath: audioFileURL.path, contents: Data("managed".utf8))
+
+        let session = ChatSession(sourceLanguage: .english, targetLanguage: .chinese)
+        let message = ChatMessage(
+            id: messageID,
+            inputType: .speech,
+            sourceText: "Managed",
+            translatedText: "托管",
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            audioURL: audioRelativePath,
+            sequence: 0,
+            session: session
+        )
+
+        modelContext.insert(session)
+        modelContext.insert(message)
+        try modelContext.save()
+
+        XCTAssertTrue(
+            repository.deleteSession(
+                id: session.id,
+                in: runtimeContext(modelContext: modelContext)
+            )
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioFileURL.path))
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
