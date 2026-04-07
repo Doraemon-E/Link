@@ -87,20 +87,13 @@ struct HomeLanguageSheet: View {
             }
             .padding()
             .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
-            // .background(cardBackground(isSelected: isSelected))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.12), lineWidth: 2)
+            }
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func cardBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(uiColor: .systemGroupedBackground))
-            )
     }
 
     private func commitDraftSelection() {
