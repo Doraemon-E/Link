@@ -133,6 +133,8 @@ struct HomeView: View {
                     isFocused: binding(\.isChatInputFocused),
                     isRecordingSpeech: store.isRecordingSpeech,
                     isSpeechBusy: store.isTranscribingSpeech || store.isInstallingSpeechModel,
+                    shouldAbortImmersiveTransition: store.activeSpeechDownloadPrompt != nil
+                        || store.speechErrorMessage != nil,
                     isImmersiveVoiceModeActive: viewState.immersiveVoiceTranslationState != nil,
                     onFocusActivated: store.handleInputFocusActivated,
                     onSend: {
@@ -181,7 +183,7 @@ struct HomeView: View {
     private func homeBackground(for viewState: HomeStore.ViewState) -> some View {
         if viewState.immersiveVoiceTranslationState != nil {
             ZStack {
-                Color(uiColor: .systemBackground)
+                Color(uiColor: .systemGroupedBackground)
 
                 RadialGradient(
                     colors: [

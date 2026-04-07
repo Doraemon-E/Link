@@ -18,9 +18,23 @@ nonisolated enum HomeImmersiveVoiceTranslationPhase: Sendable, Equatable {
     case finalizing
 }
 
+nonisolated struct HomeImmersiveVoiceTranslationSegment: Sendable, Equatable, Identifiable {
+    let id: UUID
+    var text: String
+
+    init(
+        id: UUID = UUID(),
+        text: String
+    ) {
+        self.id = id
+        self.text = text
+    }
+}
+
 nonisolated struct HomeImmersiveVoiceTranslationState: Sendable, Equatable, Identifiable {
     let messageID: UUID
-    var translatedText: String
+    var committedSegments: [HomeImmersiveVoiceTranslationSegment]
+    var activeText: String
     var phase: HomeImmersiveVoiceTranslationPhase
 
     var id: UUID {

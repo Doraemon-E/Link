@@ -165,6 +165,232 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         XCTAssertNotEqual(messages[1].audioURL, legacyAudioURL)
     }
 
+    func testImmersivePreviewAccumulatesCommittedSegmentsAndActiveTail() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.store.selectedLanguage = .english
+        harness.coordinator.liveTranscriptionEvents = [
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "你好。",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 1
+                )
+            ),
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "你好。再见",
+                    detectedLanguage: .english,
+                    transcriptRevision: 2
+                )
+            )
+        ]
+        harness.coordinator.speechTranslationResponses = [
+            .init(partials: ["Hel"], completed: "Hello."),
+            .init(partials: ["Good"], completed: "Goodbye")
+        ]
+
+        await harness.workflow.startImmersiveVoiceTranslation(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+
+        let state = try XCTUnwrap(harness.store.immersiveVoiceTranslationState)
+        XCTAssertEqual(state.committedSegments.map(\.text), ["Hello."])
+        XCTAssertEqual(state.activeText, "Goodbye")
+        XCTAssertEqual(harness.store.sourceLanguage, .chinese)
+        XCTAssertEqual(
+            harness.coordinator.speechTranslationCalls.map(\.text),
+            ["你好。", "再见"]
+        )
+        XCTAssertEqual(
+            harness.coordinator.speechTranslationCalls.map(\.sourceLanguage),
+            [.chinese, .chinese]
+        )
+    }
+
+    func testImmersiveFinalizationReplacesDisplayedSegmentsWithCorrectedTranslations() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.store.selectedLanguage = .english
+        harness.coordinator.liveTranscriptionEvents = [
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "你好。再见",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 1
+                )
+            )
+        ]
+        harness.coordinator.speechTranslationResponses = [
+            .init(partials: ["Hi"], completed: "Hello."),
+            .init(partials: ["Bye"], completed: "Goodbye"),
+            .init(partials: ["Hello"], completed: "Hello there."),
+            .init(partials: ["See"], completed: "See you!")
+        ]
+        harness.speechRecognitionService.result = SpeechRecognitionResult(
+            text: "你好。再见！",
+            detectedLanguage: "zh"
+        )
+
+        await harness.workflow.startImmersiveVoiceTranslation(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+        await harness.workflow.toggleSpeechRecording(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+
+        let correctedState = try XCTUnwrap(
+            harness.store.immersiveStateHistory
+                .reversed()
+                .compactMap { $0 }
+                .first { state in
+                    state.phase == .finalizing &&
+                        state.committedSegments.map(\.text) == ["Hello there.", "See you!"] &&
+                        state.activeText.isEmpty
+                }
+        )
+        XCTAssertEqual(
+            correctedState.committedSegments.map(\.text),
+            ["Hello there.", "See you!"]
+        )
+
+        let session = try fetchSingleSession(in: harness.modelContext)
+        let message = try XCTUnwrap(session.sortedMessages.first)
+        XCTAssertEqual(message.translatedText, "Hello there. See you!")
+    }
+
+    func testImmersivePreviewKeepsChineseEndpointSegmentsSeparateAcrossLaterStableUpdates() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.store.selectedLanguage = .english
+        harness.coordinator.liveTranscriptionEvents = [
+            .completed(
+                LiveUtteranceState(
+                    stableTranscript: "你好呀你好呀",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 1,
+                    isEndpoint: true
+                )
+            ),
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "你好呀你好呀你覺得今天怎麼樣啊?",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 2
+                )
+            )
+        ]
+        harness.coordinator.speechTranslationResponses = [
+            .init(partials: ["Hel"], completed: "Hello Hello"),
+            .init(partials: ["How"], completed: "How do you feel about today?")
+        ]
+
+        await harness.workflow.startImmersiveVoiceTranslation(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+
+        let state = try XCTUnwrap(harness.store.immersiveVoiceTranslationState)
+        XCTAssertEqual(
+            state.committedSegments.map(\.text),
+            ["Hello Hello", "How do you feel about today?"]
+        )
+        XCTAssertEqual(state.activeText, "")
+        XCTAssertEqual(
+            harness.coordinator.speechTranslationCalls.map(\.text),
+            ["你好呀你好呀", "你覺得今天怎麼樣啊?"]
+        )
+    }
+
+    func testImmersiveFinalizationPreservesCommittedChineseUtteranceBoundaries() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.store.selectedLanguage = .english
+        harness.coordinator.liveTranscriptionEvents = [
+            .completed(
+                LiveUtteranceState(
+                    stableTranscript: "你好呀你好呀",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 1,
+                    isEndpoint: true
+                )
+            ),
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "你好呀你好呀你覺得今天怎麼樣啊?",
+                    detectedLanguage: .chinese,
+                    transcriptRevision: 2
+                )
+            )
+        ]
+        harness.coordinator.speechTranslationResponses = [
+            .init(partials: ["Hel"], completed: "Hello Hello"),
+            .init(partials: ["How"], completed: "How do you feel about today?"),
+            .init(partials: ["Hello"], completed: "Hello Hello"),
+            .init(partials: ["How"], completed: "How do you feel about today?")
+        ]
+        harness.speechRecognitionService.result = SpeechRecognitionResult(
+            text: "你好呀你好呀你覺得今天怎麼樣啊?",
+            detectedLanguage: "zh"
+        )
+
+        await harness.workflow.startImmersiveVoiceTranslation(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+        await harness.workflow.toggleSpeechRecording(in: try runtime(for: harness.modelContext))
+        await advanceTasks()
+
+        let correctedState = try XCTUnwrap(
+            harness.store.immersiveStateHistory
+                .reversed()
+                .compactMap { $0 }
+                .first { state in
+                    state.phase == .finalizing &&
+                        state.committedSegments.map(\.text) == [
+                            "Hello Hello",
+                            "How do you feel about today?"
+                        ] &&
+                        state.activeText.isEmpty
+                }
+        )
+        XCTAssertEqual(
+            correctedState.committedSegments.map(\.text),
+            ["Hello Hello", "How do you feel about today?"]
+        )
+
+        let session = try fetchSingleSession(in: harness.modelContext)
+        let message = try XCTUnwrap(session.sortedMessages.first)
+        XCTAssertEqual(message.translatedText, "Hello Hello How do you feel about today?")
+    }
+
+    func testSpeechLocksSourceLanguageFromFirstDetectedUtterance() async throws {
+        let harness = try makeHarness()
+        defer { harness.cleanup() }
+
+        harness.store.sourceLanguage = .english
+        harness.store.selectedLanguage = .chinese
+        harness.coordinator.liveTranscriptionEvents = [
+            .state(
+                LiveUtteranceState(
+                    stableTranscript: "bonjour",
+                    detectedLanguage: .french,
+                    transcriptRevision: 1
+                )
+            )
+        ]
+        harness.speechRecognitionService.result = SpeechRecognitionResult(
+            text: "bonjour",
+            detectedLanguage: "en"
+        )
+
+        try await performSpeechRecording(harness)
+
+        let session = try fetchSingleSession(in: harness.modelContext)
+        let message = try XCTUnwrap(session.sortedMessages.first)
+        XCTAssertEqual(harness.store.sourceLanguage, .french)
+        XCTAssertEqual(session.sourceLanguage, .french)
+        XCTAssertEqual(message.sourceLanguage, .french)
+        XCTAssertEqual(harness.messageWorkflow.calls.first?.sourceLanguage, .french)
+    }
+
     private func makeHarness(
         seedMessages: [SeedMessage] = []
     ) throws -> WorkflowHarness {
@@ -254,6 +480,12 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         XCTAssertFalse(harness.store.isTranscribingSpeech)
     }
 
+    private func advanceTasks(iterations: Int = 24) async {
+        for _ in 0..<iterations {
+            await Task.yield()
+        }
+    }
+
     private func runtime(for modelContext: ModelContext) throws -> HomeRuntimeContext {
         HomeRuntimeContext(
             modelContext: modelContext,
@@ -334,11 +566,18 @@ private struct WorkflowHarness {
 @MainActor
 private final class FakeSpeechWorkflowStore: HomeSpeechWorkflowStore {
     var activeSpeechDownloadPrompt: SpeechModelDownloadPrompt?
+    var immersiveVoiceTranslationState: HomeImmersiveVoiceTranslationState? {
+        didSet {
+            immersiveStateHistory.append(immersiveVoiceTranslationState)
+        }
+    }
+    var immersiveStateHistory: [HomeImmersiveVoiceTranslationState?] = []
     var isChatInputFocused = false
     var isInstallingSpeechModel = false
     var isRecordingSpeech = false
     var isTranscribingSpeech = false
     var lastSpeechRecordingURL: URL?
+    var pendingSpeechCaptureOrigin: HomeSpeechCaptureOrigin = .compactMic
     var pendingVoiceStartAfterInstall = false
     var playbackErrorMessage: String?
     var selectedLanguage: SupportedLanguage
@@ -358,7 +597,22 @@ private final class FakeSpeechWorkflowStore: HomeSpeechWorkflowStore {
 }
 
 private final class FakeConversationStreamingCoordinator: ConversationStreamingCoordinator, @unchecked Sendable {
+    struct SpeechTranslationCall: Equatable {
+        let messageID: UUID
+        let text: String
+        let sourceLanguage: SupportedLanguage
+        let targetLanguage: SupportedLanguage
+    }
+
+    struct TranslationResponse: Equatable {
+        let partials: [String]
+        let completed: String
+    }
+
     var cancelledMessageIDs: [UUID] = []
+    var liveTranscriptionEvents: [LiveSpeechTranscriptionEvent] = []
+    var speechTranslationCalls: [SpeechTranslationCall] = []
+    var speechTranslationResponses: [TranslationResponse] = []
 
     func startManualTranslation(
         messageID: UUID,
@@ -377,8 +631,43 @@ private final class FakeConversationStreamingCoordinator: ConversationStreamingC
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
+        speechTranslationCalls.append(
+            SpeechTranslationCall(
+                messageID: messageID,
+                text: text,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage
+            )
+        )
+        let response = speechTranslationResponses.isEmpty
+            ? TranslationResponse(partials: [], completed: text)
+            : speechTranslationResponses.removeFirst()
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                for (index, partial) in response.partials.enumerated() {
+                    continuation.yield(
+                        ConversationStreamingEvent.state(
+                            TranslationStreamingState(
+                                messageID: messageID,
+                                committedText: "",
+                                liveText: partial,
+                                phase: .typing,
+                                revision: index + 1
+                            )
+                        )
+                    )
+                    await Task.yield()
+                }
+
+                continuation.yield(
+                    .completed(
+                        messageID: messageID,
+                        text: response.completed
+                    )
+                )
+                continuation.finish()
+            }
         }
     }
 
@@ -387,8 +676,20 @@ private final class FakeConversationStreamingCoordinator: ConversationStreamingC
         audioStream: AsyncStream<[Float]>,
         sourceLanguage: SupportedLanguage?
     ) -> AsyncThrowingStream<LiveSpeechTranscriptionEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
+        let events = liveTranscriptionEvents
+        return AsyncThrowingStream { continuation in
+            _ = messageID
+            _ = audioStream
+            _ = sourceLanguage
+
+            Task {
+                for event in events {
+                    continuation.yield(event)
+                    await Task.yield()
+                }
+
+                continuation.finish()
+            }
         }
     }
 

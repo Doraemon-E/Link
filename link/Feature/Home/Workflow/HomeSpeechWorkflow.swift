@@ -81,11 +81,17 @@ final class HomeSpeechWorkflow {
     private var liveSpeechSession: LiveSpeechSession?
     private var immersivePreviewTask: Task<Void, Never>?
     private var immersivePreviewTaskID: UUID?
+    private var immersivePreviewRefreshTask: Task<Void, Never>?
+    private var immersivePendingPreviewState: LiveUtteranceState?
+    private var immersivePendingPreviewRuntime: HomeRuntimeContext?
     private var immersiveFinalTranslationTaskID: UUID?
+    private var lockedSpeechSourceLanguage: SupportedLanguage?
     private var immersivePreviewGeneration = 0
     private var immersivePreviewSourceLanguage: SupportedLanguage?
-    private var immersiveLastStableTranscript = ""
-    private var immersiveLatestTranslatedText = ""
+    private var immersiveCommittedSourceSegments: [String] = []
+    private var immersiveCommittedTranslatedSegments: [HomeImmersiveVoiceTranslationSegment] = []
+    private var immersiveActiveSourceText = ""
+    private var immersiveActiveTranslatedText = ""
 
     init(
         store: any HomeSpeechWorkflowStore,
@@ -193,7 +199,8 @@ final class HomeSpeechWorkflow {
             if origin == .immersiveWave {
                 store.immersiveVoiceTranslationState = HomeImmersiveVoiceTranslationState(
                     messageID: liveSession.message.id,
-                    translatedText: "",
+                    committedSegments: [],
+                    activeText: "",
                     phase: .listening
                 )
             } else {
@@ -239,14 +246,18 @@ final class HomeSpeechWorkflow {
             }
         } catch let error as SpeechRecognitionError {
             microphoneRecordingService.cancelRecording()
-            cleanupFailedPreservedRecording(at: preservedRecordingURL)
+            cleanupFailedPreservedRecording(
+                at: preservedRecordingURL ?? store.lastSpeechRecordingURL
+            )
             handleSpeechRecognitionFailure(
                 message: error.userFacingMessage,
                 in: runtime
             )
         } catch {
             microphoneRecordingService.cancelRecording()
-            cleanupFailedPreservedRecording(at: preservedRecordingURL)
+            cleanupFailedPreservedRecording(
+                at: preservedRecordingURL ?? store.lastSpeechRecordingURL
+            )
             handleSpeechRecognitionFailure(
                 message: "语音识别失败了，请稍后再试。",
                 in: runtime
@@ -279,7 +290,7 @@ final class HomeSpeechWorkflow {
 
         let effectiveSourceLanguage = resolvedSpeechSourceLanguage(
             detectedLanguageCode: recognitionResult.detectedLanguage,
-            liveDetectedLanguage: self.liveSpeechSession?.latestState.detectedLanguage,
+            liveDetectedLanguage: lockedSpeechSourceLanguage ?? self.liveSpeechSession?.latestState.detectedLanguage,
             fallbackSourceLanguage: liveSpeechSession.record.fallbackSourceLanguage
         )
 
@@ -359,10 +370,7 @@ final class HomeSpeechWorkflow {
     ) async {
         guard let store else { return }
 
-        updateImmersiveVoiceTranslationState(
-            text: immersiveLatestTranslatedText,
-            phase: .finalizing
-        )
+        refreshImmersiveVoiceTranslationState(phase: .finalizing)
         cancelImmersivePreviewTranslation()
 
         do {
@@ -380,23 +388,36 @@ final class HomeSpeechWorkflow {
             // Fall through to the final translation attempt and surface its failure in-session.
         }
 
-        let translatedText: String
+        let translatedSegments: [String]
         do {
-            translatedText = try await streamImmersiveFinalTranslation(
+            let sourceSegments = resolvedFinalImmersiveSourceSegments(
                 transcript: completedCapture.transcript,
+                sourceLanguage: completedCapture.sourceLanguage
+            )
+            translatedSegments = try await streamImmersiveFinalTranslations(
+                sourceSegments: sourceSegments,
                 sourceLanguage: completedCapture.sourceLanguage,
                 targetLanguage: completedCapture.targetLanguage
             )
         } catch let error as TranslationError {
-            translatedText = error.userFacingMessage
+            translatedSegments = [error.userFacingMessage]
         } catch {
-            translatedText = "翻译失败了，请稍后再试。"
+            translatedSegments = ["翻译失败了，请稍后再试。"]
         }
+
+        immersiveCommittedTranslatedSegments = translatedSegments.map {
+            HomeImmersiveVoiceTranslationSegment(text: $0)
+        }
+        immersiveActiveTranslatedText = ""
+        refreshImmersiveVoiceTranslationState(phase: .finalizing)
 
         sessionRepository.finalizeLiveSpeechSession(
             completedCapture.liveSpeechSession.record,
             transcript: completedCapture.transcript,
-            translatedText: translatedText,
+            translatedText: joinedImmersiveSubtitleSegments(
+                translatedSegments,
+                targetLanguage: completedCapture.targetLanguage
+            ),
             sourceLanguage: completedCapture.sourceLanguage,
             audioURL: completedCapture.preservedRecordingURL?.absoluteString,
             in: runtime
@@ -468,9 +489,14 @@ final class HomeSpeechWorkflow {
         }
 
         switch event {
-        case .state(let state), .completed(let state):
+        case .state(let rawState), .completed(let rawState):
             let previousState = liveSpeechSession.latestState
             var updatedSession = liveSpeechSession
+            let state = normalizedSpeechState(
+                rawState,
+                for: updatedSession.record,
+                in: runtime
+            )
             updatedSession.latestState = state
             self.liveSpeechSession = updatedSession
 
@@ -493,15 +519,33 @@ final class HomeSpeechWorkflow {
         for state: LiveUtteranceState,
         in runtime: HomeRuntimeContext
     ) {
-        updateImmersiveVoiceTranslationState(
-            text: immersiveLatestTranslatedText,
-            phase: immersiveLatestTranslatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        immersivePendingPreviewState = state
+        immersivePendingPreviewRuntime = runtime
+
+        refreshImmersiveVoiceTranslationState(
+            phase: immersiveCommittedTranslatedSegments.isEmpty &&
+                immersiveActiveTranslatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? .listening
                 : .translating
         )
 
-        Task { @MainActor [weak self] in
-            await self?.refreshImmersiveTranslationPreview(for: state, in: runtime)
+        guard immersivePreviewRefreshTask == nil else {
+            return
+        }
+
+        immersivePreviewRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            defer {
+                self.immersivePreviewRefreshTask = nil
+            }
+
+            while let pendingState = self.immersivePendingPreviewState,
+                  let pendingRuntime = self.immersivePendingPreviewRuntime {
+                self.immersivePendingPreviewState = nil
+                self.immersivePendingPreviewRuntime = nil
+                await self.refreshImmersiveTranslationPreview(for: pendingState, in: pendingRuntime)
+            }
         }
     }
 
@@ -525,7 +569,8 @@ final class HomeSpeechWorkflow {
             return
         }
 
-        if immersivePreviewSourceLanguage != detectedLanguage {
+        let sourceLanguageDidChange = immersivePreviewSourceLanguage != detectedLanguage
+        if sourceLanguageDidChange {
             do {
                 if let prompt = try await downloadWorkflow.translationDownloadPrompt(
                     source: detectedLanguage,
@@ -549,76 +594,137 @@ final class HomeSpeechWorkflow {
             }
 
             immersivePreviewSourceLanguage = detectedLanguage
-            immersiveLastStableTranscript = ""
         }
 
-        guard stableTranscript != immersiveLastStableTranscript else {
+        guard let segmentation = resolvedImmersivePreviewSegmentation(
+            stableTranscript: stableTranscript,
+            sourceLanguage: detectedLanguage,
+            flushActiveText: state.isEndpoint
+        ) else {
             return
         }
 
-        immersiveLastStableTranscript = stableTranscript
+        let hasNewCommittedSegments = segmentation.committedSegments.count > immersiveCommittedSourceSegments.count
+        let activeTextDidChange = segmentation.activeText != immersiveActiveSourceText
+        guard hasNewCommittedSegments || activeTextDidChange || sourceLanguageDidChange else {
+            return
+        }
+
+        let requestGeneration = immersivePreviewGeneration + 1
+        immersivePreviewGeneration = requestGeneration
+        cancelImmersivePreviewTranslation()
+
+        let previousActiveSourceText = immersiveActiveSourceText
+        let previousActiveTranslatedText = immersiveActiveTranslatedText
+        let newlyCommittedSourceSegments = Array(
+            segmentation.committedSegments.dropFirst(immersiveCommittedSourceSegments.count)
+        )
+
+        for (index, sourceSegment) in newlyCommittedSourceSegments.enumerated() {
+            guard activeCaptureOrigin == .immersiveWave,
+                  requestGeneration == immersivePreviewGeneration else {
+                return
+            }
+
+            if index == 0,
+               sourceSegment == previousActiveSourceText,
+               !previousActiveTranslatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                immersiveCommittedTranslatedSegments.append(
+                    HomeImmersiveVoiceTranslationSegment(text: previousActiveTranslatedText)
+                )
+                continue
+            }
+
+            let translatedText: String
+            do {
+                translatedText = try await streamImmersiveTranslation(
+                    messageID: UUID(),
+                    transcript: sourceSegment,
+                    sourceLanguage: detectedLanguage,
+                    targetLanguage: liveSpeechSession.record.targetLanguage
+                ) { [weak self] partialText in
+                    guard let self,
+                          self.activeCaptureOrigin == .immersiveWave,
+                          requestGeneration == self.immersivePreviewGeneration else {
+                        return
+                    }
+
+                    self.immersiveActiveTranslatedText = partialText
+                    self.refreshImmersiveVoiceTranslationState(phase: .translating)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+
+            guard activeCaptureOrigin == .immersiveWave,
+                  requestGeneration == immersivePreviewGeneration else {
+                return
+            }
+
+            immersiveCommittedTranslatedSegments.append(
+                HomeImmersiveVoiceTranslationSegment(text: translatedText)
+            )
+        }
+
+        immersiveCommittedSourceSegments = segmentation.committedSegments
+        immersiveActiveSourceText = segmentation.activeText
+        immersiveActiveTranslatedText = ""
+
+        guard !segmentation.activeText.isEmpty else {
+            refreshImmersiveVoiceTranslationState(
+                phase: immersiveCommittedTranslatedSegments.isEmpty ? .listening : .translating
+            )
+            return
+        }
+
+        refreshImmersiveVoiceTranslationState(phase: .translating)
         startImmersivePreviewTranslation(
-            transcript: stableTranscript,
+            transcript: segmentation.activeText,
             sourceLanguage: detectedLanguage,
-            targetLanguage: liveSpeechSession.record.targetLanguage
+            targetLanguage: liveSpeechSession.record.targetLanguage,
+            requestGeneration: requestGeneration
         )
     }
 
     private func startImmersivePreviewTranslation(
         transcript: String,
         sourceLanguage: SupportedLanguage,
-        targetLanguage: SupportedLanguage
+        targetLanguage: SupportedLanguage,
+        requestGeneration: Int
     ) {
-        cancelImmersivePreviewTranslation()
-
-        let requestGeneration = immersivePreviewGeneration + 1
-        immersivePreviewGeneration = requestGeneration
-
         let taskID = UUID()
         immersivePreviewTaskID = taskID
-        updateImmersiveVoiceTranslationState(
-            text: immersiveLatestTranslatedText,
-            phase: .translating
-        )
+        refreshImmersiveVoiceTranslationState(phase: .translating)
 
         immersivePreviewTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             do {
-                let stream = self.conversationStreamingCoordinator.startSpeechTranslation(
+                let translatedText = try await self.streamImmersiveTranslation(
                     messageID: taskID,
-                    text: transcript,
+                    transcript: transcript,
                     sourceLanguage: sourceLanguage,
                     targetLanguage: targetLanguage
-                )
-
-                for try await event in stream {
-                    guard self.activeCaptureOrigin == .immersiveWave,
+                ) { [weak self] partialText in
+                    guard let self,
+                          self.activeCaptureOrigin == .immersiveWave,
                           requestGeneration == self.immersivePreviewGeneration else {
-                        continue
+                        return
                     }
 
-                    switch event {
-                    case .state(let state):
-                        let displayText = state.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !displayText.isEmpty {
-                            self.immersiveLatestTranslatedText = state.displayText
-                            self.updateImmersiveVoiceTranslationState(
-                                text: state.displayText,
-                                phase: .translating
-                            )
-                        }
-                    case .completed(_, let text):
-                        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !normalizedText.isEmpty {
-                            self.immersiveLatestTranslatedText = text
-                            self.updateImmersiveVoiceTranslationState(
-                                text: text,
-                                phase: .translating
-                            )
-                        }
-                    }
+                    self.immersiveActiveTranslatedText = partialText
+                    self.refreshImmersiveVoiceTranslationState(phase: .translating)
                 }
+
+                guard self.activeCaptureOrigin == .immersiveWave,
+                      requestGeneration == self.immersivePreviewGeneration else {
+                    return
+                }
+
+                self.immersiveActiveTranslatedText = translatedText
+                self.refreshImmersiveVoiceTranslationState(phase: .translating)
             } catch is CancellationError {
                 return
             } catch {
@@ -627,61 +733,253 @@ final class HomeSpeechWorkflow {
         }
     }
 
-    private func streamImmersiveFinalTranslation(
-        transcript: String,
+    private func streamImmersiveFinalTranslations(
+        sourceSegments: [String],
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
+    ) async throws -> [String] {
+        let normalizedSourceSegments = sourceSegments.compactMap { segment in
+            let normalizedSegment = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSegment.isEmpty ? nil : normalizedSegment
+        }
+
+        guard !normalizedSourceSegments.isEmpty else {
+            throw TranslationError.emptyOutput
+        }
+
+        immersiveCommittedTranslatedSegments = []
+        immersiveActiveTranslatedText = ""
+        refreshImmersiveVoiceTranslationState(phase: .finalizing)
+
+        var translatedSegments: [String] = []
+
+        defer {
+            immersiveFinalTranslationTaskID = nil
+        }
+
+        for sourceSegment in normalizedSourceSegments {
+            let taskID = UUID()
+            immersiveFinalTranslationTaskID = taskID
+
+            let translatedText = try await streamImmersiveTranslation(
+                messageID: taskID,
+                transcript: sourceSegment,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage
+            ) { [weak self] partialText in
+                guard let self else { return }
+
+                self.immersiveActiveTranslatedText = partialText
+                self.refreshImmersiveVoiceTranslationState(phase: .finalizing)
+            }
+
+            translatedSegments.append(translatedText)
+            immersiveCommittedTranslatedSegments.append(
+                HomeImmersiveVoiceTranslationSegment(text: translatedText)
+            )
+            immersiveActiveTranslatedText = ""
+            refreshImmersiveVoiceTranslationState(phase: .finalizing)
+        }
+
+        return translatedSegments
+    }
+
+    private func streamImmersiveTranslation(
+        messageID: UUID,
+        transcript: String,
+        sourceLanguage: SupportedLanguage,
+        targetLanguage: SupportedLanguage,
+        onUpdate: @escaping @MainActor (String) -> Void
     ) async throws -> String {
-        let taskID = UUID()
-        immersiveFinalTranslationTaskID = taskID
-
-        updateImmersiveVoiceTranslationState(
-            text: immersiveLatestTranslatedText,
-            phase: .finalizing
-        )
-
         let stream = conversationStreamingCoordinator.startSpeechTranslation(
-            messageID: taskID,
+            messageID: messageID,
             text: transcript,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage
         )
 
         var completedText: String?
-
-        defer {
-            immersiveFinalTranslationTaskID = nil
-        }
+        var latestDisplayText = ""
 
         for try await event in stream {
             switch event {
             case .state(let state):
                 let displayText = state.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !displayText.isEmpty {
-                    immersiveLatestTranslatedText = state.displayText
-                    updateImmersiveVoiceTranslationState(
-                        text: state.displayText,
-                        phase: .finalizing
-                    )
+                    latestDisplayText = state.displayText
+                    onUpdate(state.displayText)
                 }
             case .completed(_, let text):
                 let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !normalizedText.isEmpty {
-                    immersiveLatestTranslatedText = text
-                    updateImmersiveVoiceTranslationState(
-                        text: text,
-                        phase: .finalizing
-                    )
+                    latestDisplayText = text
+                    onUpdate(text)
                 }
                 completedText = text
             }
         }
 
-        guard let completedText else {
+        if let completedText,
+           !completedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return completedText
+        }
+
+        guard !latestDisplayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw TranslationError.emptyOutput
         }
 
-        return completedText
+        return latestDisplayText
+    }
+
+    private func joinedImmersiveSubtitleSegments(
+        _ segments: [String],
+        targetLanguage: SupportedLanguage
+    ) -> String {
+        let normalizedSegments = segments.compactMap { segment in
+            let normalizedSegment = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSegment.isEmpty ? nil : normalizedSegment
+        }
+
+        guard !normalizedSegments.isEmpty else {
+            return ""
+        }
+
+        return normalizedSegments.joined(
+            separator: immersiveSegmentSeparator(for: targetLanguage)
+        )
+    }
+
+    private func resolvedImmersivePreviewSegmentation(
+        stableTranscript: String,
+        sourceLanguage: SupportedLanguage,
+        flushActiveText: Bool
+    ) -> HomeImmersiveSubtitleSegmentationResult? {
+        let normalizedTranscript = stableTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            return nil
+        }
+
+        let fullSegmentation = HomeImmersiveSubtitleSegmenter.segment(
+            text: normalizedTranscript,
+            flushActiveText: flushActiveText
+        )
+        if immersiveCommittedSourceSegments.isEmpty ||
+            fullSegmentation.committedSegments.starts(with: immersiveCommittedSourceSegments) {
+            return fullSegmentation
+        }
+
+        guard let tailTranscript = immersiveTranscriptTail(
+            from: normalizedTranscript,
+            sourceLanguage: sourceLanguage
+        ) else {
+            return nil
+        }
+
+        guard !tailTranscript.isEmpty else {
+            return HomeImmersiveSubtitleSegmentationResult(
+                committedSegments: immersiveCommittedSourceSegments,
+                activeText: ""
+            )
+        }
+
+        let tailSegmentation = HomeImmersiveSubtitleSegmenter.segment(
+            text: tailTranscript,
+            flushActiveText: flushActiveText
+        )
+        return HomeImmersiveSubtitleSegmentationResult(
+            committedSegments: immersiveCommittedSourceSegments + tailSegmentation.committedSegments,
+            activeText: tailSegmentation.activeText
+        )
+    }
+
+    private func resolvedFinalImmersiveSourceSegments(
+        transcript: String,
+        sourceLanguage: SupportedLanguage
+    ) -> [String] {
+        let normalizedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTranscript.isEmpty else {
+            return []
+        }
+
+        guard !immersiveCommittedSourceSegments.isEmpty else {
+            return HomeImmersiveSubtitleSegmenter.segment(
+                text: normalizedTranscript,
+                flushActiveText: true
+            ).committedSegments
+        }
+
+        guard let tailTranscript = immersiveTranscriptTail(
+            from: normalizedTranscript,
+            sourceLanguage: sourceLanguage
+        ) else {
+            return HomeImmersiveSubtitleSegmenter.segment(
+                text: normalizedTranscript,
+                flushActiveText: true
+            ).committedSegments
+        }
+
+        guard !tailTranscript.isEmpty else {
+            return immersiveCommittedSourceSegments
+        }
+
+        let tailSegmentation = HomeImmersiveSubtitleSegmenter.segment(
+            text: tailTranscript,
+            flushActiveText: true
+        )
+        return immersiveCommittedSourceSegments + tailSegmentation.committedSegments
+    }
+
+    private func immersiveTranscriptTail(
+        from transcript: String,
+        sourceLanguage: SupportedLanguage
+    ) -> String? {
+        let committedPrefix = joinedImmersiveSourceSegments(
+            immersiveCommittedSourceSegments,
+            sourceLanguage: sourceLanguage
+        )
+        guard !committedPrefix.isEmpty else {
+            return transcript
+        }
+
+        guard transcript.hasPrefix(committedPrefix) else {
+            return nil
+        }
+
+        let tailStartIndex = transcript.index(
+            transcript.startIndex,
+            offsetBy: committedPrefix.count
+        )
+        let tail = String(transcript[tailStartIndex...])
+        return tail.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func joinedImmersiveSourceSegments(
+        _ segments: [String],
+        sourceLanguage: SupportedLanguage
+    ) -> String {
+        let normalizedSegments = segments.compactMap { segment in
+            let normalizedSegment = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSegment.isEmpty ? nil : normalizedSegment
+        }
+
+        guard !normalizedSegments.isEmpty else {
+            return ""
+        }
+
+        return normalizedSegments.joined(
+            separator: immersiveSegmentSeparator(for: sourceLanguage)
+        )
+    }
+
+    private func immersiveSegmentSeparator(
+        for language: SupportedLanguage
+    ) -> String {
+        switch language {
+        case .chinese, .japanese:
+            return ""
+        case .english, .korean, .french, .german, .russian, .spanish, .italian:
+            return " "
+        }
     }
 
     private func abortImmersiveSpeechSessionForMissingModel(
@@ -699,8 +997,19 @@ final class HomeSpeechWorkflow {
         store.speechErrorMessage = nil
     }
 
+    private func refreshImmersiveVoiceTranslationState(
+        phase: HomeImmersiveVoiceTranslationPhase
+    ) {
+        updateImmersiveVoiceTranslationState(
+            committedSegments: immersiveCommittedTranslatedSegments,
+            activeText: immersiveActiveTranslatedText,
+            phase: phase
+        )
+    }
+
     private func updateImmersiveVoiceTranslationState(
-        text: String? = nil,
+        committedSegments: [HomeImmersiveVoiceTranslationSegment],
+        activeText: String,
         phase: HomeImmersiveVoiceTranslationPhase
     ) {
         guard let store else { return }
@@ -709,16 +1018,16 @@ final class HomeSpeechWorkflow {
             if let liveSpeechSession {
                 store.immersiveVoiceTranslationState = HomeImmersiveVoiceTranslationState(
                     messageID: liveSpeechSession.record.message.id,
-                    translatedText: text ?? immersiveLatestTranslatedText,
+                    committedSegments: committedSegments,
+                    activeText: activeText,
                     phase: phase
                 )
             }
             return
         }
 
-        if let text {
-            state.translatedText = text
-        }
+        state.committedSegments = committedSegments
+        state.activeText = activeText
         state.phase = phase
         store.immersiveVoiceTranslationState = state
     }
@@ -863,23 +1172,64 @@ final class HomeSpeechWorkflow {
         store?.speechErrorMessage = nil
     }
 
+    private func normalizedSpeechState(
+        _ rawState: LiveUtteranceState,
+        for liveSpeechSession: HomeLiveSpeechSessionRecord,
+        in runtime: HomeRuntimeContext
+    ) -> LiveUtteranceState {
+        var state = rawState
+
+        if let lockedSpeechSourceLanguage {
+            state.detectedLanguage = lockedSpeechSourceLanguage
+            return state
+        }
+
+        guard let detectedLanguage = rawState.detectedLanguage else {
+            return state
+        }
+
+        lockedSpeechSourceLanguage = detectedLanguage
+        state.detectedLanguage = detectedLanguage
+        applyDetectedSpeechSourceLanguage(
+            detectedLanguage,
+            for: liveSpeechSession,
+            in: runtime
+        )
+        return state
+    }
+
+    private func applyDetectedSpeechSourceLanguage(
+        _ sourceLanguage: SupportedLanguage,
+        for liveSpeechSession: HomeLiveSpeechSessionRecord,
+        in runtime: HomeRuntimeContext
+    ) {
+        store?.sourceLanguage = sourceLanguage
+        _ = sessionRepository.updateMessage(
+            id: liveSpeechSession.message.id,
+            sourceLanguage: sourceLanguage,
+            syncSessionLanguages: true,
+            in: runtime
+        )
+    }
+
     private func resolvedSpeechSourceLanguage(
         detectedLanguageCode: String?,
         liveDetectedLanguage: SupportedLanguage?,
         fallbackSourceLanguage: SupportedLanguage
     ) -> SupportedLanguage {
-        if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode) {
-            return detectedLanguage
-        }
-
         if let liveDetectedLanguage {
             return liveDetectedLanguage
+        }
+
+        if let detectedLanguage = SupportedLanguage.fromWhisperLanguageCode(detectedLanguageCode) {
+            return detectedLanguage
         }
 
         return fallbackSourceLanguage
     }
 
     private func resetImmersiveTranslationRuntime(clearPresentation: Bool) {
+        cancelImmersivePreviewRefresh()
         cancelImmersivePreviewTranslation()
 
         if let finalTaskID = immersiveFinalTranslationTaskID {
@@ -889,10 +1239,13 @@ final class HomeSpeechWorkflow {
         }
 
         immersiveFinalTranslationTaskID = nil
+        lockedSpeechSourceLanguage = nil
         immersivePreviewGeneration = 0
         immersivePreviewSourceLanguage = nil
-        immersiveLastStableTranscript = ""
-        immersiveLatestTranslatedText = ""
+        immersiveCommittedSourceSegments = []
+        immersiveCommittedTranslatedSegments = []
+        immersiveActiveSourceText = ""
+        immersiveActiveTranslatedText = ""
 
         if clearPresentation {
             store?.immersiveVoiceTranslationState = nil
@@ -910,6 +1263,13 @@ final class HomeSpeechWorkflow {
         }
 
         immersivePreviewTaskID = nil
+    }
+
+    private func cancelImmersivePreviewRefresh() {
+        immersivePreviewRefreshTask?.cancel()
+        immersivePreviewRefreshTask = nil
+        immersivePendingPreviewState = nil
+        immersivePendingPreviewRuntime = nil
     }
 
     private func cleanupFailedPreservedRecording(at url: URL?) {

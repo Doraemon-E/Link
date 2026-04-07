@@ -53,32 +53,89 @@ struct HomeConversationContentView: View {
 }
 
 private struct HomeImmersiveVoiceTranslationView: View {
+    private static let bottomAnchorID = "home-immersive-translation-bottom-anchor"
+
     let state: HomeImmersiveVoiceTranslationState
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack {
-                    Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                Spacer(minLength: proxy.size.height * 0.32)
 
-                    if hasText {
-                        Text(state.translatedText)
-                            .font(.system(size: 30, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.primary.opacity(0.96))
-                            .multilineTextAlignment(.center)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 18) {
+                            ForEach(state.committedSegments) { segment in
+                                subtitleText(
+                                    segment.text,
+                                    foregroundOpacity: 0.74
+                                )
+                            }
+
+                            if hasActiveText {
+                                subtitleText(
+                                    state.activeText,
+                                    foregroundOpacity: 0.96
+                                )
+                            }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.bottomAnchorID)
+                        }
+                        .padding(.horizontal, 28)
+                        .padding(.top, 20)
+                        .padding(.bottom, max(28, proxy.safeAreaInsets.bottom + 20))
+                        .frame(maxWidth: .infinity, alignment: .bottom)
                     }
-
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .onAppear {
+                        scrollToBottom(with: scrollProxy, animated: false)
+                    }
+                    .onChange(of: scrollKey) { _, _ in
+                        scrollToBottom(with: scrollProxy, animated: true)
+                    }
                 }
-                .padding(.horizontal, 28)
-                .frame(minHeight: proxy.size.height, alignment: .center)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
     }
 
-    private var hasText: Bool {
-        !state.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var hasActiveText: Bool {
+        !state.activeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var scrollKey: String {
+        let committedIDs = state.committedSegments.map(\.id.uuidString).joined(separator: ",")
+        return "\(committedIDs)|\(state.activeText)"
+    }
+
+    private func subtitleText(
+        _ text: String,
+        foregroundOpacity: Double
+    ) -> some View {
+        Text(text)
+            .font(.system(size: 30, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.primary.opacity(foregroundOpacity))
+            .multilineTextAlignment(.center)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity)
+    }
+
+    private func scrollToBottom(
+        with proxy: ScrollViewProxy,
+        animated: Bool
+    ) {
+        let action = {
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        }
+
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                action()
+            }
+        } else {
+            action()
+        }
     }
 }

@@ -19,12 +19,38 @@ struct HomeChatInputBar: View {
         static let actionTextSpacing: CGFloat = 12
         static let actionReservedWidth: CGFloat =
             secondaryActionSize + actionSpacing + primaryActionSize
+        static let immersiveWaveHeight: CGFloat = 30
+        static let heroAnimation = Animation.spring(response: 0.42, dampingFraction: 0.86)
+        static let contentFadeAnimation = Animation.easeInOut(duration: 0.18)
+        static let immersiveStartDelay: Duration = .milliseconds(220)
+        static let immersiveCollapseDelay: Duration = .milliseconds(260)
+    }
+
+    private enum ImmersiveTransitionPhase: Equatable {
+        case idle
+        case expanding
+        case waitingForActivation
+        case immersive
+        case collapsing
+
+        var showsOverlay: Bool {
+            self != .idle
+        }
+
+        var blocksComposerInteraction: Bool {
+            self != .idle
+        }
+
+        var isAwaitingActivation: Bool {
+            self == .expanding || self == .waitingForActivation
+        }
     }
 
     @Binding var text: String
     @Binding var isFocused: Bool
     let isRecordingSpeech: Bool
     let isSpeechBusy: Bool
+    let shouldAbortImmersiveTransition: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -35,7 +61,11 @@ struct HomeChatInputBar: View {
     let onImmersiveVoiceInput: () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
+    @Namespace private var immersiveHeroNamespace
     @State private var textFieldHeight: CGFloat = Metrics.fieldMinHeight
+    @State private var immersiveTransitionPhase: ImmersiveTransitionPhase = .idle
+    @State private var immersiveActivationTask: Task<Void, Never>?
+    @State private var immersiveCollapseTask: Task<Void, Never>?
 
     private var dynamicCornerRadius: CGFloat {
         let h = textFieldHeight
@@ -47,13 +77,20 @@ struct HomeChatInputBar: View {
     }
 
     var body: some View {
-        currentBarContent
+        ZStack {
+            composerField
+
+            if immersiveTransitionPhase.showsOverlay {
+                immersiveVoiceBar
+                    .zIndex(1)
+            }
+        }
             .onChange(of: isTextFieldFocused) { oldValue, newValue in
                 if !oldValue && newValue {
                     onFocusActivated()
                 }
 
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                withAnimation(Metrics.heroAnimation) {
                     isFocused = newValue
                 }
             }
@@ -63,18 +100,18 @@ struct HomeChatInputBar: View {
                 }
             }
             .onChange(of: isImmersiveVoiceModeActive) { _, newValue in
-                guard newValue else { return }
-                isTextFieldFocused = false
+                handleImmersiveModeChange(isActive: newValue)
             }
-    }
-
-    @ViewBuilder
-    private var currentBarContent: some View {
-        if isImmersiveVoiceModeActive {
-            immersiveVoiceBar
-        } else {
-            composerField
-        }
+            .onChange(of: shouldAbortImmersiveTransition) { _, newValue in
+                guard newValue else { return }
+                handleImmersiveTransitionAbort()
+            }
+            .onAppear {
+                immersiveTransitionPhase = isImmersiveVoiceModeActive ? .immersive : .idle
+            }
+            .onDisappear {
+                cancelImmersiveTransitionTasks()
+            }
     }
 
     private var composerField: some View {
@@ -83,7 +120,7 @@ struct HomeChatInputBar: View {
             .focused($isTextFieldFocused)
             .submitLabel(.send)
             .lineLimit(1...5)
-            .disabled(isInputDisabled)
+            .disabled(isInputDisabled || immersiveTransitionPhase.blocksComposerInteraction)
             .onSubmit {
                 handleSend()
             }
@@ -91,6 +128,8 @@ struct HomeChatInputBar: View {
             .padding(.vertical, Metrics.fieldVerticalPadding)
             .padding(.trailing, composerTrailingPadding)
             .frame(maxWidth: .infinity, minHeight: Metrics.fieldMinHeight, alignment: .leading)
+            .opacity(composerTextOpacity)
+            .scaleEffect(composerTextScale, anchor: .trailing)
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -105,8 +144,8 @@ struct HomeChatInputBar: View {
                 }
             )
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: dynamicCornerRadius, style: .continuous))
-//            .shadow(color: Color.black.opacity(0.12), radius: 18, y: 10)
             .contentShape(RoundedRectangle(cornerRadius: dynamicCornerRadius, style: .continuous))
+            .allowsHitTesting(!immersiveTransitionPhase.blocksComposerInteraction)
             .overlay(alignment: .bottomTrailing) {
                 actionButtons
                     .padding(.trailing, Metrics.actionInset)
@@ -114,18 +153,18 @@ struct HomeChatInputBar: View {
             }
     }
 
+    @ViewBuilder
     private var immersiveVoiceBar: some View {
-        Group {
-            if isRecordingSpeech {
-                Button(action: onVoiceInput) {
-                    immersiveVoiceBarContent
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("结束语音录音")
-            } else {
+        if immersiveTransitionPhase == .immersive && isRecordingSpeech {
+            Button(action: onVoiceInput) {
                 immersiveVoiceBarContent
-                    .accessibilityLabel("正在处理语音翻译")
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("结束语音录音")
+        } else {
+            immersiveVoiceBarContent
+                .allowsHitTesting(false)
+                .accessibilityLabel(immersiveOverlayAccessibilityLabel)
         }
     }
 
@@ -135,18 +174,26 @@ struct HomeChatInputBar: View {
 
             ImmersiveWaveformRow(
                 barColor: invertedActionGlyphColor,
-                isEmphasized: isRecordingSpeech
+                isEmphasized: isRecordingSpeech || immersiveTransitionPhase.isAwaitingActivation
             )
+            .frame(height: Metrics.immersiveWaveHeight, alignment: .center)
+            .opacity(immersiveWaveformOpacity)
+            .scaleEffect(immersiveWaveformScale)
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Metrics.fieldHorizontalPadding)
-        .frame(maxWidth: .infinity, minHeight: Metrics.fieldMinHeight)
+        .frame(maxWidth: .infinity, minHeight: immersiveOverlayHeight)
         .background(
-            RoundedRectangle(cornerRadius: Metrics.fieldMinHeight / 2, style: .continuous)
+            RoundedRectangle(cornerRadius: immersiveOverlayCornerRadius, style: .continuous)
                 .fill(invertedActionBackgroundColor)
+                .matchedGeometryEffect(
+                    id: "immersive-wave-hero-background",
+                    in: immersiveHeroNamespace,
+                    properties: .frame
+                )
         )
-        .opacity(isRecordingSpeech ? 1 : 0.74)
+        .opacity(immersiveOverlayOpacity)
     }
 
     private var sendButton: some View {
@@ -169,19 +216,30 @@ struct HomeChatInputBar: View {
     }
 
     private var waveformButton: some View {
-        Button(action: onImmersiveVoiceInput) {
-            Image(systemName: "waveform.mid")
-                .font(.headline.weight(.bold))
-                .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
-                .modifier(
-                    InvertedActionButtonStyle(
-                        glyphColor: invertedActionGlyphColor,
-                        backgroundColor: invertedActionBackgroundColor
+        Button(action: beginImmersiveTransition) {
+            ZStack {
+                Circle()
+                    .fill(invertedActionBackgroundColor)
+                    .matchedGeometryEffect(
+                        id: "immersive-wave-hero-background",
+                        in: immersiveHeroNamespace,
+                        properties: .frame,
+                        isSource: true
                     )
-                )
+                    .opacity(waveformButtonBackgroundOpacity)
+
+                Image(systemName: "waveform.mid")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(invertedActionGlyphColor)
+                    .opacity(waveformButtonIconOpacity)
+                    .scaleEffect(waveformButtonIconScale)
+                    .animation(Metrics.contentFadeAnimation, value: immersiveTransitionPhase)
+            }
+            .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
+            .accessibilityHidden(immersiveTransitionPhase.showsOverlay)
         }
         .buttonStyle(.plain)
-        .disabled(isInputDisabled)
+        .disabled(isInputDisabled || immersiveTransitionPhase != .idle)
         .contentShape(Circle())
         .accessibilityLabel("语音波形")
     }
@@ -237,11 +295,19 @@ struct HomeChatInputBar: View {
     @ViewBuilder
     private var actionButtons: some View {
         HStack(spacing: Metrics.actionSpacing) {
-            if hasTypedText {
+            if hasTypedText && !immersiveTransitionPhase.showsOverlay {
                 secondaryVoiceButton
+                    .opacity(nonHeroActionOpacity)
+                    .scaleEffect(nonHeroActionScale, anchor: .trailing)
+
                 sendButton
+                    .opacity(nonHeroActionOpacity)
+                    .scaleEffect(nonHeroActionScale, anchor: .trailing)
             } else {
                 primaryVoiceButton
+                    .opacity(nonHeroActionOpacity)
+                    .scaleEffect(nonHeroActionScale, anchor: .trailing)
+
                 waveformButton
             }
         }
@@ -249,7 +315,11 @@ struct HomeChatInputBar: View {
     }
 
     private var composerTrailingPadding: CGFloat {
-        Metrics.fieldHorizontalPadding
+        if immersiveTransitionPhase.showsOverlay {
+            return Metrics.fieldHorizontalPadding
+        }
+
+        return Metrics.fieldHorizontalPadding
             + Metrics.actionReservedWidth
             + Metrics.actionInset
             + Metrics.actionTextSpacing
@@ -265,6 +335,66 @@ struct HomeChatInputBar: View {
 
     private var invertedActionBackgroundColor: Color {
         colorScheme == .dark ? .white : .black
+    }
+
+    private var composerTextOpacity: Double {
+        immersiveTransitionPhase.showsOverlay ? 0 : 1
+    }
+
+    private var composerTextScale: CGFloat {
+        immersiveTransitionPhase.showsOverlay ? 0.985 : 1
+    }
+
+    private var nonHeroActionOpacity: Double {
+        immersiveTransitionPhase.showsOverlay ? 0 : 1
+    }
+
+    private var nonHeroActionScale: CGFloat {
+        immersiveTransitionPhase.showsOverlay ? 0.88 : 1
+    }
+
+    private var waveformButtonBackgroundOpacity: Double {
+        immersiveTransitionPhase.showsOverlay ? 0.001 : 1
+    }
+
+    private var waveformButtonIconOpacity: Double {
+        immersiveTransitionPhase.showsOverlay ? 0 : 1
+    }
+
+    private var waveformButtonIconScale: CGFloat {
+        immersiveTransitionPhase.showsOverlay ? 0.82 : 1
+    }
+
+    private var immersiveOverlayHeight: CGFloat {
+        max(textFieldHeight, Metrics.fieldMinHeight)
+    }
+
+    private var immersiveOverlayCornerRadius: CGFloat {
+        immersiveOverlayHeight / 2
+    }
+
+    private var immersiveWaveformOpacity: Double {
+        immersiveTransitionPhase.showsOverlay ? 1 : 0
+    }
+
+    private var immersiveWaveformScale: CGFloat {
+        immersiveTransitionPhase == .expanding ? 0.9 : 1
+    }
+
+    private var immersiveOverlayOpacity: Double {
+        if immersiveTransitionPhase == .immersive {
+            return isRecordingSpeech ? 1 : 0.74
+        }
+
+        return 1
+    }
+
+    private var immersiveOverlayAccessibilityLabel: String {
+        if immersiveTransitionPhase.isAwaitingActivation {
+            return "正在展开语音输入"
+        }
+
+        return "正在处理语音翻译"
     }
 
     private var primaryVoiceGlyphColor: Color {
@@ -290,6 +420,105 @@ struct HomeChatInputBar: View {
     private func handleSend() {
         guard isSendEnabled else { return }
         onSend()
+    }
+
+    private func beginImmersiveTransition() {
+        guard immersiveTransitionPhase == .idle, !isInputDisabled, !hasTypedText else {
+            return
+        }
+
+        isTextFieldFocused = false
+        cancelImmersiveTransitionTasks()
+
+        withAnimation(Metrics.heroAnimation) {
+            immersiveTransitionPhase = .expanding
+        }
+
+        immersiveActivationTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: Metrics.immersiveStartDelay)
+            } catch {
+                return
+            }
+
+            guard immersiveTransitionPhase == .expanding else {
+                return
+            }
+
+            if shouldAbortImmersiveTransition {
+                collapseImmersiveTransition()
+                return
+            }
+
+            withAnimation(Metrics.heroAnimation) {
+                immersiveTransitionPhase = .waitingForActivation
+            }
+
+            onImmersiveVoiceInput()
+        }
+    }
+
+    private func handleImmersiveModeChange(isActive: Bool) {
+        if isActive {
+            isTextFieldFocused = false
+            immersiveCollapseTask?.cancel()
+            immersiveActivationTask?.cancel()
+
+            withAnimation(Metrics.heroAnimation) {
+                immersiveTransitionPhase = .immersive
+            }
+            return
+        }
+
+        guard immersiveTransitionPhase == .immersive else {
+            return
+        }
+
+        collapseImmersiveTransition()
+    }
+
+    private func handleImmersiveTransitionAbort() {
+        guard immersiveTransitionPhase.isAwaitingActivation else {
+            return
+        }
+
+        collapseImmersiveTransition()
+    }
+
+    private func collapseImmersiveTransition() {
+        guard immersiveTransitionPhase != .idle, immersiveTransitionPhase != .collapsing else {
+            return
+        }
+
+        immersiveActivationTask?.cancel()
+        immersiveActivationTask = nil
+        immersiveCollapseTask?.cancel()
+
+        withAnimation(Metrics.heroAnimation) {
+            immersiveTransitionPhase = .collapsing
+        }
+
+        immersiveCollapseTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: Metrics.immersiveCollapseDelay)
+            } catch {
+                return
+            }
+
+            guard immersiveTransitionPhase == .collapsing else {
+                return
+            }
+
+            immersiveTransitionPhase = .idle
+            immersiveCollapseTask = nil
+        }
+    }
+
+    private func cancelImmersiveTransitionTasks() {
+        immersiveActivationTask?.cancel()
+        immersiveCollapseTask?.cancel()
+        immersiveActivationTask = nil
+        immersiveCollapseTask = nil
     }
 }
 
@@ -358,6 +587,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
@@ -373,6 +603,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
@@ -388,6 +619,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(true),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
@@ -403,6 +635,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(true),
         isRecordingSpeech: false,
         isSpeechBusy: false,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: false,
         onFocusActivated: {},
         onSend: {},
@@ -418,6 +651,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(false),
         isRecordingSpeech: true,
         isSpeechBusy: false,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: true,
         onFocusActivated: {},
         onSend: {},
@@ -433,6 +667,7 @@ private struct ImmersiveWaveformRow: View {
         isFocused: .constant(false),
         isRecordingSpeech: false,
         isSpeechBusy: true,
+        shouldAbortImmersiveTransition: false,
         isImmersiveVoiceModeActive: true,
         onFocusActivated: {},
         onSend: {},

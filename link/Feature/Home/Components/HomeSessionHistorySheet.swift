@@ -104,10 +104,11 @@ struct HomeSessionHistorySheet: View {
     private func sessionRowContent(for session: ChatSession) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(sessionTitle(for: session))
+                Text(sessionPreviewText(for: session))
                     .font(.body.weight(.medium))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(timeString(for: session.updatedAt))
                     .font(.footnote)
@@ -126,11 +127,16 @@ struct HomeSessionHistorySheet: View {
         .contentShape(Rectangle())
     }
 
-    private func sessionTitle(for session: ChatSession) -> String {
-        if let firstMessage = session.sortedMessages.first {
-            let trimmedText = firstMessage.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty {
-                return trimmedText
+    private func sessionPreviewText(for session: ChatSession) -> String {
+        for message in session.sortedMessages.reversed() {
+            let translatedText = message.translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !translatedText.isEmpty {
+                return translatedText
+            }
+
+            let sourceText = message.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sourceText.isEmpty {
+                return sourceText
             }
         }
 
