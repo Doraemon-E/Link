@@ -387,6 +387,13 @@ final class HomeSpeechWorkflow {
 
         self.liveSpeechSession = nil
         activeCaptureOrigin = nil
+        beginImmersiveFinalConversationStreaming(
+            messageID: messageID,
+            sourceText: completedCapture.transcript
+        )
+        defer {
+            store.streamingStatesByMessageID.removeValue(forKey: messageID)
+        }
         store.immersiveVoiceTranslationState = nil
 
         do {
@@ -414,6 +421,7 @@ final class HomeSpeechWorkflow {
         let translatedSegments: [String]
         do {
             translatedSegments = try await streamImmersiveFinalTranslations(
+                messageID: messageID,
                 sourceSegments: sourceSegments,
                 sourceLanguage: completedCapture.sourceLanguage,
                 targetLanguage: completedCapture.targetLanguage
@@ -742,6 +750,7 @@ final class HomeSpeechWorkflow {
     }
 
     private func streamImmersiveFinalTranslations(
+        messageID: UUID,
         sourceSegments: [String],
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
@@ -768,6 +777,7 @@ final class HomeSpeechWorkflow {
         for sourceSegment in normalizedSourceSegments {
             let taskID = UUID()
             immersiveFinalTranslationTaskID = taskID
+            let committedSegments = translatedSegments
 
             let translatedText = try await streamImmersiveTranslation(
                 messageID: taskID,
@@ -779,6 +789,13 @@ final class HomeSpeechWorkflow {
 
                 self.immersiveActiveTranslatedText = partialText
                 self.refreshImmersiveVoiceTranslationState(phase: .finalizing)
+                self.updateImmersiveFinalConversationStreaming(
+                    messageID: messageID,
+                    committedSegments: committedSegments,
+                    activeText: partialText,
+                    targetLanguage: targetLanguage,
+                    phase: .typing
+                )
             }
 
             translatedSegments.append(translatedText)
@@ -787,9 +804,75 @@ final class HomeSpeechWorkflow {
             )
             immersiveActiveTranslatedText = ""
             refreshImmersiveVoiceTranslationState(phase: .finalizing)
+            updateImmersiveFinalConversationStreaming(
+                messageID: messageID,
+                committedSegments: translatedSegments,
+                activeText: nil,
+                targetLanguage: targetLanguage,
+                phase: .typing
+            )
         }
 
         return translatedSegments
+    }
+
+    private func beginImmersiveFinalConversationStreaming(
+        messageID: UUID,
+        sourceText: String
+    ) {
+        guard let store else { return }
+
+        store.streamingStatesByMessageID[messageID] = ExchangeStreamingState(
+            messageID: messageID,
+            sourceStableText: sourceText,
+            sourceProvisionalText: "",
+            sourceLiveText: "",
+            sourcePhase: .completed,
+            sourceRevision: 0,
+            translatedCommittedText: "",
+            translatedLiveText: nil,
+            translationPhase: .translating,
+            translationRevision: 0
+        )
+    }
+
+    private func updateImmersiveFinalConversationStreaming(
+        messageID: UUID,
+        committedSegments: [String],
+        activeText: String?,
+        targetLanguage: SupportedLanguage,
+        phase: MessagePhase
+    ) {
+        guard let store,
+              var state = store.streamingStatesByMessageID[messageID] else {
+            return
+        }
+
+        let committedText = joinedImmersiveSubtitleSegments(
+            committedSegments,
+            targetLanguage: targetLanguage
+        )
+        let normalizedActiveText = activeText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visibleActiveText: String?
+        if let normalizedActiveText, !normalizedActiveText.isEmpty {
+            visibleActiveText = joinedImmersiveSubtitleSegments(
+                committedSegments + [normalizedActiveText],
+                targetLanguage: targetLanguage
+            )
+        } else {
+            visibleActiveText = nil
+        }
+
+        let previousDisplayText = state.translatedDisplayText
+        state.translatedCommittedText = committedText
+        state.translatedLiveText = visibleActiveText
+        state.translationPhase = phase
+
+        if previousDisplayText != state.translatedDisplayText {
+            state.translationRevision += 1
+        }
+
+        store.streamingStatesByMessageID[messageID] = state
     }
 
     private func streamImmersiveTranslation(

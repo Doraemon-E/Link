@@ -15,7 +15,7 @@ final class HomeSessionHistoryPreviewTextTests: XCTestCase {
             makeMessage(sequence: 1, sourceText: "Latest source", translatedText: "最新翻译")
         ]
 
-        let previewText = HomeSessionHistoryPreviewText.resolve(from: messages)
+        let previewText = HomeSessionHistoryPreviewText.resolve(fromSortedMessages: messages)
 
         XCTAssertEqual(previewText, "Latest source")
     }
@@ -26,7 +26,7 @@ final class HomeSessionHistoryPreviewTextTests: XCTestCase {
             makeMessage(sequence: 1, sourceText: " \n\t ", translatedText: "Latest translation")
         ]
 
-        let previewText = HomeSessionHistoryPreviewText.resolve(from: messages)
+        let previewText = HomeSessionHistoryPreviewText.resolve(fromSortedMessages: messages)
 
         XCTAssertEqual(previewText, "Older source")
     }
@@ -37,7 +37,7 @@ final class HomeSessionHistoryPreviewTextTests: XCTestCase {
             makeMessage(sequence: 1, sourceText: "  ", translatedText: "Another translation")
         ]
 
-        let previewText = HomeSessionHistoryPreviewText.resolve(from: messages)
+        let previewText = HomeSessionHistoryPreviewText.resolve(fromSortedMessages: messages)
 
         XCTAssertEqual(previewText, HomeSessionHistoryPreviewText.emptySessionFallback)
     }
@@ -47,7 +47,7 @@ final class HomeSessionHistoryPreviewTextTests: XCTestCase {
             makeMessage(sequence: 0, sourceText: "  Trimmed source \n", translatedText: "翻译")
         ]
 
-        let previewText = HomeSessionHistoryPreviewText.resolve(from: messages)
+        let previewText = HomeSessionHistoryPreviewText.resolve(fromSortedMessages: messages)
 
         XCTAssertEqual(previewText, "Trimmed source")
     }
