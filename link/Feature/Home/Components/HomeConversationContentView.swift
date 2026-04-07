@@ -21,6 +21,7 @@ struct HomeConversationContentView: View {
     let onSpeechTranscriptToggle: (ChatMessage) -> Void
     let onSourceLanguageSelection: (ChatMessage) -> Void
     let onTargetLanguageSelection: (ChatMessage) -> Void
+    let onMessageListBottomProximityChanged: (Bool) -> Void
 
     var body: some View {
         Group {
@@ -41,7 +42,8 @@ struct HomeConversationContentView: View {
                     onSourcePlayback: onSourcePlayback,
                     onSpeechTranscriptToggle: onSpeechTranscriptToggle,
                     onSourceLanguageSelection: onSourceLanguageSelection,
-                    onTargetLanguageSelection: onTargetLanguageSelection
+                    onTargetLanguageSelection: onTargetLanguageSelection,
+                    onMessageListBottomProximityChanged: onMessageListBottomProximityChanged
                 )
             }
         }

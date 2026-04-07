@@ -20,6 +20,7 @@ struct HomeView: View {
     @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
     @State private var store: HomeStore
     @State private var chatInputBarHeight: CGFloat = 0
+    @State private var isMessageListNearBottom = true
 
     init(dependencies: HomeDependencies) {
         _store = State(
@@ -31,6 +32,9 @@ struct HomeView: View {
 
     var body: some View {
         let viewState = currentViewState
+        let messageIDsKey = viewState.messageItems.map(\.id)
+        let lastMessageAutoScrollKey =
+            "\(viewState.messageItems.last?.renderKey ?? "")|\(messageListBottomSpacerHeight)"
 
         ZStack {
             homeBackground(for: viewState)
@@ -74,6 +78,15 @@ struct HomeView: View {
                                 for: message,
                                 side: .target
                             )
+                        },
+                        onMessageListBottomProximityChanged: { isNearBottom in
+                            isMessageListNearBottom = isNearBottom
+
+                            guard isNearBottom, !viewState.messageItems.isEmpty else {
+                                return
+                            }
+
+                            scrollToBottom(with: proxy, animated: false)
                         }
                     )
                     .navigationBarTitleDisplayMode(.inline)
@@ -89,11 +102,23 @@ struct HomeView: View {
                         store.onAppear(in: runtimeContext)
                         scrollToBottom(with: proxy, animated: false)
                     }
-                    .onChange(of: viewState.messageItems.map(\.id)) { _, _ in
+                    .onChange(of: messageIDsKey) { _, _ in
+                        isMessageListNearBottom = true
+                        scrollToBottom(with: proxy)
+                    }
+                    .onChange(of: lastMessageAutoScrollKey) { _, _ in
+                        guard isMessageListNearBottom else { return }
                         scrollToBottom(with: proxy)
                     }
                     .onChange(of: chatInputBarHeight) { oldValue, newValue in
-                        guard !viewState.shouldShowEmptyState, oldValue != newValue else { return }
+                        guard
+                            !viewState.shouldShowEmptyState,
+                            oldValue != newValue,
+                            isMessageListNearBottom
+                        else {
+                            return
+                        }
+
                         scrollToBottom(with: proxy, animated: false)
                     }
                 }
