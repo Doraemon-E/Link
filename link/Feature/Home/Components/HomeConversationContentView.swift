@@ -46,31 +46,9 @@ struct HomeConversationContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(contentBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onDismissInputFocus)
         .animation(.easeInOut(duration: 0.22), value: immersiveVoiceTranslationState != nil)
-    }
-
-    @ViewBuilder
-    private var contentBackground: some View {
-        if immersiveVoiceTranslationState != nil {
-            ZStack {
-                Color(uiColor: .systemBackground)
-
-                RadialGradient(
-                    colors: [
-                        Color.accentColor.opacity(0.14),
-                        Color.clear
-                    ],
-                    center: .top,
-                    startRadius: 40,
-                    endRadius: 420
-                )
-            }
-        } else {
-            Color(uiColor: .systemGroupedBackground)
-        }
     }
 }
 

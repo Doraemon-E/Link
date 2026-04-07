@@ -32,70 +32,76 @@ struct HomeView: View {
     var body: some View {
         let viewState = currentViewState
 
-        NavigationStack {
-            ScrollViewReader { proxy in
-                HomeConversationContentView(
-                    viewState: viewState,
-                    selectedLanguage: store.selectedLanguage,
-                    messageListBottomAnchorID: Self.messageListBottomAnchorID,
-                    messageListBottomSpacerHeight: messageListBottomSpacerHeight,
-                    immersiveVoiceTranslationState: viewState.immersiveVoiceTranslationState,
-                    onOpenLanguagePicker: {
-                        store.presentGlobalTargetLanguagePicker()
-                    },
-                    onDismissInputFocus: dismissChatInputFocus,
-                    onTranslatedPlayback: { message in
-                        store.toggleTranslatedPlayback(message: message)
-                    },
-                    onRetrySpeechTranslation: { message in
-                        store.retrySpeechTranslation(
-                            for: message,
-                            in: runtimeContext
-                        )
-                    },
-                    onSourcePlayback: { message in
-                        store.toggleSourcePlayback(message: message)
-                    },
-                    onSpeechTranscriptToggle: { message in
-                        store.toggleSpeechTranscript(for: message)
-                    },
-                    onSourceLanguageSelection: { message in
-                        store.presentMessageLanguagePicker(
-                            for: message,
-                            side: .source
-                        )
-                    },
-                    onTargetLanguageSelection: { message in
-                        store.presentMessageLanguagePicker(
-                            for: message,
-                            side: .target
+        ZStack {
+            homeBackground(for: viewState)
+                .ignoresSafeArea()
+
+            NavigationStack {
+                ScrollViewReader { proxy in
+                    HomeConversationContentView(
+                        viewState: viewState,
+                        selectedLanguage: store.selectedLanguage,
+                        messageListBottomAnchorID: Self.messageListBottomAnchorID,
+                        messageListBottomSpacerHeight: messageListBottomSpacerHeight,
+                        immersiveVoiceTranslationState: viewState.immersiveVoiceTranslationState,
+                        onOpenLanguagePicker: {
+                            store.presentGlobalTargetLanguagePicker()
+                        },
+                        onDismissInputFocus: dismissChatInputFocus,
+                        onTranslatedPlayback: { message in
+                            store.toggleTranslatedPlayback(message: message)
+                        },
+                        onRetrySpeechTranslation: { message in
+                            store.retrySpeechTranslation(
+                                for: message,
+                                in: runtimeContext
+                            )
+                        },
+                        onSourcePlayback: { message in
+                            store.toggleSourcePlayback(message: message)
+                        },
+                        onSpeechTranscriptToggle: { message in
+                            store.toggleSpeechTranscript(for: message)
+                        },
+                        onSourceLanguageSelection: { message in
+                            store.presentMessageLanguagePicker(
+                                for: message,
+                                side: .source
+                            )
+                        },
+                        onTargetLanguageSelection: { message in
+                            store.presentMessageLanguagePicker(
+                                for: message,
+                                side: .target
+                            )
+                        }
+                    )
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        HomeToolbarContent(
+                            state: viewState.toolbar,
+                            onOpenSessionHistory: store.openSessionHistory,
+                            onOpenDownloadManager: store.openDownloadManager,
+                            onStartNewSession: store.startNewSession
                         )
                     }
-                )
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    HomeToolbarContent(
-                        state: viewState.toolbar,
-                        onOpenSessionHistory: store.openSessionHistory,
-                        onOpenDownloadManager: store.openDownloadManager,
-                        onStartNewSession: store.startNewSession
-                    )
+                    .onAppear {
+                        store.onAppear(in: runtimeContext)
+                        scrollToBottom(with: proxy, animated: false)
+                    }
+                    .onChange(of: viewState.messageItems.map(\.id)) { _, _ in
+                        scrollToBottom(with: proxy)
+                    }
+                    .onChange(of: chatInputBarHeight) { oldValue, newValue in
+                        guard !viewState.shouldShowEmptyState, oldValue != newValue else { return }
+                        scrollToBottom(with: proxy, animated: false)
+                    }
                 }
-                .onAppear {
-                    store.onAppear(in: runtimeContext)
-                    scrollToBottom(with: proxy, animated: false)
-                }
-                .onChange(of: viewState.messageItems.map(\.id)) { _, _ in
-                    scrollToBottom(with: proxy)
-                }
-                .onChange(of: chatInputBarHeight) { oldValue, newValue in
-                    guard !viewState.shouldShowEmptyState, oldValue != newValue else { return }
-                    scrollToBottom(with: proxy, animated: false)
+                .navigationDestination(isPresented: binding(\.isDownloadManagerPresented)) {
+                    downloadManagerView
                 }
             }
-            .navigationDestination(isPresented: binding(\.isDownloadManagerPresented)) {
-                downloadManagerView
-            }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
         .homePresentation(
             store: store,
@@ -169,6 +175,27 @@ struct HomeView: View {
 
     private var currentViewState: HomeStore.ViewState {
         store.makeViewState(in: runtimeContext)
+    }
+
+    @ViewBuilder
+    private func homeBackground(for viewState: HomeStore.ViewState) -> some View {
+        if viewState.immersiveVoiceTranslationState != nil {
+            ZStack {
+                Color(uiColor: .systemBackground)
+
+                RadialGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.14),
+                        Color.clear
+                    ],
+                    center: .top,
+                    startRadius: 40,
+                    endRadius: 420
+                )
+            }
+        } else {
+            Color(uiColor: .systemGroupedBackground)
+        }
     }
 
     private var messageListBottomSpacerHeight: CGFloat {

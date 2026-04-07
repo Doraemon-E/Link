@@ -68,6 +68,8 @@ struct ModelAssetsView: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("下载管理")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
         .alert(
             "删除已安装模型？",
             isPresented: Binding(

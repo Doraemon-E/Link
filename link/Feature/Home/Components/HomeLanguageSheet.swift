@@ -87,7 +87,7 @@ struct HomeLanguageSheet: View {
             }
             .padding()
             .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
-            .background(cardBackground(isSelected: isSelected))
+            // .background(cardBackground(isSelected: isSelected))
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -99,7 +99,7 @@ struct HomeLanguageSheet: View {
             .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
+                    .fill(Color(uiColor: .systemGroupedBackground))
             )
     }
 
