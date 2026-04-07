@@ -25,6 +25,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
         var activeUtteranceSamples: [Float] = []
         var samplesSinceLastInference = 0
         var latestSnapshot: SpeechTranscriptionSnapshot?
+        var detectedLanguage: SupportedLanguage?
 
         init(configuration: SpeechStreamingConfiguration) {
             self.gate = SpeechActivityGate(
@@ -266,7 +267,7 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 samples: inferenceSamples,
                 context: context,
                 mode: .streaming,
-                preferredLanguage: nil
+                preferredLanguage: session.detectedLanguage
             )
             let pauseStrength = pauseStrength(
                 trailingSilenceDuration: gateUpdate.trailingSilenceDuration,
@@ -308,8 +309,13 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 samples: session.activeUtteranceSamples,
                 context: context,
                 mode: .final,
-                preferredLanguage: nil
+                preferredLanguage: session.detectedLanguage
             )
+            if session.detectedLanguage == nil,
+               let code = result.detectedLanguage,
+               let language = SupportedLanguage.fromWhisperLanguageCode(code) {
+                session.detectedLanguage = language
+            }
             return session.stabilizer.consume(
                 candidate: result.text,
                 detectedLanguage: SupportedLanguage.fromWhisperLanguageCode(result.detectedLanguage),
