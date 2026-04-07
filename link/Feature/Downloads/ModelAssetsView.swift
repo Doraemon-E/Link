@@ -163,7 +163,7 @@ private struct ModelAssetRow: View {
         item.kind.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var displaySubtitle: String? {
+    private var normalizedSubtitle: String? {
         guard !trimmedSubtitle.isEmpty,
               trimmedSubtitle != trimmedKindDisplayName,
               trimmedSubtitle != trimmedTitle else {
@@ -173,8 +173,29 @@ private struct ModelAssetRow: View {
         return trimmedSubtitle
     }
 
-    private var showsKindBadge: Bool {
-        !trimmedKindDisplayName.isEmpty && trimmedKindDisplayName != trimmedTitle
+    private var topBadgeText: String? {
+        switch item.kind {
+        case .translation:
+            guard !trimmedKindDisplayName.isEmpty, trimmedKindDisplayName != trimmedTitle else {
+                return nil
+            }
+
+            return trimmedKindDisplayName
+        case .speech:
+            return normalizedSubtitle
+        }
+    }
+
+    private var displaySubtitle: String? {
+        guard let normalizedSubtitle else {
+            return nil
+        }
+
+        if item.kind == .speech, topBadgeText == normalizedSubtitle {
+            return nil
+        }
+
+        return normalizedSubtitle
     }
 
     private var shouldShowTransferDetails: Bool {
@@ -203,8 +224,8 @@ private struct ModelAssetRow: View {
 
                 Spacer(minLength: 12)
 
-                if showsKindBadge {
-                    kindBadge
+                if let topBadgeText {
+                    badge(text: topBadgeText)
                 }
             }
 
@@ -275,8 +296,8 @@ private struct ModelAssetRow: View {
         .background(cardBackground)
     }
 
-    private var kindBadge: some View {
-        Text(trimmedKindDisplayName)
+    private func badge(text: String) -> some View {
+        Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
