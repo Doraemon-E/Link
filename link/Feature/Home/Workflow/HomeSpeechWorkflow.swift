@@ -1009,10 +1009,22 @@ final class HomeSpeechWorkflow {
             from: normalizedTranscript,
             sourceLanguage: sourceLanguage
         ) else {
-            return HomeImmersiveSubtitleSegmenter.segment(
-                text: normalizedTranscript,
-                flushActiveText: true
-            ).committedSegments
+            // The final transcript doesn't start with the streaming-accumulated prefix,
+            // meaning Whisper compressed or rewrote the audio differently.
+            // Choose whichever result carries more content.
+            let streamingText = joinedImmersiveSourceSegments(
+                immersiveCommittedSourceSegments,
+                sourceLanguage: sourceLanguage
+            )
+            if normalizedTranscript.count > streamingText.count {
+                // Batch result is longer — Whisper captured more; re-segment from scratch.
+                return HomeImmersiveSubtitleSegmenter.segment(
+                    text: normalizedTranscript,
+                    flushActiveText: true
+                ).committedSegments
+            }
+            // Batch result is shorter (compressed) — trust the streaming accumulation.
+            return immersiveCommittedSourceSegments
         }
 
         guard !tailTranscript.isEmpty else {
