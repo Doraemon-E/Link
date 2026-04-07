@@ -90,7 +90,7 @@ private struct HomeImmersiveVoiceTranslationView: View {
                         .padding(.bottom, max(28, proxy.safeAreaInsets.bottom + 20))
                         .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: proxy.size.height * 0.5)
+                    .frame(maxWidth: .infinity, maxHeight: proxy.size.height * 0.7)
                     .clipped()
                     .onAppear {
                         scrollToBottom(with: scrollProxy, animated: false)
@@ -100,7 +100,7 @@ private struct HomeImmersiveVoiceTranslationView: View {
                     }
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: proxy.size.height * 0.3)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
