@@ -5,3 +5,4 @@ Resource/
 link/Resource/*
 !link/Resource/translation-catalog.json
 !link/Resource/speech-catalog.json
+!link/Resource/whisper.xcframework
