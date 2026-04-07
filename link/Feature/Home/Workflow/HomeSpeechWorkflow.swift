@@ -380,9 +380,17 @@ final class HomeSpeechWorkflow {
             sourceLanguage: completedCapture.sourceLanguage
         )
 
+        // Use the same text that will be sent for translation as the stored transcript,
+        // so that the displayed transcription always matches the translation source.
+        let joinedSourceSegments = joinedImmersiveSourceSegments(
+            sourceSegments,
+            sourceLanguage: completedCapture.sourceLanguage
+        )
+        let effectiveTranscript = joinedSourceSegments.isEmpty ? completedCapture.transcript : joinedSourceSegments
+
         sessionRepository.finalizeLiveSpeechTranscript(
             completedCapture.liveSpeechSession.record,
-            transcript: completedCapture.transcript,
+            transcript: effectiveTranscript,
             sourceLanguage: completedCapture.sourceLanguage,
             audioURL: managedRecordingReference(
                 for: messageID,
@@ -395,7 +403,7 @@ final class HomeSpeechWorkflow {
         activeCaptureOrigin = nil
         beginImmersiveFinalConversationStreaming(
             messageID: messageID,
-            sourceText: completedCapture.transcript
+            sourceText: effectiveTranscript
         )
         defer {
             store.streamingStatesByMessageID.removeValue(forKey: messageID)
