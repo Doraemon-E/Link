@@ -395,11 +395,16 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
                 } else {
                     detectedLanguage = nil
                 }
+                /// NOTE: Demo 先默认是简体中文，防止出现繁体中文导致的显示问题，后续可以根据 detectedLanguage 来决定是否进行简繁转换
+                let isChineseResult = preferredLanguage == .chinese || detectedLanguage == "zh"
+                let finalText = isChineseResult
+                    ? self.normalizeToSimplifiedChinese(transcribedText)
+                    : transcribedText
 
-                self.log("Detected language=\(detectedLanguage ?? "nil"), text=\(self.summarize(transcribedText))")
+                self.log("Detected language=\(detectedLanguage ?? "nil"), text=\(self.summarize(finalText))")
 
                 return SpeechRecognitionResult(
-                    text: transcribedText,
+                    text: finalText,
                     detectedLanguage: detectedLanguage
                 )
             }
@@ -535,6 +540,10 @@ actor WhisperSpeechRecognitionService: SpeechRecognitionService, SpeechRecogniti
     private static let strongPausePunctuationCharacters: Set<Character> = [
         "，", "。", "！", "？", "；", "：", "、", ",", ".", "!", "?", ";", ":"
     ]
+
+    private func normalizeToSimplifiedChinese(_ text: String) -> String {
+        text.applyingTransform(StringTransform(rawValue: "Hant-Hans"), reverse: false) ?? text
+    }
 
     private func log(_ message: String) {
         print("[WhisperSpeechRecognitionService] \(message)")
