@@ -116,7 +116,7 @@ struct HomeChatInputBar: View {
     private var immersiveVoiceBar: some View {
         Group {
             if isRecordingSpeech {
-                Button(action: onVoiceInput) {
+                Button(action: handleVoiceInput) {
                     immersiveVoiceBarContent
                 }
                 .buttonStyle(.plain)
@@ -168,7 +168,7 @@ struct HomeChatInputBar: View {
     }
 
     private var waveformButton: some View {
-        Button(action: onImmersiveVoiceInput) {
+        Button(action: handleImmersiveVoiceInput) {
             Image(systemName: "waveform.mid")
                 .font(.headline.weight(.bold))
                 .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
@@ -194,7 +194,7 @@ struct HomeChatInputBar: View {
                     .frame(width: Metrics.primaryActionSize, height: Metrics.primaryActionSize)
                     .glassEffect(.regular.tint(primaryVoiceGlassTint), in: Circle())
             } else {
-                Button(action: onVoiceInput) {
+                Button(action: handleVoiceInput) {
                     Image(systemName: isRecordingSpeech ? "stop.fill" : "mic.fill")
                         .font(.headline.weight(.bold))
                         .foregroundStyle(primaryVoiceGlyphColor)
@@ -218,7 +218,7 @@ struct HomeChatInputBar: View {
                     .frame(width: Metrics.secondaryActionSize, height: Metrics.secondaryActionSize)
                     .glassEffect(.regular.tint(secondaryVoiceGlassTint), in: Circle())
             } else {
-                Button(action: onVoiceInput) {
+                Button(action: handleVoiceInput) {
                     Image(systemName: isRecordingSpeech ? "stop.fill" : "mic.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(isRecordingSpeech ? Color.red : Color.secondary)
@@ -289,6 +289,23 @@ struct HomeChatInputBar: View {
     private func handleSend() {
         guard isSendEnabled else { return }
         onSend()
+    }
+
+    private func handleVoiceInput() {
+        dismissTextInputFocus()
+        onVoiceInput()
+    }
+
+    private func handleImmersiveVoiceInput() {
+        dismissTextInputFocus()
+        onImmersiveVoiceInput()
+    }
+
+    private func dismissTextInputFocus() {
+        // Clear both focus sources before starting voice input so the keyboard
+        // does not restore itself when speech recording finishes.
+        isTextFieldFocused = false
+        isFocused = false
     }
 }
 
