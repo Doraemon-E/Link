@@ -370,16 +370,39 @@ final class HomeSpeechWorkflow {
     ) async {
         guard let store else { return }
 
-        refreshImmersiveVoiceTranslationState(phase: .finalizing)
         cancelImmersivePreviewTranslation()
+        let messageID = completedCapture.liveSpeechSession.record.message.id
+        let sourceSegments = resolvedFinalImmersiveSourceSegments(
+            transcript: completedCapture.transcript,
+            sourceLanguage: completedCapture.sourceLanguage
+        )
+
+        sessionRepository.finalizeLiveSpeechTranscript(
+            completedCapture.liveSpeechSession.record,
+            transcript: completedCapture.transcript,
+            sourceLanguage: completedCapture.sourceLanguage,
+            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
+            in: runtime
+        )
+
+        self.liveSpeechSession = nil
+        activeCaptureOrigin = nil
+        store.immersiveVoiceTranslationState = nil
 
         do {
             if let prompt = try await downloadWorkflow.translationDownloadPrompt(
                 source: completedCapture.sourceLanguage,
                 target: completedCapture.targetLanguage
             ) {
-                cleanupFailedPreservedRecording(at: completedCapture.preservedRecordingURL)
-                discardLiveSpeechSession(in: runtime)
+                sessionRepository.updateTranslatedMessage(
+                    id: messageID,
+                    text: TranslationError.modelNotInstalled(
+                        source: completedCapture.sourceLanguage,
+                        target: completedCapture.targetLanguage
+                    ).userFacingMessage,
+                    in: runtime
+                )
+                resetImmersiveTranslationRuntime(clearPresentation: false)
                 downloadWorkflow.presentTranslationDownloadPrompt(prompt)
                 store.speechErrorMessage = nil
                 return
@@ -390,10 +413,6 @@ final class HomeSpeechWorkflow {
 
         let translatedSegments: [String]
         do {
-            let sourceSegments = resolvedFinalImmersiveSourceSegments(
-                transcript: completedCapture.transcript,
-                sourceLanguage: completedCapture.sourceLanguage
-            )
             translatedSegments = try await streamImmersiveFinalTranslations(
                 sourceSegments: sourceSegments,
                 sourceLanguage: completedCapture.sourceLanguage,
@@ -405,27 +424,16 @@ final class HomeSpeechWorkflow {
             translatedSegments = ["翻译失败了，请稍后再试。"]
         }
 
-        immersiveCommittedTranslatedSegments = translatedSegments.map {
-            HomeImmersiveVoiceTranslationSegment(text: $0)
-        }
-        immersiveActiveTranslatedText = ""
-        refreshImmersiveVoiceTranslationState(phase: .finalizing)
-
-        sessionRepository.finalizeLiveSpeechSession(
-            completedCapture.liveSpeechSession.record,
-            transcript: completedCapture.transcript,
-            translatedText: joinedImmersiveSubtitleSegments(
+        sessionRepository.updateTranslatedMessage(
+            id: messageID,
+            text: joinedImmersiveSubtitleSegments(
                 translatedSegments,
                 targetLanguage: completedCapture.targetLanguage
             ),
-            sourceLanguage: completedCapture.sourceLanguage,
-            audioURL: completedCapture.preservedRecordingURL?.absoluteString,
             in: runtime
         )
 
-        self.liveSpeechSession = nil
-        activeCaptureOrigin = nil
-        resetImmersiveTranslationRuntime(clearPresentation: true)
+        resetImmersiveTranslationRuntime(clearPresentation: false)
         store.speechErrorMessage = nil
     }
 

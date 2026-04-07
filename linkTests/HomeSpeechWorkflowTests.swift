@@ -238,20 +238,7 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         await harness.workflow.toggleSpeechRecording(in: try runtime(for: harness.modelContext))
         await advanceTasks()
 
-        let correctedState = try XCTUnwrap(
-            harness.store.immersiveStateHistory
-                .reversed()
-                .compactMap { $0 }
-                .first { state in
-                    state.phase == .finalizing &&
-                        state.committedSegments.map(\.text) == ["Hello there.", "See you!"] &&
-                        state.activeText.isEmpty
-                }
-        )
-        XCTAssertEqual(
-            correctedState.committedSegments.map(\.text),
-            ["Hello there.", "See you!"]
-        )
+        XCTAssertNil(harness.store.immersiveVoiceTranslationState)
 
         let session = try fetchSingleSession(in: harness.modelContext)
         let message = try XCTUnwrap(session.sortedMessages.first)
@@ -338,23 +325,7 @@ final class HomeSpeechWorkflowTests: XCTestCase {
         await harness.workflow.toggleSpeechRecording(in: try runtime(for: harness.modelContext))
         await advanceTasks()
 
-        let correctedState = try XCTUnwrap(
-            harness.store.immersiveStateHistory
-                .reversed()
-                .compactMap { $0 }
-                .first { state in
-                    state.phase == .finalizing &&
-                        state.committedSegments.map(\.text) == [
-                            "Hello Hello",
-                            "How do you feel about today?"
-                        ] &&
-                        state.activeText.isEmpty
-                }
-        )
-        XCTAssertEqual(
-            correctedState.committedSegments.map(\.text),
-            ["Hello Hello", "How do you feel about today?"]
-        )
+        XCTAssertNil(harness.store.immersiveVoiceTranslationState)
 
         let session = try fetchSingleSession(in: harness.modelContext)
         let message = try XCTUnwrap(session.sortedMessages.first)
