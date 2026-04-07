@@ -7,6 +7,21 @@
 
 import SwiftUI
 
+enum HomeSessionHistoryPreviewText {
+    static let emptySessionFallback = "新会话"
+
+    static func resolve(from messages: [ChatMessage]) -> String {
+        for message in messages.reversed() {
+            let sourceText = message.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sourceText.isEmpty {
+                return sourceText
+            }
+        }
+
+        return emptySessionFallback
+    }
+}
+
 struct HomeSessionHistorySheet: View {
     private struct SessionDaySection: Identifiable {
         let day: Date
@@ -128,19 +143,7 @@ struct HomeSessionHistorySheet: View {
     }
 
     private func sessionPreviewText(for session: ChatSession) -> String {
-        for message in session.sortedMessages.reversed() {
-            let translatedText = message.translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !translatedText.isEmpty {
-                return translatedText
-            }
-
-            let sourceText = message.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sourceText.isEmpty {
-                return sourceText
-            }
-        }
-
-        return "新会话"
+        HomeSessionHistoryPreviewText.resolve(from: session.sortedMessages)
     }
 
     private func normalizedDay(for date: Date) -> Date {
