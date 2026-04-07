@@ -62,11 +62,11 @@ private struct HomeImmersiveVoiceTranslationView: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                Spacer(minLength: 0)
+                // Spacer(minLength: 0)
 
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 18) {
+                        VStack(alignment: .center, spacing: 18) {
                             ForEach(state.committedSegments) { segment in
                                 subtitleText(
                                     segment.text,
@@ -85,10 +85,10 @@ private struct HomeImmersiveVoiceTranslationView: View {
                                 .frame(height: 1)
                                 .id(Self.bottomAnchorID)
                         }
-                        .padding(.horizontal, 28)
-                        .padding(.top, 20)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 18)
                         .padding(.bottom, max(28, proxy.safeAreaInsets.bottom + 20))
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height * 0.7, alignment: .bottom)
                     }
                     .frame(maxWidth: .infinity, maxHeight: proxy.size.height * 0.7)
                     .clipped()
@@ -103,6 +103,7 @@ private struct HomeImmersiveVoiceTranslationView: View {
                 Spacer(minLength: proxy.size.height * 0.3)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(edges: .top)
         }
     }
 
