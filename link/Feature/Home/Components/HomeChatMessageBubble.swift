@@ -129,6 +129,7 @@ struct HomeChatMessageBubble: View {
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
 
     let message: ChatMessage
     let streamingState: ExchangeStreamingState?
@@ -229,7 +230,12 @@ struct HomeChatMessageBubble: View {
 
             switch message.inputType {
             case .text:
-                bubble(role: .outgoingSource) {
+                bubble(
+                    role: .outgoingSource,
+                    shadowColor: displayCardShadowColor,
+                    shadowRadius: displayCardShadowRadius,
+                    shadowY: displayCardShadowYOffset
+                ) {
                     sourceTranscriptBody(
                         primaryColor: .primary,
                         placeholderColor: .secondary
@@ -261,7 +267,12 @@ struct HomeChatMessageBubble: View {
                 }
 
                 if showsSpeechTranscript {
-                    bubble(role: .speechTranscript) {
+                    bubble(
+                        role: .speechTranscript,
+                        shadowColor: displayCardShadowColor,
+                        shadowRadius: displayCardShadowRadius,
+                        shadowY: displayCardShadowYOffset
+                    ) {
                         sourceTranscriptBody(
                             primaryColor: .primary,
                             placeholderColor: .secondary
@@ -353,7 +364,12 @@ struct HomeChatMessageBubble: View {
     @ViewBuilder
     private var speechCapsule: some View {
         if isLiveSpeechPlaceholder {
-            bubble(role: .speechCapsule) {
+            bubble(
+                role: .speechCapsule,
+                shadowColor: displayCardShadowColor,
+                shadowRadius: displayCardShadowRadius,
+                shadowY: displayCardShadowYOffset
+            ) {
                 liveSpeechCapsuleContent
             }
             .accessibilityLabel("录音中")
@@ -361,7 +377,9 @@ struct HomeChatMessageBubble: View {
             Button(action: onSourcePlayback) {
                 bubble(
                     role: .speechCapsule,
-                    borderColor: hasPlayableSourceRecording ? Color.primary.opacity(0.06) : Color.clear
+                    shadowColor: displayCardShadowColor,
+                    shadowRadius: displayCardShadowRadius,
+                    shadowY: displayCardShadowYOffset
                 ) {
                     recordedSpeechCapsuleContent
                 }
@@ -516,6 +534,23 @@ struct HomeChatMessageBubble: View {
 
     private var speechTranscriptButtonTitle: String {
         return showsSpeechTranscript ? "收起转写" : "查看转写"
+    }
+
+    private var shouldEmphasizeDisplayCards: Bool {
+        colorScheme == .light
+    }
+
+    private var displayCardShadowColor: Color {
+        guard shouldEmphasizeDisplayCards else { return .clear }
+        return Color.black.opacity(0.05)
+    }
+
+    private var displayCardShadowRadius: CGFloat {
+        shouldEmphasizeDisplayCards ? 7 : 0
+    }
+
+    private var displayCardShadowYOffset: CGFloat {
+        shouldEmphasizeDisplayCards ? 2 : 0
     }
 
     private var isLiveSpeechPlaceholder: Bool {
@@ -762,6 +797,9 @@ struct HomeChatMessageBubble: View {
     private func bubble<Content: View>(
         role: BubbleRole,
         borderColor: Color = .clear,
+        shadowColor: Color = .clear,
+        shadowRadius: CGFloat = 0,
+        shadowY: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
@@ -776,6 +814,7 @@ struct HomeChatMessageBubble: View {
                 bubbleShape(for: role)
                     .stroke(borderColor, lineWidth: borderColor == .clear ? 0 : 1)
             }
+            .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
             .frame(maxWidth: .infinity, alignment: role.alignment)
     }
 
