@@ -552,7 +552,8 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
             showsSessionHistoryButton: true,
             showsDownloadButton: shouldShowDownloadToolbarButton,
             isDownloadButtonEnabled: canStartDownloadFromToolbar,
-            showsNewSessionButton: !isDraftSession &&
+            showsNewSessionButton: immersiveVoiceTranslationState == nil &&
+                !isDraftSession &&
                 sessionRepository.currentSession(in: runtime, presentation: sessionPresentation) != nil,
             isDownloading: assetSummary.hasActiveTasks,
             hasDownloadAttention: assetSummary.hasAttention,
