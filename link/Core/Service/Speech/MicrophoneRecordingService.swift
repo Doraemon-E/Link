@@ -222,7 +222,7 @@ final class MicrophoneRecordingService: SpeechRecordingService {
         do {
             try session.setCategory(
                 .playAndRecord,
-                mode: .default,
+                mode: .voiceChat,
                 options: [.defaultToSpeaker, .allowBluetooth]
             )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
