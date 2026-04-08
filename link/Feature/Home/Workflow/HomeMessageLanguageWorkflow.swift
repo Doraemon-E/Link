@@ -472,12 +472,17 @@ final class HomeMessageLanguageWorkflow {
         }
 
         var completedText: String?
+        var latestDisplayText = ""
         for try await event in stream {
             try Task.checkCancellation()
             switch event {
             case .state(let state):
                 guard var existingState = store?.streamingStatesByMessageID[messageID] else {
                     continue
+                }
+                let displayText = state.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayText.isEmpty {
+                    latestDisplayText = state.displayText
                 }
                 existingState.translatedCommittedText = state.committedText
                 existingState.translatedLiveText = state.liveText
@@ -489,11 +494,16 @@ final class HomeMessageLanguageWorkflow {
             }
         }
 
-        guard let completedText else {
+        if let completedText,
+           !completedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return completedText
+        }
+
+        guard !latestDisplayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw TranslationError.emptyOutput
         }
 
-        return completedText
+        return latestDisplayText
     }
 
     private func presentTranslationDownloadPromptIfNeeded(

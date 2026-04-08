@@ -84,6 +84,50 @@ final class HomeStoreRetrySpeechTranslationTests: XCTestCase {
         XCTAssertEqual(itemStates[successfulSpeechMessage.id]?.showsRetrySpeechTranslationButton, false)
     }
 
+    func testRetrySpeechTranslationButtonShownForEmptyOutputSpeechMessages() throws {
+        let environment = try makeEnvironment()
+        defer { environment.cleanup() }
+
+        let modelContext = try makeModelContext()
+        let session = ChatSession(sourceLanguage: .english, targetLanguage: .chinese)
+        let emptyOutputMessage = ChatMessage(
+            inputType: .speech,
+            sourceText: "Hello there",
+            translatedText: TranslationError.emptyOutput.userFacingMessage,
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            sequence: 0,
+            session: session
+        )
+        let textInputEmptyOutputMessage = ChatMessage(
+            inputType: .text,
+            sourceText: "Hello there",
+            translatedText: TranslationError.emptyOutput.userFacingMessage,
+            sourceLanguage: .english,
+            targetLanguage: .chinese,
+            sequence: 1,
+            session: session
+        )
+
+        modelContext.insert(session)
+        modelContext.insert(emptyOutputMessage)
+        modelContext.insert(textInputEmptyOutputMessage)
+        try modelContext.save()
+
+        let store = HomeStore(dependencies: environment.dependencies)
+        store.sessionPresentation = .persisted(session.id)
+
+        let itemStates = Dictionary(
+            uniqueKeysWithValues: store.makeViewState(
+                in: runtimeContext(modelContext: modelContext)
+            ).messageItems.map { ($0.message.id, $0) }
+        )
+
+        XCTAssertEqual(itemStates[emptyOutputMessage.id]?.showsRetrySpeechTranslationButton, true)
+        XCTAssertEqual(itemStates[emptyOutputMessage.id]?.isRetrySpeechTranslationDisabled, false)
+        XCTAssertEqual(itemStates[textInputEmptyOutputMessage.id]?.showsRetrySpeechTranslationButton, false)
+    }
+
     func testRetrySpeechTranslationButtonDisablesForMutationAndStreamingStates() throws {
         let environment = try makeEnvironment()
         defer { environment.cleanup() }

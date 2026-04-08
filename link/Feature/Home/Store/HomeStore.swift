@@ -623,6 +623,7 @@ final class HomeStore: HomeMessageLanguageWorkflowStore, HomeDownloadWorkflowSto
             source: sourceLanguage,
             target: targetLanguage
         ).userFacingMessage
+            || message.translatedText == TranslationError.emptyOutput.userFacingMessage
     }
 
     private func aggregatedProgress(for records: [ModelAssetRecord]) -> Double? {

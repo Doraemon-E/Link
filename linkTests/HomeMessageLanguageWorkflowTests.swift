@@ -351,6 +351,32 @@ final class HomeMessageLanguageWorkflowTests: XCTestCase {
         XCTAssertNil(harness.store.messageMutationErrorMessage)
     }
 
+    func testSwitchLanguageUsesLatestPartialTextWhenCompletedEventIsMissing() async throws {
+        let harness = try makeHarness(
+            inputType: .text,
+            sourceText: "你好",
+            translatedText: "Hello",
+            sourceLanguage: .chinese,
+            targetLanguage: .english
+        )
+        harness.coordinator.manualResult = "Bonjour"
+        harness.coordinator.emitsCompletedEvent = false
+
+        harness.workflow.switchLanguage(
+            forMessageID: harness.message.id,
+            side: .target,
+            to: .french,
+            in: harness.runtime
+        )
+
+        try await waitUntil {
+            harness.message.translatedText == "Bonjour"
+        }
+
+        XCTAssertEqual(harness.message.translatedText, "Bonjour")
+        XCTAssertEqual(harness.message.targetLanguage, .french)
+    }
+
     private func makeHarness(
         inputType: ChatMessageInputType,
         sourceText: String,
@@ -550,6 +576,7 @@ private final class FakeConversationStreamingCoordinator: ConversationStreamingC
     var speechRequests: [Request] = []
     var manualResult = ""
     var speechResult = ""
+    var emitsCompletedEvent = true
 
     func startManualTranslation(
         messageID: UUID,
@@ -607,19 +634,25 @@ private final class FakeConversationStreamingCoordinator: ConversationStreamingC
         messageID: UUID,
         completedText: String
     ) -> AsyncThrowingStream<ConversationStreamingEvent, Error> {
-        AsyncThrowingStream { continuation in
+        let shouldEmitCompleted = emitsCompletedEvent
+        let partialLiveText = shouldEmitCompleted
+            ? (completedText.isEmpty ? nil : String(completedText.prefix(1)))
+            : (completedText.isEmpty ? nil : completedText)
+        return AsyncThrowingStream { continuation in
             continuation.yield(
                 .state(
                     TranslationStreamingState(
                         messageID: messageID,
                         committedText: "",
-                        liveText: completedText.isEmpty ? nil : String(completedText.prefix(1)),
+                        liveText: partialLiveText,
                         phase: .typing,
                         revision: 1
                     )
                 )
             )
-            continuation.yield(.completed(messageID: messageID, text: completedText))
+            if shouldEmitCompleted {
+                continuation.yield(.completed(messageID: messageID, text: completedText))
+            }
             continuation.finish()
         }
     }
