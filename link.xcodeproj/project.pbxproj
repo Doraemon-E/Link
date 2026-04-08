@@ -513,20 +513,21 @@
 			};
 			name = Release;
 		};
-		A1B2C3DE2F90A001002A3BC9 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V35C9MV5UG;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
+			A1B2C3DE2F90A001002A3BC9 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */;
+				buildSettings = {
+					BUNDLE_LOADER = "$(TEST_HOST)";
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 1;
+					DEVELOPMENT_TEAM = V35C9MV5UG;
+					GENERATE_INFOPLIST_FILE = YES;
+					IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+					OTHER_LDFLAGS = "";
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@executable_path/Frameworks",
+						"@loader_path/Frameworks",
 				);
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
@@ -544,20 +545,21 @@
 			};
 			name = Debug;
 		};
-		A1B2C3DF2F90A001002A3BC9 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V35C9MV5UG;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
+			A1B2C3DF2F90A001002A3BC9 /* Release */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */;
+				buildSettings = {
+					BUNDLE_LOADER = "$(TEST_HOST)";
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 1;
+					DEVELOPMENT_TEAM = V35C9MV5UG;
+					GENERATE_INFOPLIST_FILE = YES;
+					IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+					OTHER_LDFLAGS = "";
+					LD_RUNPATH_SEARCH_PATHS = (
+						"$(inherited)",
+						"@executable_path/Frameworks",
+						"@loader_path/Frameworks",
 				);
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
