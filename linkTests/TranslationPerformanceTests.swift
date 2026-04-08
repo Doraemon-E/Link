@@ -336,11 +336,28 @@ final class TranslationPerformanceTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
 
         let fileName = "translation-benchmark-\(Self.fileTimestampString(from: result.runStartAt)).json"
-        let outputURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let outputDirectoryURL = try resolveBenchmarkLogDirectory()
+        let outputURL = outputDirectoryURL
             .appendingPathComponent(fileName, isDirectory: false)
 
         try encoder.encode(result).write(to: outputURL, options: .atomic)
         return outputURL
+    }
+
+    private func resolveBenchmarkLogDirectory() throws -> URL {
+        let fileManager = FileManager.default
+        let baseDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let benchmarkDirectory = baseDirectory
+            .appendingPathComponent("Benchmarks", isDirectory: true)
+            .appendingPathComponent("Translation", isDirectory: true)
+
+        try fileManager.createDirectory(
+            at: benchmarkDirectory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        return benchmarkDirectory
     }
 
     private static let benchmarkRoutes: [TranslationInvocationRoute] = [
