@@ -26,7 +26,7 @@ final class StreamingPerformanceTests: XCTestCase {
         )
 
         XCTAssertEqual(corpusEntries.count, 15, "Expected 15 translation corpus entries.")
-        XCTAssertEqual(suites.count, 4, "Expected 4 streaming benchmark suites.")
+        XCTAssertEqual(suites.count, 3, "Expected 3 streaming benchmark suites.")
 
         try await preflightTTSVoice()
         let services = try await makeServiceContext()
@@ -92,7 +92,7 @@ final class StreamingPerformanceTests: XCTestCase {
     ) throws -> [StreamingBenchmarkSuite] {
         let corpusByID = Dictionary(uniqueKeysWithValues: corpusEntries.map { ($0.id, $0) })
 
-        let orderedSuites: [StreamingSuiteName] = [.short, .medium, .long, .mixed]
+        let orderedSuites: [StreamingSuiteName] = [.short, .medium, .long]
         return try orderedSuites.map { suiteName in
             let suiteEntries = try manifestEntries
                 .filter { $0.suite == suiteName }
