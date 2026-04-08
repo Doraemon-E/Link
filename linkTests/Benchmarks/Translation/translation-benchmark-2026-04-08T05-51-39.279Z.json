@@ -1,0 +1,159 @@
+{
+  "runEndAt" : "2026-04-08T06:22:23Z",
+  "runStartAt" : "2026-04-08T05:51:39Z",
+  "suiteResults" : [
+    {
+      "averageCallDurationMs" : 152.03038125999998,
+      "callCount" : 100,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-en",
+      "routeSource" : "chinese",
+      "routeTarget" : "english",
+      "rssEndMB" : 433.140625,
+      "rssPeakMB" : 501.09375,
+      "rssStartMB" : 136.90625,
+      "slowestCallDurationMs" : 767.543792,
+      "suiteDurationSeconds" : 15.20343475,
+      "suiteEndAt" : "2026-04-08T05:51:54Z",
+      "suiteName" : "all-short",
+      "suiteStartAt" : "2026-04-08T05:51:39Z"
+    },
+    {
+      "averageCallDurationMs" : 1416.99152747,
+      "callCount" : 100,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-ja",
+      "routeSource" : "chinese",
+      "routeTarget" : "japanese",
+      "rssEndMB" : 480.4375,
+      "rssPeakMB" : 541.578125,
+      "rssStartMB" : 433.171875,
+      "slowestCallDurationMs" : 1782.427375,
+      "suiteDurationSeconds" : 141.699784625,
+      "suiteEndAt" : "2026-04-08T05:54:16Z",
+      "suiteName" : "all-short",
+      "suiteStartAt" : "2026-04-08T05:51:54Z"
+    },
+    {
+      "averageCallDurationMs" : 988.5664277000001,
+      "callCount" : 60,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-en",
+      "routeSource" : "chinese",
+      "routeTarget" : "english",
+      "rssEndMB" : 511.140625,
+      "rssPeakMB" : 624.453125,
+      "rssStartMB" : 480.4375,
+      "slowestCallDurationMs" : 1481.624167,
+      "suiteDurationSeconds" : 59.314415042,
+      "suiteEndAt" : "2026-04-08T05:55:15Z",
+      "suiteName" : "all-medium",
+      "suiteStartAt" : "2026-04-08T05:54:16Z"
+    },
+    {
+      "averageCallDurationMs" : 3414.1749639,
+      "callCount" : 60,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-ja",
+      "routeSource" : "chinese",
+      "routeTarget" : "japanese",
+      "rssEndMB" : 497.203125,
+      "rssPeakMB" : 650.125,
+      "rssStartMB" : 511.140625,
+      "slowestCallDurationMs" : 5021.009791,
+      "suiteDurationSeconds" : 204.851247459,
+      "suiteEndAt" : "2026-04-08T05:58:40Z",
+      "suiteName" : "all-medium",
+      "suiteStartAt" : "2026-04-08T05:55:15Z"
+    },
+    {
+      "averageCallDurationMs" : 5613.447602733334,
+      "callCount" : 30,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-en",
+      "routeSource" : "chinese",
+      "routeTarget" : "english",
+      "rssEndMB" : 710.296875,
+      "rssPeakMB" : 953.03125,
+      "rssStartMB" : 497.234375,
+      "slowestCallDurationMs" : 6905.421125,
+      "suiteDurationSeconds" : 168.404183792,
+      "suiteEndAt" : "2026-04-08T06:01:28Z",
+      "suiteName" : "all-long",
+      "suiteStartAt" : "2026-04-08T05:58:40Z"
+    },
+    {
+      "averageCallDurationMs" : 13308.525904299999,
+      "callCount" : 30,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-ja",
+      "routeSource" : "chinese",
+      "routeTarget" : "japanese",
+      "rssEndMB" : 647.5625,
+      "rssPeakMB" : 955.03125,
+      "rssStartMB" : 710.328125,
+      "slowestCallDurationMs" : 16319.495291,
+      "suiteDurationSeconds" : 399.2575565,
+      "suiteEndAt" : "2026-04-08T06:08:08Z",
+      "suiteName" : "all-long",
+      "suiteStartAt" : "2026-04-08T06:01:28Z"
+    },
+    {
+      "averageCallDurationMs" : 2772.1650514000003,
+      "callCount" : 90,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-en",
+      "routeSource" : "chinese",
+      "routeTarget" : "english",
+      "rssEndMB" : 747.90625,
+      "rssPeakMB" : 928.4375,
+      "rssStartMB" : 647.5625,
+      "slowestCallDurationMs" : 8217.744042,
+      "suiteDurationSeconds" : 249.496245292,
+      "suiteEndAt" : "2026-04-08T06:12:17Z",
+      "suiteName" : "mixed",
+      "suiteStartAt" : "2026-04-08T06:08:08Z"
+    },
+    {
+      "averageCallDurationMs" : 6728.383882877778,
+      "callCount" : 90,
+      "failureCount" : 0,
+      "failures" : [
+
+      ],
+      "routeLabel" : "zh-ja",
+      "routeSource" : "chinese",
+      "routeTarget" : "japanese",
+      "rssEndMB" : 687,
+      "rssPeakMB" : 948.890625,
+      "rssStartMB" : 747.90625,
+      "slowestCallDurationMs" : 16144.1845,
+      "suiteDurationSeconds" : 605.557249959,
+      "suiteEndAt" : "2026-04-08T06:22:23Z",
+      "suiteName" : "mixed",
+      "suiteStartAt" : "2026-04-08T06:12:17Z"
+    }
+  ],
+  "totalDurationSeconds" : 1843.803592042
+}
