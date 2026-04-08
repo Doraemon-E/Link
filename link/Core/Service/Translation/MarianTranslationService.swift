@@ -108,12 +108,18 @@ actor MarianTranslationService: TranslationService {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    Self.log(
+                        "streamTranslation started source=\(source.rawValue) target=\(target.rawValue) text=\(Self.preview(text))"
+                    )
                     continuation.yield(.started)
 
                     let translatedText = try await self.translate(
                         text: text,
                         source: source,
                         target: target
+                    )
+                    Self.log(
+                        "streamTranslation produced translation source=\(source.rawValue) target=\(target.rawValue) text=\(Self.preview(translatedText))"
                     )
 
                     var revision = 0
@@ -131,11 +137,20 @@ actor MarianTranslationService: TranslationService {
                         )
                     }
 
+                    Self.log(
+                        "streamTranslation completed source=\(source.rawValue) target=\(target.rawValue)"
+                    )
                     continuation.yield(.completed(text: translatedText))
                     continuation.finish()
                 } catch is CancellationError {
+                    Self.log(
+                        "streamTranslation cancelled source=\(source.rawValue) target=\(target.rawValue)"
+                    )
                     continuation.finish()
                 } catch {
+                    Self.log(
+                        "streamTranslation failed source=\(source.rawValue) target=\(target.rawValue) error=\(error.localizedDescription)"
+                    )
                     continuation.finish(throwing: error)
                 }
             }
@@ -147,6 +162,9 @@ actor MarianTranslationService: TranslationService {
     }
 
     private func translateDirect(text: String, source: SupportedLanguage, target: SupportedLanguage) async throws -> String {
+        log(
+            "translateDirect started source=\(source.rawValue) target=\(target.rawValue) textLength=\(text.count) text=\(preview(text))"
+        )
         let state = try await loadState(source: source, target: target)
 
         guard state.manifest.supports(source: source, target: target) else {
@@ -159,6 +177,9 @@ actor MarianTranslationService: TranslationService {
             eosTokenID: state.manifest.generation.eosTokenId
         )
         let attentionMask = Array(repeating: Int64(1), count: inputTokenIDs.count)
+        log(
+            "translateDirect tokenized source=\(source.rawValue) target=\(target.rawValue) inputTokens=\(inputTokenIDs.count)"
+        )
 
         let encoderInputs = try [
             state.manifest.tensorNames.encoderInputIDs: makeInt64Tensor(
@@ -171,11 +192,13 @@ actor MarianTranslationService: TranslationService {
             )
         ]
 
+        log("translateDirect encoder started source=\(source.rawValue) target=\(target.rawValue)")
         let encoderOutputs = try state.encoderSession.run(
             withInputs: encoderInputs,
             outputNames: [state.manifest.tensorNames.encoderOutput],
             runOptions: nil
         )
+        log("translateDirect encoder finished source=\(source.rawValue) target=\(target.rawValue)")
 
         guard let encoderHiddenStates = encoderOutputs[state.manifest.tensorNames.encoderOutput] else {
             throw TranslationError.inferenceFailed("Encoder output tensor is missing.")
@@ -187,8 +210,21 @@ actor MarianTranslationService: TranslationService {
             forInputTokenCount: inputTokenIDs.count,
             manifest: state.manifest
         )
+        let decoderStartTick = DispatchTime.now().uptimeNanoseconds
+        log(
+            "translateDirect decoder started source=\(source.rawValue) target=\(target.rawValue) maxSteps=\(maxDecoderSteps)"
+        )
 
-        for _ in 0 ..< maxDecoderSteps {
+        for stepIndex in 0 ..< maxDecoderSteps {
+            let stepNumber = stepIndex + 1
+            let shouldTraceStep = stepNumber <= 4 || stepNumber >= 65 || stepNumber.isMultiple(of: 16)
+            if shouldTraceStep {
+                log(
+                    "translateDirect decoder step started source=\(source.rawValue) target=\(target.rawValue) step=\(stepNumber) currentSequenceLength=\(decoderTokenIDs.count)"
+                )
+            }
+
+            let stepStartTick = DispatchTime.now().uptimeNanoseconds
             let nextTokenID: Int64 = try autoreleasepool {
                 let decoderInputs = try [
                     state.manifest.tensorNames.decoderInputIDs: makeInt64Tensor(
@@ -217,13 +253,29 @@ actor MarianTranslationService: TranslationService {
                     suppressedTokenIDs: state.suppressedTokenIDs
                 )
             }
+            let stepDurationMilliseconds = milliseconds(since: stepStartTick)
+
+            if shouldTraceStep {
+                log(
+                    "translateDirect decoder step finished source=\(source.rawValue) target=\(target.rawValue) step=\(stepNumber) nextTokenID=\(nextTokenID) durationMs=\(formatMilliseconds(stepDurationMilliseconds))"
+                )
+            }
 
             if nextTokenID == Int64(state.manifest.generation.eosTokenId) {
+                log(
+                    "translateDirect decoder reached EOS source=\(source.rawValue) target=\(target.rawValue) step=\(stepNumber) totalDurationMs=\(formatMilliseconds(milliseconds(since: decoderStartTick)))"
+                )
                 break
             }
 
             generatedTokenIDs.append(nextTokenID)
             decoderTokenIDs.append(nextTokenID)
+
+            if stepNumber.isMultiple(of: 16) {
+                log(
+                    "translateDirect decoder progress source=\(source.rawValue) target=\(target.rawValue) step=\(stepNumber) generatedTokens=\(generatedTokenIDs.count) elapsedMs=\(formatMilliseconds(milliseconds(since: decoderStartTick)))"
+                )
+            }
         }
 
         let translatedText = try state.tokenizer.decode(
@@ -236,6 +288,9 @@ actor MarianTranslationService: TranslationService {
             throw TranslationError.emptyOutput
         }
 
+        log(
+            "translateDirect completed source=\(source.rawValue) target=\(target.rawValue) outputLength=\(translatedText.count) totalDecoderDurationMs=\(formatMilliseconds(milliseconds(since: decoderStartTick))) text=\(preview(translatedText))"
+        )
         return translatedText
     }
 
@@ -269,6 +324,9 @@ actor MarianTranslationService: TranslationService {
         }
 
         if let loadedState, loadedState.packageID == installation.package.packageId {
+            log(
+                "Reusing translation state packageID=\(installation.package.packageId) source=\(source.rawValue) target=\(target.rawValue)"
+            )
             return loadedState
         }
 
@@ -281,6 +339,9 @@ actor MarianTranslationService: TranslationService {
         )
 
         do {
+            log(
+                "Loading translation state packageID=\(installation.package.packageId) source=\(source.rawValue) target=\(target.rawValue)"
+            )
             let environment = try sharedEnvironment()
             let encoderSession = try ORTSession(
                 env: environment,
@@ -310,6 +371,9 @@ actor MarianTranslationService: TranslationService {
                 )
             )
             loadedState = state
+            log(
+                "Loaded translation state packageID=\(installation.package.packageId) source=\(source.rawValue) target=\(target.rawValue)"
+            )
             return state
         } catch {
             throw TranslationError.runtimeInitialization(error.localizedDescription)
@@ -425,5 +489,39 @@ actor MarianTranslationService: TranslationService {
         } catch {
             throw TranslationError.inferenceFailed(error.localizedDescription)
         }
+    }
+
+    private nonisolated static func log(_ message: String) {
+        print("[MarianTranslationService] \(message)")
+    }
+
+    private nonisolated func log(_ message: String) {
+        Self.log(message)
+    }
+
+    private nonisolated static func preview(_ text: String, maxLength: Int = 120) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return "\"\""
+        }
+
+        let preview = normalized.count > maxLength
+            ? String(normalized.prefix(maxLength)) + "..."
+            : normalized
+        return "\"\(preview)\""
+    }
+
+    private nonisolated func preview(_ text: String, maxLength: Int = 120) -> String {
+        Self.preview(text, maxLength: maxLength)
+    }
+
+    private nonisolated func milliseconds(since startTick: UInt64) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - startTick) / 1_000_000
+    }
+
+    private nonisolated func formatMilliseconds(_ milliseconds: Double) -> String {
+        String(format: "%.2f", milliseconds)
     }
 }

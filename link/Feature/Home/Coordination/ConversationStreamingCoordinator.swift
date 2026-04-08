@@ -83,6 +83,9 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
+                    Self.log(
+                        "Live transcription started messageID=\(messageID) sourceLanguage=\(sourceLanguage?.rawValue ?? "auto")"
+                    )
                     guard let speechStreamingService = self.speechStreamingService else {
                         continuation.finish(
                             throwing: ConversationStreamingCoordinatorError.liveSpeechNotAvailable
@@ -115,11 +118,18 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                     }
 
                     let finalState = await self.currentLiveState(messageID: messageID)
+                    Self.log(
+                        "Live transcription completed messageID=\(messageID) transcript=\(Self.preview(finalState.fullTranscript))"
+                    )
                     continuation.yield(.completed(finalState))
                     continuation.finish()
                 } catch is CancellationError {
+                    Self.log("Live transcription cancelled messageID=\(messageID)")
                     continuation.finish()
                 } catch {
+                    Self.log(
+                        "Live transcription failed messageID=\(messageID) error=\(error.localizedDescription)"
+                    )
                     continuation.finish(throwing: error)
                 }
 
@@ -132,6 +142,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
             }
 
             continuation.onTermination = { _ in
+                Self.log("Live transcription terminated messageID=\(messageID)")
                 producer.cancel()
 
                 Task {
@@ -157,6 +168,9 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
+                    Self.log(
+                        "Translation stream started messageID=\(messageID) source=\(sourceLanguage.rawValue) target=\(targetLanguage.rawValue) text=\(Self.preview(text))"
+                    )
                     let translationService = self.translationService
                     for try await event in translationService.streamTranslation(
                         text: text,
@@ -191,14 +205,22 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
                                 )
                             )
                         case .completed(let completedText):
+                            Self.log(
+                                "Translation stream completed event messageID=\(messageID) text=\(Self.preview(completedText))"
+                            )
                             continuation.yield(.completed(messageID: messageID, text: completedText))
                         }
                     }
 
+                    Self.log("Translation stream finished messageID=\(messageID)")
                     continuation.finish()
                 } catch is CancellationError {
+                    Self.log("Translation stream cancelled messageID=\(messageID)")
                     continuation.finish()
                 } catch {
+                    Self.log(
+                        "Translation stream failed messageID=\(messageID) error=\(error.localizedDescription)"
+                    )
                     continuation.finish(throwing: error)
                 }
 
@@ -210,6 +232,7 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
             }
 
             continuation.onTermination = { _ in
+                Self.log("Translation stream terminated messageID=\(messageID)")
                 producer.cancel()
 
                 Task {
@@ -274,5 +297,27 @@ actor LocalConversationStreamingCoordinator: ConversationStreamingCoordinator {
 
     private func teardownLiveSpeechState(messageID: UUID) {
         liveStatesByMessageID.removeValue(forKey: messageID)
+    }
+
+    private nonisolated static func log(_ message: String) {
+        print("[ConversationStreamingCoordinator] \(message)")
+    }
+
+    private nonisolated static func preview(_ text: String?, maxLength: Int = 120) -> String {
+        guard let text else {
+            return "\"\""
+        }
+
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return "\"\""
+        }
+
+        let preview = normalized.count > maxLength
+            ? String(normalized.prefix(maxLength)) + "..."
+            : normalized
+        return "\"\(preview)\""
     }
 }
