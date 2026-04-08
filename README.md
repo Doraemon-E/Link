@@ -125,3 +125,4 @@ pod install
 - [AI使用方法与总结](link/Resource/Doc/AI%20使用方法与总结.md)
 - [性能测试](link/Resource/Doc/性能测试.md)
 - [个人软件设计哲学](link/Resource/Doc/个人软件设计哲学.md)
+- [模型benchmark](link/Resource/Doc/模型benchmark.md)
