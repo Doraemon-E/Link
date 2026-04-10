@@ -310,7 +310,10 @@ private struct HomeChatInputBarHeightPreferenceKey: PreferenceKey {
 
 #Preview {
     let catalogRepository = TranslationModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
-    let translationPackageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
+    let translationPackageManager = TranslationModelPackageManager(
+        catalogRepository: catalogRepository,
+        bootstrapBundle: .main
+    )
     let speechPackageManager = SpeechModelPackageManager(
         catalogRepository: SpeechModelCatalogRepository(remoteCatalogURL: nil, bundle: .main)
     )
@@ -320,7 +323,7 @@ private struct HomeChatInputBarHeightPreferenceKey: PreferenceKey {
                 userDefaults: UserDefaults(suiteName: "HomeViewPreview") ?? .standard
             ),
             textLanguageRecognitionService: SystemTextLanguageRecognitionService(),
-            translationService: MarianTranslationService(modelProvider: translationPackageManager),
+            translationService: LlamaTranslationService(modelProvider: translationPackageManager),
             speechRecognitionService: WhisperSpeechRecognitionService(
                 packageManager: speechPackageManager
             ),

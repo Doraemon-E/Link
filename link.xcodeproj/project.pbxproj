@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1380EDAF98A2156D5449D8E5 /* Pods_link.framework */; };
+		7E4B2A1C3D5E6F708192A3B4 /* llama.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E4B2A1C3D5E6F708192A3B3 /* llama.xcframework */; };
+		7E4B2A1C3D5E6F708192A3B5 /* llama.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7E4B2A1C3D5E6F708192A3B3 /* llama.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8F3C9A10B6A14D21A4E7F901 /* whisper.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; };
 		8F3C9A10B6A14D21A4E7F902 /* whisper.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A1B2C3D42F90A001002A3BC9 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D62F90A001002A3BC9 /* XCTest.framework */; };
@@ -30,6 +32,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				7E4B2A1C3D5E6F708192A3B5 /* llama.xcframework in Embed Frameworks */,
 				8F3C9A10B6A14D21A4E7F902 /* whisper.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
@@ -42,6 +45,7 @@
 		32AEAC5DA6BFF636A0630956 /* Pods-link.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.release.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.release.xcconfig"; sourceTree = "<group>"; };
 		55D53EC22F8016B3002A3BC9 /* link.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = link.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6DA5AACF3FA349CAD0DA371D /* Pods-link.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-link.debug.xcconfig"; path = "Target Support Files/Pods-link/Pods-link.debug.xcconfig"; sourceTree = "<group>"; };
+		7E4B2A1C3D5E6F708192A3B3 /* llama.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = llama.xcframework; path = link/Resource/llama.xcframework; sourceTree = "<group>"; };
 		8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = whisper.xcframework; path = link/Resource/whisper.xcframework; sourceTree = "<group>"; };
 		A1B2C3D52F90A001002A3BC9 /* linkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = linkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D62F90A001002A3BC9 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
@@ -66,6 +70,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5D9DFDC83275AAE6C1538FCE /* Pods_link.framework in Frameworks */,
+				7E4B2A1C3D5E6F708192A3B4 /* llama.xcframework in Frameworks */,
 				8F3C9A10B6A14D21A4E7F901 /* whisper.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -114,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				1380EDAF98A2156D5449D8E5 /* Pods_link.framework */,
+				7E4B2A1C3D5E6F708192A3B3 /* llama.xcframework */,
 				8F3C9A10B6A14D21A4E7F900 /* whisper.xcframework */,
 				A1B2C3D62F90A001002A3BC9 /* XCTest.framework */,
 			);
@@ -131,6 +137,7 @@
 				55D53EBE2F8016B3002A3BC9 /* Sources */,
 				55D53EBF2F8016B3002A3BC9 /* Frameworks */,
 				55D53EC02F8016B3002A3BC9 /* Resources */,
+				B7F1D4A33C4E4A7E9A1B2C3D /* Bootstrap HY-MT Package */,
 				999229E722B9F5CF0C68E719 /* [CP] Embed Pods Frameworks */,
 				55D5476A2F80E772002A3BC9 /* Embed Frameworks */,
 			);
@@ -265,6 +272,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-link/Pods-link-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		B7F1D4A33C4E4A7E9A1B2C3D /* Bootstrap HY-MT Package */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../link-model/models/translation/packaged/hy-mt1.5-1.8b-gguf-q4km.zip",
+			);
+			name = "Bootstrap HY-MT Package";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BootstrapModels/hy-mt1.5-1.8b-gguf-q4km.zip",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nSOURCE_PACKAGE=\"${SRCROOT}/../link-model/models/translation/packaged/hy-mt1.5-1.8b-gguf-q4km.zip\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BootstrapModels\"\nDEST_PACKAGE=\"${DEST_DIR}/hy-mt1.5-1.8b-gguf-q4km.zip\"\n\nif [ ! -f \"$SOURCE_PACKAGE\" ]; then\n    echo \"error: Missing HY-MT bootstrap package at $SOURCE_PACKAGE. Run the translation package and catalog pipeline in ../link-model first.\" >&2\n    exit 1\nfi\n\nmkdir -p \"$DEST_DIR\"\nrsync -a \"$SOURCE_PACKAGE\" \"$DEST_PACKAGE\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -458,6 +486,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "link/link-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -510,6 +539,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "link/link-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;

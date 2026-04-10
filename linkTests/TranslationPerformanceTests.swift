@@ -85,8 +85,11 @@ final class TranslationPerformanceTests: XCTestCase {
             bundle: Bundle(for: TranslationPerformanceTests.self),
             bundledCatalogURLOverride: catalogURL
         )
-        let packageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
-        let service = MarianTranslationService(modelProvider: packageManager)
+        let packageManager = TranslationModelPackageManager(
+            catalogRepository: catalogRepository,
+            bootstrapBundle: Bundle(for: TranslationPerformanceTests.self)
+        )
+        let service = LlamaTranslationService(modelProvider: packageManager)
         return TranslationServiceContext(
             packageManager: packageManager,
             service: service
@@ -94,7 +97,7 @@ final class TranslationPerformanceTests: XCTestCase {
     }
 
     private func preflightRoutes(
-        using service: MarianTranslationService
+        using service: LlamaTranslationService
     ) async throws -> [TranslationRoute] {
         let zhEnRoute = try await service.route(source: .chinese, target: .english)
         XCTAssertEqual(
@@ -106,11 +109,8 @@ final class TranslationPerformanceTests: XCTestCase {
         let zhJaRoute = try await service.route(source: .chinese, target: .japanese)
         XCTAssertEqual(
             zhJaRoute.steps,
-            [
-                TranslationRouteStep(source: .chinese, target: .english),
-                TranslationRouteStep(source: .english, target: .japanese)
-            ],
-            "Expected zh->ja to route via english."
+            [TranslationRouteStep(source: .chinese, target: .japanese)],
+            "Expected zh->ja to be a single-hop route."
         )
 
         return [zhEnRoute, zhJaRoute]
@@ -166,7 +166,7 @@ final class TranslationPerformanceTests: XCTestCase {
     private func runSuite(
         _ suite: TranslationBenchmarkSuite,
         route: TranslationInvocationRoute,
-        service: MarianTranslationService
+        service: LlamaTranslationService
     ) async throws -> TranslationBenchmarkSuiteResult {
         let suiteStartAt = Date()
         let suiteStartTick = DispatchTime.now().uptimeNanoseconds
@@ -417,7 +417,7 @@ final class TranslationPerformanceTests: XCTestCase {
 
 private struct TranslationServiceContext {
     let packageManager: TranslationModelPackageManager
-    let service: MarianTranslationService
+    let service: LlamaTranslationService
 }
 
 private struct TranslationBenchmarkSuite {

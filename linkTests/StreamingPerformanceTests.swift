@@ -134,9 +134,10 @@ final class StreamingPerformanceTests: XCTestCase {
             bundledCatalogURLOverride: translationCatalogURL
         )
         let translationPackageManager = TranslationModelPackageManager(
-            catalogRepository: translationCatalogRepository
+            catalogRepository: translationCatalogRepository,
+            bootstrapBundle: Bundle(for: StreamingPerformanceTests.self)
         )
-        let translationService = MarianTranslationService(modelProvider: translationPackageManager)
+        let translationService = LlamaTranslationService(modelProvider: translationPackageManager)
 
         let speechBundleCandidates = [Bundle.main, Bundle(for: StreamingPerformanceTests.self)]
         var speechPackageManager: SpeechModelPackageManager?
@@ -191,7 +192,7 @@ final class StreamingPerformanceTests: XCTestCase {
     }
 
     private func preflightTranslationRoutes(
-        using service: MarianTranslationService
+        using service: LlamaTranslationService
     ) async throws -> [TranslationRoute] {
         let zhEnRoute = try await service.route(source: .chinese, target: .english)
         XCTAssertEqual(
@@ -203,11 +204,8 @@ final class StreamingPerformanceTests: XCTestCase {
         let zhJaRoute = try await service.route(source: .chinese, target: .japanese)
         XCTAssertEqual(
             zhJaRoute.steps,
-            [
-                TranslationRouteStep(source: .chinese, target: .english),
-                TranslationRouteStep(source: .english, target: .japanese)
-            ],
-            "Expected zh->ja to route via english."
+            [TranslationRouteStep(source: .chinese, target: .japanese)],
+            "Expected zh->ja to be a single-hop route."
         )
 
         return [zhEnRoute, zhJaRoute]
@@ -779,7 +777,7 @@ final class StreamingPerformanceTests: XCTestCase {
 
 private struct StreamingServiceContext {
     let translationPackageManager: TranslationModelPackageManager
-    let translationService: MarianTranslationService
+    let translationService: LlamaTranslationService
     let speechPackageManager: SpeechModelPackageManager
     let speechService: WhisperSpeechRecognitionService
     let coordinator: LocalConversationStreamingCoordinator

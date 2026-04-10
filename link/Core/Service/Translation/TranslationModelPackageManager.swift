@@ -64,13 +64,20 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
 
     private let catalogRepository: TranslationModelCatalogRepository
     private let baseDirectoryURLOverride: URL?
+    private let bootstrapBundle: Bundle
+    private let bootstrapModelsSubdirectory: String
+    private var bootstrapErrorsByPackageID: [String: TranslationError] = [:]
 
     init(
         catalogRepository: TranslationModelCatalogRepository,
-        baseDirectoryURLOverride: URL? = nil
+        baseDirectoryURLOverride: URL? = nil,
+        bootstrapBundle: Bundle = .main,
+        bootstrapModelsSubdirectory: String = "BootstrapModels"
     ) {
         self.catalogRepository = catalogRepository
         self.baseDirectoryURLOverride = baseDirectoryURLOverride
+        self.bootstrapBundle = bootstrapBundle
+        self.bootstrapModelsSubdirectory = bootstrapModelsSubdirectory
     }
 
     func packageMetadata(source: SupportedLanguage, target: SupportedLanguage) async throws -> TranslationModelPackage? {
@@ -86,7 +93,7 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
             return nil
         }
 
-        return try validInstalledPackage(for: package)
+        return try await installedOrBootstrappedPackage(for: package)
     }
 
     func package(packageId: String) async throws -> TranslationModelPackage? {
@@ -106,7 +113,8 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
                 continue
             }
 
-            guard try validInstalledPackage(for: package) != nil else {
+            let installation = try? await installedOrBootstrappedPackage(for: package)
+            guard installation != nil else {
                 continue
             }
 
@@ -114,8 +122,7 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
                 TranslationInstalledPackageSummary(
                     packageId: package.packageId,
                     version: package.version,
-                    sourceLanguage: SupportedLanguage.fromTranslationModelCode(package.source),
-                    targetLanguage: SupportedLanguage.fromTranslationModelCode(package.target),
+                    supportedLanguages: package.supportedLanguages.compactMap(SupportedLanguage.fromTranslationModelCode),
                     archiveSize: package.archiveSize,
                     installedSize: package.installedSize,
                     installedAt: record.installedAt
@@ -146,7 +153,7 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
                 )
             }
 
-            if try validInstalledPackage(for: package) == nil {
+            if try await installedOrBootstrappedPackage(for: package) == nil {
                 missingPackages.append(package)
             }
         }
@@ -250,6 +257,13 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
         var index = try loadInstalledIndex()
         index.packages.removeAll { $0.packageId == packageId }
         try saveInstalledIndex(index)
+        bootstrapErrorsByPackageID.removeValue(forKey: packageId)
+    }
+
+    func warmUpBundledPackages() async throws {
+        for package in try await packages() {
+            _ = try await installedOrBootstrappedPackage(for: package)
+        }
     }
 
     private func installedPackage(for package: TranslationModelPackage) throws -> TranslationModelInstallation? {
@@ -298,10 +312,11 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
             throw TranslationError.manifestInvalid("Catalog family does not match package manifest.")
         }
 
-        guard manifest.supportedLanguagePairs.contains(where: {
-            $0.source == package.source && $0.target == package.target
-        }) else {
-            throw TranslationError.manifestInvalid("Manifest does not declare the expected language pair.")
+        let declaredLanguages = Set(manifest.supportedLanguageCodes)
+        let packagedLanguages = Set(package.supportedLanguages)
+
+        guard packagedLanguages.isSubset(of: declaredLanguages) else {
+            throw TranslationError.manifestInvalid("Manifest does not declare the expected language set.")
         }
 
         for fileName in manifest.requiredFileNames {
@@ -483,15 +498,22 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
         return candidates.first
     }
 
-    private func rawRequiredFileNames(for _: TranslationModelPackage) -> [String]? {
-        [
-            "config.json",
-            "generation_config.json",
-            "tokenizer_config.json",
-            "vocab.json",
-            "encoder_model.onnx",
-            "decoder_model.onnx"
-        ]
+    private func rawRequiredFileNames(for package: TranslationModelPackage) -> [String]? {
+        switch package.family {
+        case .marian:
+            return [
+                "config.json",
+                "generation_config.json",
+                "tokenizer_config.json",
+                "vocab.json",
+                "encoder_model.onnx",
+                "decoder_model.onnx"
+            ]
+        case .ggufCausalLLM:
+            return [
+                "model.gguf"
+            ]
+        }
     }
 
     private func isValidManifestCandidate(
@@ -604,7 +626,12 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
         for package: TranslationModelPackage,
         modelDirectoryURL: URL
     ) throws -> TranslationModelManifest {
-        try synthesizeMarianManifest(for: package, modelDirectoryURL: modelDirectoryURL)
+        switch package.family {
+        case .marian:
+            return try synthesizeMarianManifest(for: package, modelDirectoryURL: modelDirectoryURL)
+        case .ggufCausalLLM:
+            return try synthesizeGGUFManifest(for: package, modelDirectoryURL: modelDirectoryURL)
+        }
     }
 
     private func synthesizeMarianManifest(
@@ -665,7 +692,11 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
                 ?? generationConfig.padTokenId
                 ?? config.padTokenId
                 ?? 65000,
-            suppressedTokenIds: suppressedTokenIds
+            suppressedTokenIds: suppressedTokenIds,
+            temperature: nil,
+            topK: nil,
+            topP: nil,
+            repetitionPenalty: nil
         )
         let tensorNames = TranslationModelManifest.TensorNames(
             encoderInputIDs: "input_ids",
@@ -679,11 +710,11 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
         let supportedLanguagePair = TranslationModelManifest.LanguagePair(
             source: normalizedLanguageCode(
                 tokenizerConfig.sourceLang,
-                fallback: package.source
+                fallback: package.supportedLanguages.first ?? "zho"
             ),
             target: normalizedLanguageCode(
                 tokenizerConfig.targetLang,
-                fallback: package.target
+                fallback: package.supportedLanguages.dropFirst().first ?? package.supportedLanguages.first ?? "eng"
             )
         )
 
@@ -691,9 +722,48 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
             family: package.family,
             tokenizer: tokenizer,
             onnxFiles: onnxFiles,
+            gguf: nil,
+            runtime: nil,
             generation: generation,
             tensorNames: tensorNames,
-            supportedLanguagePairs: [supportedLanguagePair]
+            supportedLanguagePairs: [supportedLanguagePair],
+            supportedLanguages: nil,
+            promptStyle: nil
+        )
+    }
+
+    private func synthesizeGGUFManifest(
+        for package: TranslationModelPackage,
+        modelDirectoryURL: URL
+    ) throws -> TranslationModelManifest {
+        let modelURL = modelDirectoryURL.appendingPathComponent("model.gguf", isDirectory: false)
+        guard FileManager.default.fileExists(atPath: modelURL.path) else {
+            throw TranslationError.manifestInvalid("Missing GGUF model payload.")
+        }
+
+        return TranslationModelManifest(
+            family: package.family,
+            tokenizer: nil,
+            onnxFiles: nil,
+            gguf: .init(modelFile: "model.gguf"),
+            runtime: .init(contextLength: 4096),
+            generation: .init(
+                maxInputLength: 3072,
+                maxOutputLength: 512,
+                bosTokenId: nil,
+                eosTokenId: nil,
+                padTokenId: nil,
+                decoderStartTokenId: nil,
+                suppressedTokenIds: nil,
+                temperature: 0.7,
+                topK: 20,
+                topP: 0.6,
+                repetitionPenalty: 1.05
+            ),
+            tensorNames: nil,
+            supportedLanguagePairs: nil,
+            supportedLanguages: package.supportedLanguages,
+            promptStyle: "hy_mt_translation_v1"
         )
     }
 
@@ -829,6 +899,50 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
         if index.packages.count != originalCount {
             try saveInstalledIndex(index)
         }
+    }
+
+    private func installedOrBootstrappedPackage(
+        for package: TranslationModelPackage
+    ) async throws -> TranslationModelInstallation? {
+        if let installation = try validInstalledPackage(for: package) {
+            bootstrapErrorsByPackageID.removeValue(forKey: package.packageId)
+            return installation
+        }
+
+        if let cachedError = bootstrapErrorsByPackageID[package.packageId] {
+            throw cachedError
+        }
+
+        guard let archiveURL = bundledArchiveURL(for: package) else {
+            let error = TranslationError.runtimeInitialization(
+                "Missing bundled translation archive \(package.packageId).zip."
+            )
+            bootstrapErrorsByPackageID[package.packageId] = error
+            throw error
+        }
+
+        do {
+            let installation = try await install(package: package, archiveURL: archiveURL)
+            bootstrapErrorsByPackageID.removeValue(forKey: package.packageId)
+            return installation
+        } catch let error as TranslationError {
+            bootstrapErrorsByPackageID[package.packageId] = error
+            throw error
+        } catch {
+            let wrappedError = TranslationError.installationFailed(
+                "Failed to install bundled package \(package.packageId): \(error.localizedDescription)"
+            )
+            bootstrapErrorsByPackageID[package.packageId] = wrappedError
+            throw wrappedError
+        }
+    }
+
+    private func bundledArchiveURL(for package: TranslationModelPackage) -> URL? {
+        bootstrapBundle.url(
+            forResource: package.packageId,
+            withExtension: "zip",
+            subdirectory: bootstrapModelsSubdirectory
+        )
     }
 
     private func temporaryDirectoryURL() throws -> URL {

@@ -14,8 +14,14 @@ struct linkApp: App {
     private let modelContainer: ModelContainer
 
     init() {
-        let catalogRepository = TranslationModelCatalogRepository()
-        let translationPackageManager = TranslationModelPackageManager(catalogRepository: catalogRepository)
+        let catalogRepository = TranslationModelCatalogRepository(
+            remoteCatalogURL: nil,
+            bundle: .main
+        )
+        let translationPackageManager = TranslationModelPackageManager(
+            catalogRepository: catalogRepository,
+            bootstrapBundle: .main
+        )
         let speechCatalogRepository = SpeechModelCatalogRepository()
         let speechPackageManager = SpeechModelPackageManager(catalogRepository: speechCatalogRepository)
         let assetService = ModelAssetService(
@@ -25,7 +31,7 @@ struct linkApp: App {
         self.dependencies = HomeDependencies(
             appSettings: AppSettings(),
             textLanguageRecognitionService: SystemTextLanguageRecognitionService(),
-            translationService: MarianTranslationService(modelProvider: translationPackageManager),
+            translationService: LlamaTranslationService(modelProvider: translationPackageManager),
             speechRecognitionService: WhisperSpeechRecognitionService(packageManager: speechPackageManager),
             textToSpeechService: SystemTextToSpeechService(),
             audioFilePlaybackService: SystemAudioFilePlaybackService(),
@@ -39,6 +45,11 @@ struct linkApp: App {
 
         Task.detached(priority: .utility) {
             await catalogRepository.warmUpCatalog()
+            do {
+                try await translationPackageManager.warmUpBundledPackages()
+            } catch {
+                print("[linkApp] Failed to warm up bundled translation packages: \(error.localizedDescription)")
+            }
             await speechCatalogRepository.warmUpCatalog()
         }
     }

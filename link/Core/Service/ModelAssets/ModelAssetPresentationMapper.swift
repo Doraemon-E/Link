@@ -9,15 +9,18 @@ import Foundation
 
 nonisolated struct ModelAssetPresentationMapper: Sendable {
     func translationAsset(from package: TranslationModelPackage) -> ModelAsset {
-        let sourceName = SupportedLanguage.fromTranslationModelCode(package.source)?.displayName ?? package.source
-        let targetName = SupportedLanguage.fromTranslationModelCode(package.target)?.displayName ?? package.target
+        let supportedLanguageNames = package.supportedLanguages
+            .compactMap(SupportedLanguage.fromTranslationModelCode)
+            .map(\.displayName)
 
         return ModelAsset(
             kind: .translation,
             packageId: package.packageId,
             version: package.version,
-            title: "\(sourceName) -> \(targetName)",
-            subtitle: "翻译模型",
+            title: "离线翻译模型",
+            subtitle: supportedLanguageNames.isEmpty
+                ? "HY-MT"
+                : "HY-MT · " + supportedLanguageNames.joined(separator: " / "),
             archiveURL: package.archiveURL,
             archiveSize: package.archiveSize,
             installedSize: package.installedSize,
@@ -26,16 +29,16 @@ nonisolated struct ModelAssetPresentationMapper: Sendable {
     }
 
     func translationInstalledAsset(from package: TranslationInstalledPackageSummary) -> ModelAsset {
-        let sourceName = package.sourceLanguage?.displayName ?? package.packageId
-        let targetName = package.targetLanguage?.displayName ?? ""
-        let title = package.targetLanguage == nil ? package.packageId : "\(sourceName) -> \(targetName)"
+        let subtitle = package.supportedLanguages.isEmpty
+            ? "HY-MT"
+            : "HY-MT · " + package.supportedLanguages.map(\.displayName).joined(separator: " / ")
 
         return ModelAsset(
             kind: .translation,
             packageId: package.packageId,
             version: package.version,
-            title: title,
-            subtitle: "翻译模型",
+            title: "离线翻译模型",
+            subtitle: subtitle,
             archiveURL: placeholderArchiveURL(for: package.packageId),
             archiveSize: package.archiveSize,
             installedSize: package.installedSize,

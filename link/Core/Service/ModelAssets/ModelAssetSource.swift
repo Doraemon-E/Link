@@ -36,9 +36,7 @@ nonisolated struct TranslationModelAssetSource: ModelAssetSource {
     }
 
     func availableRecords() async throws -> [ModelAssetRecord] {
-        try await packageManager.packages().map {
-            ModelAssetRecord.available(asset: presentationMapper.translationAsset(from: $0))
-        }
+        []
     }
 
     func installedRecords() async throws -> [ModelAssetRecord] {

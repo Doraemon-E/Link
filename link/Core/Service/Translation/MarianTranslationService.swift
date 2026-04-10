@@ -171,10 +171,18 @@ actor MarianTranslationService: TranslationService {
             throw TranslationError.unsupportedLanguagePair(source: source, target: target)
         }
 
+        guard let tensorNames = state.manifest.tensorNames else {
+            throw TranslationError.manifestInvalid("Missing Marian tensor names.")
+        }
+
+        let eosTokenID = state.manifest.generation.eosTokenId ?? 0
+        let padTokenID = state.manifest.generation.padTokenId ?? 65000
+        let decoderStartTokenID = state.manifest.generation.decoderStartTokenId ?? padTokenID
+
         let inputTokenIDs = try state.tokenizer.encode(
             preparedInputText(text),
             maxLength: state.manifest.generation.maxInputLength,
-            eosTokenID: state.manifest.generation.eosTokenId
+            eosTokenID: eosTokenID
         )
         let attentionMask = Array(repeating: Int64(1), count: inputTokenIDs.count)
         log(
@@ -182,11 +190,11 @@ actor MarianTranslationService: TranslationService {
         )
 
         let encoderInputs = try [
-            state.manifest.tensorNames.encoderInputIDs: makeInt64Tensor(
+            tensorNames.encoderInputIDs: makeInt64Tensor(
                 inputTokenIDs,
                 shape: [1, inputTokenIDs.count]
             ),
-            state.manifest.tensorNames.encoderAttentionMask: makeInt64Tensor(
+            tensorNames.encoderAttentionMask: makeInt64Tensor(
                 attentionMask,
                 shape: [1, attentionMask.count]
             )
@@ -195,16 +203,16 @@ actor MarianTranslationService: TranslationService {
         log("translateDirect encoder started source=\(source.rawValue) target=\(target.rawValue)")
         let encoderOutputs = try state.encoderSession.run(
             withInputs: encoderInputs,
-            outputNames: [state.manifest.tensorNames.encoderOutput],
+            outputNames: [tensorNames.encoderOutput],
             runOptions: nil
         )
         log("translateDirect encoder finished source=\(source.rawValue) target=\(target.rawValue)")
 
-        guard let encoderHiddenStates = encoderOutputs[state.manifest.tensorNames.encoderOutput] else {
+        guard let encoderHiddenStates = encoderOutputs[tensorNames.encoderOutput] else {
             throw TranslationError.inferenceFailed("Encoder output tensor is missing.")
         }
 
-        var decoderTokenIDs = [Int64(state.manifest.generation.decoderStartTokenId)]
+        var decoderTokenIDs = [Int64(decoderStartTokenID)]
         var generatedTokenIDs: [Int64] = []
         let maxDecoderSteps = effectiveMaxOutputLength(
             forInputTokenCount: inputTokenIDs.count,
@@ -227,24 +235,24 @@ actor MarianTranslationService: TranslationService {
             let stepStartTick = DispatchTime.now().uptimeNanoseconds
             let nextTokenID: Int64 = try autoreleasepool {
                 let decoderInputs = try [
-                    state.manifest.tensorNames.decoderInputIDs: makeInt64Tensor(
+                    tensorNames.decoderInputIDs: makeInt64Tensor(
                         decoderTokenIDs,
                         shape: [1, decoderTokenIDs.count]
                     ),
-                    state.manifest.tensorNames.decoderEncoderAttentionMask: makeInt64Tensor(
+                    tensorNames.decoderEncoderAttentionMask: makeInt64Tensor(
                         attentionMask,
                         shape: [1, attentionMask.count]
                     ),
-                    state.manifest.tensorNames.decoderEncoderHiddenStates: encoderHiddenStates
+                    tensorNames.decoderEncoderHiddenStates: encoderHiddenStates
                 ]
 
                 let decoderOutputs = try state.decoderSession.run(
                     withInputs: decoderInputs,
-                    outputNames: [state.manifest.tensorNames.decoderOutputLogits],
+                    outputNames: [tensorNames.decoderOutputLogits],
                     runOptions: nil
                 )
 
-                guard let logitsValue = decoderOutputs[state.manifest.tensorNames.decoderOutputLogits] else {
+                guard let logitsValue = decoderOutputs[tensorNames.decoderOutputLogits] else {
                     throw TranslationError.inferenceFailed("Decoder logits tensor is missing.")
                 }
 
@@ -261,7 +269,7 @@ actor MarianTranslationService: TranslationService {
                 )
             }
 
-            if nextTokenID == Int64(state.manifest.generation.eosTokenId) {
+            if nextTokenID == Int64(eosTokenID) {
                 log(
                     "translateDirect decoder reached EOS source=\(source.rawValue) target=\(target.rawValue) step=\(stepNumber) totalDurationMs=\(formatMilliseconds(milliseconds(since: decoderStartTick)))"
                 )
@@ -280,8 +288,8 @@ actor MarianTranslationService: TranslationService {
 
         let translatedText = try state.tokenizer.decode(
             generatedTokenIDs,
-            eosTokenID: state.manifest.generation.eosTokenId,
-            padTokenID: state.manifest.generation.padTokenId
+            eosTokenID: eosTokenID,
+            padTokenID: padTokenID
         )
 
         guard !translatedText.isEmpty else {
@@ -333,6 +341,14 @@ actor MarianTranslationService: TranslationService {
         loadedState = nil
 
         let manifest = installation.manifest
+        guard manifest.family == .marian else {
+            throw TranslationError.runtimeInitialization("Marian runtime received a non-Marian manifest.")
+        }
+
+        guard let onnxFiles = manifest.onnxFiles else {
+            throw TranslationError.manifestInvalid("Missing Marian ONNX file configuration.")
+        }
+
         let tokenizer = try SentencePieceTokenizerAdapter(
             modelDirectoryURL: installation.modelDirectoryURL,
             manifest: manifest
@@ -346,14 +362,14 @@ actor MarianTranslationService: TranslationService {
             let encoderSession = try ORTSession(
                 env: environment,
                 modelPath: installation.modelDirectoryURL
-                    .appendingPathComponent(manifest.onnxFiles.encoder, isDirectory: false)
+                    .appendingPathComponent(onnxFiles.encoder, isDirectory: false)
                     .path,
                 sessionOptions: nil
             )
             let decoderSession = try ORTSession(
                 env: environment,
                 modelPath: installation.modelDirectoryURL
-                    .appendingPathComponent(manifest.onnxFiles.decoder, isDirectory: false)
+                    .appendingPathComponent(onnxFiles.decoder, isDirectory: false)
                     .path,
                 sessionOptions: nil
             )

@@ -329,15 +329,19 @@ nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
 
     init(modelDirectoryURL: URL, manifest: TranslationModelManifest) throws {
         do {
-            guard manifest.tokenizer.kind == .marianSentencePieceVocabulary else {
-                throw TranslationError.incompatibleTokenizer("Unsupported tokenizer kind: \(manifest.tokenizer.kind.rawValue)")
+            guard let tokenizer = manifest.tokenizer else {
+                throw TranslationError.incompatibleTokenizer("Missing tokenizer configuration.")
             }
 
-            guard let sourceSentencePieceFile = manifest.tokenizer.sourceSentencePieceFile else {
+            guard tokenizer.kind == .marianSentencePieceVocabulary else {
+                throw TranslationError.incompatibleTokenizer("Unsupported tokenizer kind: \(tokenizer.kind.rawValue)")
+            }
+
+            guard let sourceSentencePieceFile = tokenizer.sourceSentencePieceFile else {
                 throw TranslationError.incompatibleTokenizer("Missing source sentencepiece configuration.")
             }
 
-            guard let vocabularyFile = manifest.tokenizer.vocabularyFile else {
+            guard let vocabularyFile = tokenizer.vocabularyFile else {
                 throw TranslationError.incompatibleTokenizer("Missing tokenizer vocabulary file.")
             }
 
@@ -346,7 +350,7 @@ nonisolated final class SentencePieceTokenizerAdapter: TokenizerAdapter {
                 throw TranslationError.incompatibleTokenizer("Missing source sentencepiece file.")
             }
 
-            if let targetSentencePieceFile = manifest.tokenizer.targetSentencePieceFile {
+            if let targetSentencePieceFile = tokenizer.targetSentencePieceFile {
                 let targetURL = modelDirectoryURL.appendingPathComponent(targetSentencePieceFile, isDirectory: false)
                 guard FileManager.default.fileExists(atPath: targetURL.path) else {
                     throw TranslationError.incompatibleTokenizer("Missing target sentencepiece file.")

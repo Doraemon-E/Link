@@ -295,19 +295,7 @@ final class HomeDownloadWorkflow {
         source: SupportedLanguage,
         target: SupportedLanguage
     ) async throws -> HomeLanguageDownloadPrompt? {
-        let requirement = try await translationDownloadRequirement(
-            source: source,
-            target: target
-        )
-        guard !requirement.isReady else {
-            return nil
-        }
-
-        return HomeLanguageDownloadPrompt(
-            sourceLanguage: source,
-            targetLanguage: target,
-            requirement: requirement
-        )
+        nil
     }
 
     func downloadPromptIfNeeded(
@@ -338,24 +326,7 @@ final class HomeDownloadWorkflow {
     func targetLanguageModelPromptIfNeeded(
         targetLanguage: SupportedLanguage
     ) async -> HomeTargetLanguageModelPrompt? {
-        do {
-            let installedPackages = try await dependencies.translationModelInventoryProvider.installedPackages()
-            if installedPackages.contains(where: { $0.targetLanguage == targetLanguage }) {
-                return nil
-            }
-
-            let packages = try await dependencies.translationModelInventoryProvider.packages()
-            let hasAvailableTargetLanguageModel = packages.contains {
-                SupportedLanguage.fromTranslationModelCode($0.target) == targetLanguage
-            }
-            guard hasAvailableTargetLanguageModel else {
-                return nil
-            }
-
-            return HomeTargetLanguageModelPrompt(targetLanguage: targetLanguage)
-        } catch {
-            return nil
-        }
+        nil
     }
 
     func speechDownloadPromptIfNeeded() async throws -> SpeechModelDownloadPrompt? {
