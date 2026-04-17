@@ -15,11 +15,73 @@ static NSError *AULlamaMakeError(AULlamaRuntimeErrorCode code, NSString *descrip
                            }];
 }
 
+static enum llama_flash_attn_type AULlamaFlashAttentionTypeForMode(AULlamaRuntimeFlashAttentionMode mode) {
+    switch (mode) {
+        case AULlamaRuntimeFlashAttentionModeAuto:
+            return LLAMA_FLASH_ATTN_TYPE_AUTO;
+        case AULlamaRuntimeFlashAttentionModeDisabled:
+            return LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    }
+    return LLAMA_FLASH_ATTN_TYPE_DISABLED;
+}
+
+static enum ggml_type AULlamaGGMLTypeForKVCacheType(AULlamaRuntimeKVCacheType type) {
+    switch (type) {
+        case AULlamaRuntimeKVCacheTypeF16:
+            return GGML_TYPE_F16;
+        case AULlamaRuntimeKVCacheTypeQ80:
+            return GGML_TYPE_Q8_0;
+        case AULlamaRuntimeKVCacheTypeQ4K:
+            return GGML_TYPE_Q4_K;
+    }
+    return GGML_TYPE_F16;
+}
+
+static NSString *AULlamaKVCacheTypeName(AULlamaRuntimeKVCacheType type) {
+    switch (type) {
+        case AULlamaRuntimeKVCacheTypeF16:
+            return @"f16";
+        case AULlamaRuntimeKVCacheTypeQ80:
+            return @"q8_0";
+        case AULlamaRuntimeKVCacheTypeQ4K:
+            return @"q4_k";
+    }
+    return @"f16";
+}
+
+static BOOL AULlamaKVCacheTypeIsQuantized(AULlamaRuntimeKVCacheType type) {
+    return type != AULlamaRuntimeKVCacheTypeF16;
+}
+
+static NSInteger AULlamaKVCacheBlockSize(AULlamaRuntimeKVCacheType type) {
+    switch (type) {
+        case AULlamaRuntimeKVCacheTypeF16:
+            return 1;
+        case AULlamaRuntimeKVCacheTypeQ80:
+            return 32;
+        case AULlamaRuntimeKVCacheTypeQ4K:
+            return 256;
+    }
+    return 1;
+}
+
 @interface AULlamaRuntime () {
     struct llama_model *_model;
     struct llama_context *_context;
     const struct llama_vocab *_vocab;
 }
+
+- (nullable NSString *)metadataValueForKey:(const char *)key;
+- (nullable NSNumber *)metadataIntegerForKey:(const char *)key;
+- (BOOL)validateKVCacheConfigurationWithFlashAttentionMode:(AULlamaRuntimeFlashAttentionMode)flashAttentionMode
+                                                    typeK:(AULlamaRuntimeKVCacheType)typeK
+                                                    typeV:(AULlamaRuntimeKVCacheType)typeV
+                                                    error:(NSError * _Nullable * _Nullable)error;
+- (BOOL)initializeContextWithContextLength:(NSInteger)contextLength
+                        flashAttentionMode:(AULlamaRuntimeFlashAttentionMode)flashAttentionMode
+                                     typeK:(AULlamaRuntimeKVCacheType)typeK
+                                     typeV:(AULlamaRuntimeKVCacheType)typeV
+                                     error:(NSError * _Nullable * _Nullable)error;
 @end
 
 @implementation AULlamaRuntime
@@ -32,6 +94,9 @@ static NSError *AULlamaMakeError(AULlamaRuntimeErrorCode code, NSString *descrip
 
 - (nullable instancetype)initWithModelPath:(NSString *)modelPath
                              contextLength:(NSInteger)contextLength
+                        flashAttentionMode:(AULlamaRuntimeFlashAttentionMode)flashAttentionMode
+                                     typeK:(AULlamaRuntimeKVCacheType)typeK
+                                     typeV:(AULlamaRuntimeKVCacheType)typeV
                                      error:(NSError * _Nullable * _Nullable)error {
     self = [super init];
     if (self == nil) {
@@ -55,28 +120,56 @@ static NSError *AULlamaMakeError(AULlamaRuntimeErrorCode code, NSString *descrip
         return nil;
     }
 
-    llama_context_params contextParams = llama_context_default_params();
-    contextParams.n_ctx = (uint32_t)MAX(512, contextLength);
-    contextParams.n_batch = (uint32_t)MAX(512, MIN(contextLength, 2048));
-    contextParams.n_ubatch = (uint32_t)MAX(512, MIN(contextLength, 2048));
-    contextParams.n_seq_max = 1;
-    contextParams.n_threads = (int32_t)MAX(1, (NSInteger)NSProcessInfo.processInfo.processorCount);
-    contextParams.n_threads_batch = contextParams.n_threads;
-    contextParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
-    contextParams.no_perf = true;
-
-    _context = llama_init_from_model(_model, contextParams);
-    if (_context == nullptr) {
+    if (![self validateKVCacheConfigurationWithFlashAttentionMode:flashAttentionMode
+                                                            typeK:typeK
+                                                            typeV:typeV
+                                                            error:error]) {
         llama_model_free(_model);
         _model = nullptr;
-
-        if (error != nil) {
-            *error = AULlamaMakeError(
-                AULlamaRuntimeErrorCodeInitialization,
-                [NSString stringWithFormat:@"Unable to initialize llama context for %@.", modelPath.lastPathComponent]
-            );
-        }
         return nil;
+    }
+
+    NSError *requestedConfigurationError = nil;
+    if (![self initializeContextWithContextLength:contextLength
+                               flashAttentionMode:flashAttentionMode
+                                            typeK:typeK
+                                            typeV:typeV
+                                            error:&requestedConfigurationError]) {
+        const BOOL requestedNonBaseline =
+            flashAttentionMode != AULlamaRuntimeFlashAttentionModeDisabled ||
+            typeK != AULlamaRuntimeKVCacheTypeF16 ||
+            typeV != AULlamaRuntimeKVCacheTypeF16;
+
+        if (!requestedNonBaseline) {
+            llama_model_free(_model);
+            _model = nullptr;
+
+            if (error != nil) {
+                *error = requestedConfigurationError;
+            }
+            return nil;
+        }
+
+        NSLog(
+            @"AULlamaRuntime: falling back to baseline KV cache for %@ after %@",
+            modelPath.lastPathComponent,
+            requestedConfigurationError.localizedDescription
+        );
+
+        NSError *fallbackError = nil;
+        if (![self initializeContextWithContextLength:contextLength
+                                   flashAttentionMode:AULlamaRuntimeFlashAttentionModeDisabled
+                                                typeK:AULlamaRuntimeKVCacheTypeF16
+                                                typeV:AULlamaRuntimeKVCacheTypeF16
+                                                error:&fallbackError]) {
+            llama_model_free(_model);
+            _model = nullptr;
+
+            if (error != nil) {
+                *error = fallbackError ?: requestedConfigurationError;
+            }
+            return nil;
+        }
     }
 
     _vocab = llama_model_get_vocab(_model);
@@ -96,6 +189,124 @@ static NSError *AULlamaMakeError(AULlamaRuntimeErrorCode code, NSString *descrip
     }
 
     return self;
+}
+
+- (nullable NSString *)metadataValueForKey:(const char *)key {
+    char buffer[256] = {0};
+    const int32_t length = llama_model_meta_val_str(_model, key, buffer, sizeof(buffer));
+    if (length < 0 || buffer[0] == '\0') {
+        return nil;
+    }
+
+    return [[NSString alloc] initWithUTF8String:buffer];
+}
+
+- (nullable NSNumber *)metadataIntegerForKey:(const char *)key {
+    NSString *value = [self metadataValueForKey:key];
+    if (value == nil) {
+        return nil;
+    }
+
+    return @([value integerValue]);
+}
+
+- (BOOL)validateKVCacheConfigurationWithFlashAttentionMode:(AULlamaRuntimeFlashAttentionMode)flashAttentionMode
+                                                    typeK:(AULlamaRuntimeKVCacheType)typeK
+                                                    typeV:(AULlamaRuntimeKVCacheType)typeV
+                                                    error:(NSError * _Nullable * _Nullable)error {
+    if (AULlamaKVCacheTypeIsQuantized(typeV) &&
+        flashAttentionMode == AULlamaRuntimeFlashAttentionModeDisabled) {
+        if (error != nil) {
+            *error = AULlamaMakeError(
+                AULlamaRuntimeErrorCodeInitialization,
+                [NSString stringWithFormat:@"Requested V cache type %@ requires flash attention to be auto.",
+                                           AULlamaKVCacheTypeName(typeV)]
+            );
+        }
+        return NO;
+    }
+
+    NSString *architecture = [self metadataValueForKey:"general.architecture"];
+    if (architecture == nil || architecture.length == 0) {
+        return YES;
+    }
+
+    if (AULlamaKVCacheTypeIsQuantized(typeK)) {
+        NSString *metadataKey = [NSString stringWithFormat:@"%@.attention.key_length", architecture];
+        NSNumber *keyLength = [self metadataIntegerForKey:metadataKey.UTF8String];
+        const NSInteger blockSize = AULlamaKVCacheBlockSize(typeK);
+        if (keyLength != nil && blockSize > 1 && keyLength.integerValue % blockSize != 0) {
+            if (error != nil) {
+                *error = AULlamaMakeError(
+                    AULlamaRuntimeErrorCodeInitialization,
+                    [NSString stringWithFormat:
+                        @"Requested K cache type %@ requires %@ to be divisible by %ld, but found %@.",
+                        AULlamaKVCacheTypeName(typeK),
+                        metadataKey,
+                        (long) blockSize,
+                        keyLength]
+                );
+            }
+            return NO;
+        }
+    }
+
+    if (AULlamaKVCacheTypeIsQuantized(typeV)) {
+        NSString *metadataKey = [NSString stringWithFormat:@"%@.attention.value_length", architecture];
+        NSNumber *valueLength = [self metadataIntegerForKey:metadataKey.UTF8String];
+        const NSInteger blockSize = AULlamaKVCacheBlockSize(typeV);
+        if (valueLength != nil && blockSize > 1 && valueLength.integerValue % blockSize != 0) {
+            if (error != nil) {
+                *error = AULlamaMakeError(
+                    AULlamaRuntimeErrorCodeInitialization,
+                    [NSString stringWithFormat:
+                        @"Requested V cache type %@ requires %@ to be divisible by %ld, but found %@.",
+                        AULlamaKVCacheTypeName(typeV),
+                        metadataKey,
+                        (long) blockSize,
+                        valueLength]
+                );
+            }
+            return NO;
+        }
+    }
+
+    return YES;
+}
+
+- (BOOL)initializeContextWithContextLength:(NSInteger)contextLength
+                        flashAttentionMode:(AULlamaRuntimeFlashAttentionMode)flashAttentionMode
+                                     typeK:(AULlamaRuntimeKVCacheType)typeK
+                                     typeV:(AULlamaRuntimeKVCacheType)typeV
+                                     error:(NSError * _Nullable * _Nullable)error {
+    llama_context_params contextParams = llama_context_default_params();
+    contextParams.n_ctx = (uint32_t)MAX(512, contextLength);
+    contextParams.n_batch = (uint32_t)MAX(512, MIN(contextLength, 2048));
+    contextParams.n_ubatch = (uint32_t)MAX(512, MIN(contextLength, 2048));
+    contextParams.n_seq_max = 1;
+    contextParams.n_threads = (int32_t)MAX(1, (NSInteger)NSProcessInfo.processInfo.processorCount);
+    contextParams.n_threads_batch = contextParams.n_threads;
+    contextParams.flash_attn_type = AULlamaFlashAttentionTypeForMode(flashAttentionMode);
+    contextParams.type_k = AULlamaGGMLTypeForKVCacheType(typeK);
+    contextParams.type_v = AULlamaGGMLTypeForKVCacheType(typeV);
+    contextParams.no_perf = true;
+
+    _context = llama_init_from_model(_model, contextParams);
+    if (_context != nullptr) {
+        return YES;
+    }
+
+    if (error != nil) {
+        *error = AULlamaMakeError(
+            AULlamaRuntimeErrorCodeInitialization,
+            [NSString stringWithFormat:
+                @"Unable to initialize llama context with flash_attention=%@, type_k=%@, type_v=%@.",
+                flashAttentionMode == AULlamaRuntimeFlashAttentionModeAuto ? @"auto" : @"disabled",
+                AULlamaKVCacheTypeName(typeK),
+                AULlamaKVCacheTypeName(typeV)]
+        );
+    }
+    return NO;
 }
 
 - (void)dealloc {

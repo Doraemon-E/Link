@@ -25,9 +25,13 @@ final class LlamaTranslationRuntime {
         self.manifest = manifest
 
         do {
+            let kvCache = manifest.runtime?.kvCache
             self.runtime = try AULlamaRuntime(
                 modelPath: modelURL.path,
-                contextLength: manifest.runtime?.contextLength ?? 4096
+                contextLength: manifest.runtime?.contextLength ?? 4096,
+                flashAttentionMode: kvCache?.flashAttention.bridgeMode ?? .disabled,
+                typeK: kvCache?.typeK.bridgeType ?? .auF16,
+                typeV: kvCache?.typeV.bridgeType ?? .auF16
             )
         } catch {
             throw Self.mapError(
@@ -185,5 +189,57 @@ private extension SupportedLanguage {
         case .italian:
             return "意大利语"
         }
+    }
+}
+
+private extension TranslationModelManifest.Runtime.KVCache.FlashAttention {
+    nonisolated
+    var bridgeMode: AULlamaRuntimeFlashAttentionMode {
+        switch self {
+        case .auto:
+            return .auto
+        case .disabled:
+            return .disabled
+        }
+    }
+}
+
+private extension TranslationModelManifest.Runtime.KVCache.TensorType {
+    nonisolated
+    var bridgeType: AULlamaRuntimeKVCacheType {
+        switch self {
+        case .f16:
+            return .auF16
+        case .q8_0:
+            return .auQ80
+        case .q4_k:
+            return .auQ4K
+        }
+    }
+}
+
+private extension AULlamaRuntimeKVCacheType {
+    nonisolated
+    static var auF16: Self {
+        guard let value = Self(rawValue: 0) else {
+            preconditionFailure("Missing AULlamaRuntimeKVCacheType raw value 0")
+        }
+        return value
+    }
+
+    nonisolated
+    static var auQ80: Self {
+        guard let value = Self(rawValue: 1) else {
+            preconditionFailure("Missing AULlamaRuntimeKVCacheType raw value 1")
+        }
+        return value
+    }
+
+    nonisolated
+    static var auQ4K: Self {
+        guard let value = Self(rawValue: 2) else {
+            preconditionFailure("Missing AULlamaRuntimeKVCacheType raw value 2")
+        }
+        return value
     }
 }

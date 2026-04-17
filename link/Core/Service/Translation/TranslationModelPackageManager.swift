@@ -746,7 +746,10 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
             tokenizer: nil,
             onnxFiles: nil,
             gguf: .init(modelFile: "model.gguf"),
-            runtime: .init(contextLength: 4096),
+            runtime: .init(
+                contextLength: 4096,
+                kvCache: defaultKVCacheConfiguration(for: package)
+            ),
             generation: .init(
                 maxInputLength: 3072,
                 maxOutputLength: 512,
@@ -764,6 +767,24 @@ actor TranslationModelPackageManager: TranslationModelProviding, TranslationMode
             supportedLanguagePairs: nil,
             supportedLanguages: package.supportedLanguages,
             promptStyle: "hy_mt_translation_v1"
+        )
+    }
+
+    private func defaultKVCacheConfiguration(
+        for package: TranslationModelPackage
+    ) -> TranslationModelManifest.Runtime.KVCache? {
+        let normalizedPackageID = package.packageId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard normalizedPackageID.hasPrefix("hy-mt") else {
+            return nil
+        }
+
+        return .init(
+            flashAttention: .auto,
+            typeK: .f16,
+            typeV: .q8_0
         )
     }
 

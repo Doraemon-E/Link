@@ -40,7 +40,25 @@ nonisolated struct TranslationModelManifest: Codable, Sendable {
     }
 
     nonisolated struct Runtime: Codable, Sendable {
+        nonisolated struct KVCache: Codable, Sendable {
+            nonisolated enum FlashAttention: String, Codable, Sendable {
+                case auto
+                case disabled
+            }
+
+            nonisolated enum TensorType: String, Codable, Sendable {
+                case f16
+                case q8_0
+                case q4_k
+            }
+
+            let flashAttention: FlashAttention
+            let typeK: TensorType
+            let typeV: TensorType
+        }
+
         let contextLength: Int
+        let kvCache: KVCache?
     }
 
     nonisolated struct Generation: Codable, Sendable {
